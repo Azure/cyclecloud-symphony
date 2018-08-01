@@ -24,10 +24,12 @@ from [IBM Spectrum Analytics](https://www.ibm.com/us-en/marketplace/analytics-wo
 
 This sample requires the following:
 
-  1. A license to use IBM Spectrum Symphony from [Univa Corporation](http://www.univa.com/products/).
+  1. A license to use IBM Spectrum Symphony from [IBM Spectrum Analytics](https://www.ibm.com/us-en/marketplace/analytics-workload-management).
+  
   2. The IBM Spectrum Symphony installation binaries.
   
-     a. Download the binaries from IBM and place them in the `./blobs/` directory.
+     a. Download the binaries from [IBM](https://www.ibm.com/us-en/marketplace/analytics-workload-management) and place them in the `./blobs/` directory.
+     
      b. If the version is not 8.5.0 (the project default), then update the version number in the Files list
         in `./project.ini` and in the cluster template: `./templates/symphony.txt`
      
