@@ -102,7 +102,7 @@ Order = 1
         [[[parameter LicenseWarning]]]
         HideLabel = true
         Config.Plugin = pico.widget.HtmlTemplateWidget
-        Config.Template := "<b>Note:</b> Spectrum Symphony requires that both the binaries and license file obtained from IBM be uploaded to your locker's blobs directory prior to use.   You will receive an error during cluster startup if the files are not present."
+        Config.Template := "<b>WARNING:</b> Spectrum Symphony requires that both the binaries and license file obtained from IBM be uploaded to your locker's blobs directory prior to use.   You will receive an error during cluster startup if the files are not present."
         Order = 20
         
         [[[parameter Readme]]]
