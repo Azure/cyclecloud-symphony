@@ -1,5 +1,5 @@
 
-default['symphony']['version'] = "7.2.0.0"
+default['symphony']['version'] = "7.2.1.0"
 default['symphony']['pkg']['linux'] = "symeval-#{node['symphony']['version']}_x86_64.bin"
 default['symphony']['pkg']['windows'] = "symeval-#{node['symphony']['version']}.exe"
 default['symphony']['license_file'] = "sym_adv_ev_entitlement.dat"
