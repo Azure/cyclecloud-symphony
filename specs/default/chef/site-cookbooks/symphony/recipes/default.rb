@@ -162,7 +162,7 @@ file "/etc/profile.d/symphony.sh" do
   content <<-EOH
   #!/bin/bash
 
-  . /etc/profile.d/java.sh
+  . /etc/profile.d/jdk.sh
 
   export MASTER_ADDRESS=#{master_node['cyclecloud']['instance']['hostname']}
   export CLUSTERADMIN=#{node['symphony']['admin']['user']}
@@ -175,6 +175,8 @@ file "/etc/profile.d/symphony.sh" do
   # Use the default derby db
   export DERBY_DB_HOST=#{derby_db_node['cyclecloud']['instance']['hostname']}
 
+  # Accept license terms for silent install
+  export IBM_SPECTRUM_SYMPHONY_LICENSE_ACCEPT=Y
 
   export EGO_TOP=#{node['symphony']['ego_top']}
   . $EGO_TOP/profile.platform
