@@ -1,0 +1,153 @@
+Skip to content
+Your account has been flagged.
+Because of that, your profile is hidden from the public. If you believe this is a mistake, contact support to have your account status reviewed.
+
+install code master symphony
+Repositories0
+Code26K
+Commits2
+Issues198
+Marketplace0
+Topics0
+Wikis23
+Users0
+Language
+
+Sort
+
+26,515 code results
+@Azure
+Azure/cyclecloud-symphony – default.rb
+Showing the top eight matches
+Last indexed 9 hours ago
+Ruby
+# If performing a shared install, install only on master and to a shared directory
+if node['symphony']['shared_fs_install'] == true
+if node['symphony']['shared_fs_install'] == false or node['symphony']['is_master'] == true
+@CycleCloudCommunity
+CycleCloudCommunity/spectrum-symphony – default.rb
+Showing the top 10 matches
+Last indexed on Jul 17, 2018
+Ruby
+# If performing a shared install, install only on master and to a shared directory
+if node['symphony']['shared_fs_install'] == true
+# Perform the actual install (either locally on all instances OR to shared drive on Master ONLY)
+if node['symphony']['shared_fs_install'] == false or node['symphony']['is_master'] == true
+@symphonyoss
+symphonyoss/metronome – README.rst
+Showing the top five matches
+Last indexed on Jul 6, 2018
+reStructuredText
+this application can be installed as an rpm or from a python setup.py.
+
+.. code:: bash
+
+   python setup.py install
+
+will install this application, however it is recommended to install it within a virtualenv
+You will also need to complete a metronome config file.
+
+Configuration
+-------------
+
+Example config file:
+
+.. code:: text
+
+   [symphony]
+   # uri for /pod endpoint
+@vdcrea
+vdcrea/symphony-vue – README.md
+Showing the top six matches
+Last indexed on Jul 3, 2018
+Markdown
+- npm run build (to build assets in workspace/app)
+
+Edit vue/src/api.js to change the path to your root install of Symphony CMS
+
+# Symphony 2
+[![Scrutinizer Code Quality](https://scrutinizer-ci.com/g/symphonycms/symphony-2/badges/quality-score.png?b=master)](https://scrutinizer-ci.com/g/symphonycms/symphony-2/?branch=master)
+@hananils
+hananils/pompodium – README.markdown
+Showing the top four matches
+Last indexed on Jun 25, 2018
+Markdown
+1. This step assumes you downloaded a zip archive from the [Symphony website](http://getsymphony.com). Upload the following files and directories to the root directory of your website:
+
+	`index.php`  
+	`/install`  
+	`/symphony`  
+	`/workspace`  
+	`/extensions`
+
+1. Point your web browser at <http://example.com/install/> and provide
+1. If updating from a version older than `2.0.5`, enable the [Debug DevKit](http://github.com/symphonycms/debugdevkit/tree/master) and [Profile DevKit](http://github.com/symphonycms/profiledevkit/tree/master) extensions.
+
+1. Go to `http://example.com/install/` to complete the update process.
+@primeringreso
+primeringreso/primeringreso – README.markdown
+Showing the top two matches
+Last indexed on Jul 10, 2018
+Markdown
+[![Scrutinizer Code Quality](https://scrutinizer-ci.com/g/symphonycms/symphony-2/badges/quality-score.png?b=master)](https://scrutinizer-ci.com/g/symphonycms/symphony-2/?branch=master)
+
+- Version: 2.7.0
+- Date: 11th July 2017
+- [Release notes](http://getsymphony.com/download/releases/version/2.7.0/)
+@zooshme
+zooshme/lunchoutapp – README.markdown
+Showing the top two matches
+Last indexed on Jul 15, 2018
+Markdown
+[![Scrutinizer Code Quality](https://scrutinizer-ci.com/g/symphonycms/symphony-2/badges/quality-score.png?b=master)](https://scrutinizer-ci.com/g/symphonycms/symphony-2/?branch=master)
+
+- Version: 2.7.6
+- Date: 18th April 2018
+- [Release notes](https://www.getsymphony.com/download/releases/version/2.7.6/)
+@davjand
+davjand/ci-workspace – README.MD
+Showing the top four matches
+Last indexed on Jun 26, 2018
+Markdown
+ * The source code is entirely managed via github
+ * Each developer develops on their own local install of symphony
+ * There is a 'staging' server in which user based and content testing occurs
+ * (IN PROGRESS) There is a continuous integration server that unit tests the code.
+
+The workflow is summarised as below:
+
+ * Developers work on a local install and commit their code to github
+@clemilsk
+clemilsk/Symphony-cms-2 – README.markdown
+Showing the top two matches
+Last indexed on Aug 20, 2018
+Markdown
+[![Scrutinizer Code Quality](https://scrutinizer-ci.com/g/symphonycms/symphony-2/badges/quality-score.png?b=master)](https://scrutinizer-ci.com/g/symphonycms/symphony-2/?branch=master)
+
+- Version: 2.7.7
+- Date: 13th June 2018
+- [Release notes](https://www.getsymphony.com/download/releases/version/2.7.7/)
+@karteekch
+karteekch/api-gateway-parent – README.md
+Showing the top four matches
+Last indexed on Jul 8, 2018
+Markdown
+[![Build Status](https://travis-ci.org/dellemc-symphony/api-gateway-parent.svg?branch=master)](https://travis-ci.org/dellemc-symphony/api-gateway-parent)
+
+# api-gateway-parent
+Contribute code and make submissions at the relevant GitHub repository level. See [our documentation][contributing] for details on how to contribute.
+## Community
+Reach out to us on the Slack [#symphony][slack] channel by requesting an invite at [{code}Community][codecommunity].
+© 2019 GitHub, Inc.
+Terms
+Privacy
+Security
+Status
+Help
+Contact GitHub
+Pricing
+API
+Training
+Blog
+About
+Press h to open a hovercard with more details.
