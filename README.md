@@ -24,34 +24,32 @@ from [IBM Spectrum Analytics](https://www.ibm.com/us-en/marketplace/analytics-wo
 
 This sample requires the following:
 
-  1. A license to use IBM Spectrum Symphony from [IBM Spectrum Analytics](https://www.ibm.com/us-en/marketplace/analytics-workload-management).
-  
-  2. The IBM Spectrum Symphony installation binaries.
-  
-     a. Download the binaries from [IBM](https://www.ibm.com/us-en/marketplace/analytics-workload-management) and place them in the `./blobs/` directory.
+  1. A license to use IBM Spectrum Symphony from [IBM Spectrum Analytics](https://www.ibm.com/us-en/marketplace/analytics-workload-management).  If you don't already have a license you can "Start a Free Trial" to get one.
      
-     b. If the version is not 8.5.0 (the project default), then update the version number in the Files list
-        in `./project.ini` and in the cluster template: `./templates/symphony.txt`
-     
-  3. CycleCloud must be installed and running.
+  1. CycleCloud must be installed and running.
 
-     a. If this is not the case, see the CycleCloud QuickStart Guide for
+     a. If this is not the case, see the [CycleCloud QuickStart Guide](https://docs.microsoft.com/en-us/azure/cyclecloud/quickstart-install-cyclecloud) for
         assistance.
 
-  4. The CycleCloud CLI must be installed and configured for use.
+  1. The [CycleCloud CLI](https://docs.microsoft.com/en-us/azure/cyclecloud/install-cyclecloud-cli) must be installed and configured for use.  You can configure CycleCloud CLI for the first time with 
+      ```bash
+      cyclecloud initialize
+      ```
 
-  5. You must have access to log in to CycleCloud.
+  1. You must have access to log in to CycleCloud.
 
-  6. You must have access to upload data and launch instances in your chosen
+  1. You must have access to upload data and launch instances in your chosen
      Cloud Provider account.
 
-  7. You must have access to a configured CycleCloud "Locker" for Project Storage
+  1. You must have access to a configured CycleCloud "Locker" for Project Storage
      (Cluster-Init and Chef).
 
-  8. Optional: To use the `cyclecloud project upload <locker>` command, you must
+  1. Optional: To use the `cyclecloud project upload <locker>` command, you must
      have a Pogo configuration file set up with write-access to your locker.
 
-     a. You may use your preferred tool to interact with your storage "Locker"
+     a. The "Upload the Project" section of [this tutorial](https://docs.microsoft.com/en-us/azure/cyclecloud/tutorials/deploy-custom-application#upload-the-project) provides steps to edit your Pogo configuration file
+     
+     b. You may use your preferred tool to interact with your storage "Locker"
         instead.
 
 
@@ -61,15 +59,17 @@ This sample requires the following:
 The first step is to configure the project for use with your storage locker:
 
   1. Open a terminal session with the CycleCloud CLI enabled.
+  
+  1. Clone this repo into a new directory
 
-  2. Switch to the symphony directory.
+  1. Change directory to the cloned repo
 
-  3. Copy the following installers to `./blobs`
-    * symeval-7.2.0.0_x86_64.bin
-    * symeval-7.2.0.1.exe
-    
-  4. If the version number is not 7.2.0, update the version numbers in `project.ini` and `templates/symphony.txt`
-    
+  1. Download the IBM Spectrum Symphony installation binaries from [IBM](https://www.ibm.com/us-en/marketplace/analytics-workload-management) and place them in the `./blobs/symphony` directory.
+      * `symeval-7.2.1.0_x86_64.bin`
+      * `symeval-7.2.1.0.exe`
+      * `sym_adv_ev_entitlement.dat`
+  
+  1. If the version number is not 7.2.1, update the version numbers in [`project.ini`](project.ini) and [`templates/symphony.txt`](templates/symphony.txt) 
 
 ## Deploying the Project ##
 
