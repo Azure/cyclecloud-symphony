@@ -708,7 +708,7 @@ class CycleCloudProvider:
             
             request_id_persisted = True
             request_status = RequestStates.complete
-            message = "CycleCloud is terminating the VM(s)",
+            message = "CycleCloud is terminating the VM(s)"
 
             try:
                 self.cluster.terminate(input_json["machines"], self.hostnamer)
@@ -722,7 +722,7 @@ class CycleCloudProvider:
             
             logger.info("Terminating %d machine(s): %s", len(machines), machines.keys())
             
-            return self.json_writer({"message": "%s" % message,
+            return self.json_writer({"message": message,
                                      "requestId": request_id,
                                      "status": request_status
                                      })
