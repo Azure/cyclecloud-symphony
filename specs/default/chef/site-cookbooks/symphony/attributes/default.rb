@@ -21,3 +21,34 @@ default['symphony']['admin']['home'] = "#{node['cuser']['base_home_dir']}/#{node
 
 default['symphony']['is_master'] = false
 default['symphony']['is_management'] = false
+
+
+
+# Auto-scaling configuration
+
+# Use hostfactory? (Else use legacy autoscale.py)
+default['symphony']['host_factory']['enabled'] = true
+
+default['symphony']['hostfactory']['HF_LOGLEVEL'] = 'LOG_DEBUG'
+default['symphony']['hostfactory']['HF_REQUESTOR_POLL_INTERVAL'] = 30
+default['symphony']['hostfactory']['HF_HOUSEKEEPING_LOOP_INTERVAL'] = 30
+default['symphony']['hostfactory']['HF_REST_TRANSPORT'] = 'TCPIPv4'
+default['symphony']['hostfactory']['HF_REST_LISTEN_PORT'] = 9080
+default['symphony']['hostfactory']['HF_REQUESTOR_ACTION_TIMEOUT'] = 240
+default['symphony']['hostfactory']['HF_PROVIDER_ACTION_TIMEOUT'] = 300
+default['symphony']['hostfactory']['HF_DB_HISTORY_DURATION'] = 90
+default['symphony']['hostfactory']['HF_REST_RESULT_DEFAULT_PAGESIZE'] = 2000
+default['symphony']['hostfactory']['HF_REST_RESULT_MAX_PAGESIZE'] = 10000
+
+
+# symA requestor params
+default['symphony']['hostfactory']['requestors']['symA']['scaling_policy']['warmup_time'] = 1
+default['symphony']['hostfactory']['requestors']['symA']['scaling_policy']['desired_task_complete_duration'] = 10
+default['symphony']['hostfactory']['requestors']['symA']['host_return_policy']['name'] = 'lazy'
+default['symphony']['hostfactory']['requestors']['symA']['host_return_policy']['billing_interval'] = 5
+default['symphony']['hostfactory']['requestors']['symA']['host_return_policy']['return_interval'] = 2
+default['symphony']['hostfactory']['requestors']['symA']['host_return_policy']['force_return_interval'] = 5
+default['symphony']['hostfactory']['requestors']['symA']['host_return_policy']['return_interval'] = 2
+default['symphony']['hostfactory']['requestors']['symA']['host_return_policy']['return_idle_only'] = false
+
+

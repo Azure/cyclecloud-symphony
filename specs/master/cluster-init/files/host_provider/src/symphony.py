@@ -9,7 +9,8 @@ class MachineStates:
 class MachineResults:
     succeed = "succeed"
     executing = "executing"
-    failed = "failed"
+    failed = "fail"
+# LSF:    failed = "failed"
     
     
 class RequestStates:

@@ -7,7 +7,7 @@ set -x
 
 . /etc/profile.d/symphony.sh
 
-SYM_ENTITLEMENT_FILE="${CYCLECLOUD_SPEC_PATH}/files/sym_adv_ev_entitlement.dat"
+SYM_ENTITLEMENT_FILE="/etc/sym_adv_ev_entitlement.dat"
 
 set -e
 

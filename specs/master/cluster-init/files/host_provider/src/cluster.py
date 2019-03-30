@@ -24,12 +24,15 @@ class Cluster:
     def add_nodes(self, request):
         return self.post("/clusters/%s/nodes/create" % self.cluster_name, json=request)
     
+    def all_nodes(self):
+        return self.get("/clusters/%s/nodes" % self.cluster_name)
+
     def nodes(self, request_ids):
         responses = {}
         for request_id in request_ids:
             responses[request_id] = self.get("/clusters/%s/nodes" % self.cluster_name, request_id=request_id)
         return responses
-    
+
     def terminate(self, machines, hostnamer):
         id_to_ip = {}
         for machine in machines:

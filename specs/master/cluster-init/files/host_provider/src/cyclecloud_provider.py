@@ -1,3 +1,4 @@
+import time
 import calendar
 from collections import OrderedDict
 from copy import deepcopy
@@ -127,7 +128,13 @@ class CycleCloudProvider:
             
             for nodearray_root in nodearrays:
                 nodearray = nodearray_root.get("nodearray")
-                if "recipe[symphony::slave]" not in nodearray.get("Configuration", {}).get("run_list", []):
+                
+                # legacy, ignore any dynamically created arrays.
+                if nodearray.get("Dynamic"):
+                    continue
+                
+                autoscale_enabled = nodearray.get("Configuration", {}).get("autoscaling", {}).get("enabled", False)
+                if not autoscale_enabled:
                     continue
                 
                 for bucket in nodearray_root.get("buckets"):
@@ -144,20 +151,35 @@ class CycleCloudProvider:
 
                     at_least_one_available_bucket = at_least_one_available_bucket or max_count > 0
                     memory = machine_type.get("memory") * 1024
+                    is_low_prio = nodearray.get("Interruptible", False)
+                    ngpus = 0
+                    try:
+                        ngpus = int(nodearray.get("Configuration", {}).get("symphony", {}).get("ngpus", 0))
+                    except ValueError:
+                        logger.exception("Ignoring symphony.ngpus for nodearray %s" % nodearray_name)
                     
+
+                    # Symphony
+                    # - uses nram rather than mem
+                    # - uses strings for numerics         
                     record = {
                         "maxNumber": max_count,
                         "templateId": template_id,
                         "priority": nodearray.get("Priority", default_priority),
                         "attributes": {
                             "zone": ["String", nodearray.get("Region")],
-                            "mem": ["Numeric", memory],
-                            "ncpus": ["Numeric", machine_type.get("vcpuCount")],
-                            "ncores": ["Numeric", machine_type.get("vcpuCount")],
+                            "mem": ["Numeric", "%d" % memory],
+                            "nram": ["Numeric", "%d" % memory],
+                            "ncpus": ["Numeric", "%d" % machine_type.get("vcpuCount")],
+                            "ncores": ["Numeric", "%d" % machine_type.get("vcpuCount")],
+                            "ngpus": ["Numeric", ngpus],                            
                             "azurecchost": ["Boolean", "1"],
                             "type": ["String", "X86_64"],
+                            "machinetypefull": ["String", machine_type_name],
                             "machinetype": ["String", machine_type_name],
-                            "nodearray": ["String", nodearray_name]
+                            "nodearray": ["String", nodearray_name],
+                            "azureccmpi": ["Boolean", "0"],
+                            "azurecclowprio": ["Boolean", "1" if is_low_prio else "0"]
                         }
                     }
                     
@@ -180,8 +202,34 @@ class CycleCloudProvider:
                     
                     record["UserData"]["symphony"]["attributes"] = attributes
                     record["UserData"]["symphony"]["attribute_names"] = " ".join(sorted(attributes.iterkeys()))
+
+                    record["pgrpName"] = None
                     
                     templates_store[template_id] = record
+                    
+                    for n, placement_group in enumerate(_placement_groups(self.config)):
+                        template_id = record["templateId"] + placement_group
+                        if is_low_prio:
+                            # not going to create mpi templates for interruptible nodearrays.
+                            # if the person updated the template, set maxNumber to 0 on any existing ones
+                            if template_id in templates_store:
+                                templates_store[template_id]["maxNumber"] = 0
+                                continue
+                            else:
+                                break
+                        
+                        record_mpi = deepcopy(record)
+                        record_mpi["attributes"]["placementgroup"] = ["String", placement_group]
+                        record_mpi["UserData"]["symphony"]["attributes"]["placementgroup"] = placement_group
+                        record_mpi["attributes"]["azureccmpi"] = ["Boolean", "1"]
+                        record_mpi["UserData"]["symphony"]["attributes"]["azureccmpi"] = True
+                        # regenerate names, as we have added placementgroup
+                        record_mpi["UserData"]["symphony"]["attribute_names"] = " ".join(sorted(record_mpi["attributes"].iterkeys()))
+                        record_mpi["priority"] = record_mpi["priority"] - n - 1
+                        record_mpi["templateId"] = template_id
+                        record_mpi["maxNumber"] = min(record["maxNumber"], nodearray.get("Azure", {}).get("MaxScalesetSize", 40))
+                        templates_store[record_mpi["templateId"]] = record_mpi
+                        currently_available_templates.add(record_mpi["templateId"])
                     default_priority = default_priority - 10
             
             # for templates that are no longer available, advertise them but set maxNumber = 0
@@ -208,7 +256,7 @@ class CycleCloudProvider:
         if not at_least_one_available_bucket:
             symphony_templates.insert(0, PLACEHOLDER_TEMPLATE)
         
-        return self.json_writer({"templates": symphony_templates}, debug_output=False)
+        return self.json_writer({"templates": symphony_templates, "message": "Get available templates success."}, debug_output=False)
     
     def generate_userdata(self, template):
         ret = {}
@@ -218,8 +266,7 @@ class CycleCloudProvider:
                 logger.error("Invalid attribute %s %s", key, value_array)
                 continue
             if value_array[0].lower() == "boolean":
-                if value_array[1]:
-                    ret[key] = "true"
+                ret[key] = str(value_array[1] != "0").lower()
             else:
                 ret[key] = value_array[1]
         
@@ -241,7 +288,6 @@ class CycleCloudProvider:
         # kludge: this can be overridden either at the template level
         # or during a creation request. We always want it defined in userdata
         # though.
-        
         
         for kv in key_values:
             try:
@@ -319,15 +365,24 @@ class CycleCloudProvider:
                 user_data["symphony"]["custom_env"]["rc_account"] = rc_account
                 user_data["symphony"]["custom_env_names"] = " ".join(sorted(user_data["symphony"]["custom_env"].keys()))
             
-            self.cluster.add_nodes({'requestId': request_id,
-                                    'sets': [{'count': machine_count,
-                                              'definition': {'machineType': _get("machinetype")},
-                                              'nodeAttributes': {'Tags': {"rc_account": rc_account},
-                                                                 'Configuration': user_data},
-                                              'nodearray': _get("nodearray")
-                                              }]})
+            nodearray = _get("nodearray")
             
-            logger.info("Requested %s instances of machine type %s in nodearray %s.", machine_count, _get("machinetype"), _get("nodearray"))
+            machinetype_name = _get("machinetypefull")
+            
+            request_set = {'count': machine_count,
+                       'definition': {'machineType': machinetype_name},
+                       'nodeAttributes': {'Tags': {"rc_account": rc_account},
+                                          'Configuration': user_data},
+                       'nodearray': nodearray}
+            if template["attributes"].get("placementgroup"):
+                request_set["placementGroupId"] = template["attributes"].get("placementgroup")[1]
+                       
+            self.cluster.add_nodes({'requestId': request_id,
+                                    'sets': [request_set]})
+            if template["attributes"].get("placementgroup"):
+                logger.info("Requested %s instances of machine type %s in placement group %s for nodearray %s.", machine_count, machinetype_name, _get("placementgroup"), _get("nodearray"))
+            else:
+                logger.info("Requested %s instances of machine type %s in nodearray %s.", machine_count, machinetype_name, _get("nodearray"))
             
             return self.json_writer({"requestId": request_id, "status": RequestStates.running,
                                      "message": "Request instances success from Azure CycleCloud."})
@@ -441,17 +496,19 @@ class CycleCloudProvider:
                     machine_result = MachineResults.executing
                     machine_status = MachineStates.building
                     request_status = RequestStates.running
+
                 
                 machine = {
-                    "name": hostname,
+                    "name": hostname or "",
                     "status": machine_status,
                     "result": machine_result,
-                    "machineId": node.get("NodeId"),
+                    "machineId": node.get("NodeId") or "",
+                    # launchTime is manditory in Symphony
                     # maybe we can add something so we don"t have to expose this
                     # node["PhaseMap"]["Cloud.AwaitBootup"]["StartTime"]["$date"]
-                    "launchtime": node.get("LaunchTime"),
-                    "privateIpAddress": private_ip_address,
-                    "message": node.get("StatusMessage")
+                    "launchtime": node.get("LaunchTime") or int(time.time()),
+                    "privateIpAddress": private_ip_address or "",
+                    "message": node.get("StatusMessage") or ""
                 }
                 
                 machines.append(machine)
@@ -475,7 +532,7 @@ class CycleCloudProvider:
         return self.json_writer(response)
         
     @failureresponse({"requests": [], "status": RequestStates.running})
-    def _terminate_status(self, input_json):
+    def _deperecated_terminate_status(self, input_json):
         # can transition from complete -> executing or complete -> complete_with_error -> executing
         # executing is a terminal state.
         request_status = RequestStates.complete
@@ -484,7 +541,7 @@ class CycleCloudProvider:
         # needs to be a [] when we return
         with self.terminate_json as terminate_requests:
             
-            self._cleanup_expired_requests(terminate_requests, self.termination_timeout)
+            self._cleanup_expired_requests(terminate_requests, self.termination_timeout, "terminated")
             
             termination_ids = [r["requestId"] for r in input_json["requests"] if r["requestId"]]
             try:
@@ -544,8 +601,36 @@ class CycleCloudProvider:
         response["status"] = request_status
         
         return self.json_writer(response)
+    
+    @failureresponse({"status": RequestStates.running})
+    def terminate_status(self, input_json):
+        ids_to_hostname = {}
+    
+        for machine in input_json["machines"]:
+            ids_to_hostname[machine["machineId"]] = machine["name"]
         
-    def _cleanup_expired_requests(self, requests, retirement):
+        with self.terminate_json as term_requests:
+            requests = {}
+            for node_id, hostname in ids_to_hostname.iteritems():
+                machine_record = {"machineId": node_id, "name": hostname}
+                found_a_request = False
+                for request_id, request in term_requests.iteritems():
+                    if node_id in request["machines"]:
+                        
+                        found_a_request = True
+                        
+                        if request_id not in requests:
+                            requests[request_id] = {"machines": []}
+                        
+                        requests[request_id]["machines"].append(machine_record)
+                
+                if not found_a_request:
+                    logger.warn("No termination request found for machine %s", machine_record)
+            
+            deprecated_json = {"requests": [{"requestId": request_id, "machines": requests[request_id]["machines"]} for request_id in requests]}
+            return self._deperecated_terminate_status(deprecated_json)
+        
+    def _cleanup_expired_requests(self, requests, retirement, completed_key):
         now = calendar.timegm(self.clock())
         for req_id in list(requests.keys()):
             try:
@@ -555,6 +640,11 @@ class CycleCloudProvider:
                 if request_time < 0:
                     logger.info("Request has no requestTime")
                     request["requestTime"] = request_time = now
+                
+                if not request.get(completed_key):
+                    logger.info("Request has not completed, ignoring expiration: %s", request)
+                    continue
+                
                 # in case someone puts in a string manuall
                 request_time = float(request_time)
                     
@@ -564,6 +654,26 @@ class CycleCloudProvider:
                 
             except Exception:
                 logger.exception("Could not remove stale request %s", req_id)
+
+
+    def lookup_machine_ids(self, input_json):
+        machines = input_json["machines"]
+        nodes = self.cluster.all_nodes()
+
+        machines_by_ip = {}
+        for machine in machines:
+            ip = self.hostnamer.private_ip_address(machine["name"])
+            machine["ip"] = ip
+            machines_by_ip[ip] = machine
+            
+
+        for node in nodes:
+            if 'NodeId' in node and 'PrivateIp' in node and node['PrivateIp'] in machines_by_ip:
+                machines_by_ip[node['PrivateIp']]["machineId"] = node['NodeId']
+
+        return machines
+            
+    
                 
     @failureresponse({"status": RequestStates.complete_with_error})
     def terminate_machines(self, input_json):
@@ -580,12 +690,18 @@ class CycleCloudProvider:
             "status": "complete"
         }
         """
+        logger.info("Terminate_machines request for : %s", input_json)
+        self.lookup_machine_ids(input_json)
+
         request_id = "delete-%s" % str(uuid.uuid4())
         request_id_persisted = False
         try:
             with self.terminate_json as terminations:
                 machines = {}
                 for machine in input_json["machines"]:
+                    if "machineId" not in machine:
+                        # cluster api can handle invalid machine ids
+                        machine["machineId"] = machine["name"]
                     machines[machine["machineId"]] = machine["name"]
                     
                 terminations[request_id] = {"id": request_id, "machines": machines, "requestTime": calendar.timegm(self.clock())}
@@ -606,7 +722,7 @@ class CycleCloudProvider:
             
             logger.info("Terminating %d machine(s): %s", len(machines), machines.keys())
             
-            return self.json_writer({"message": message,
+            return self.json_writer({"message": "%s" % message,
                                      "requestId": request_id,
                                      "status": request_status
                                      })
@@ -631,7 +747,7 @@ class CycleCloudProvider:
             create_response = self._create_status({"requests": creates})
             assert "status" in create_response
         if deletes:
-            delete_response = self._terminate_status({"requests": deletes})
+            delete_response = self._deperecated_terminate_status({"requests": deletes})
             assert "status" in delete_response
         
         create_status = create_response.get("status", RequestStates.complete)
@@ -651,6 +767,17 @@ class CycleCloudProvider:
                     "requests": create_response.get("requests", []) + delete_response.get("requests", [])
                     }
         return json_writer(response)
+    
+
+def _placement_groups(config):
+    try:
+        num_placement_groups = min(26 * 26, int(config.get("symphony.num_placement_groups", 0)))
+    except ValueError:
+        raise ValueError("Expected a positive integer for symphony.num_placement_groups, got %s" % config.get("symphony.num_placement_groups"))
+    if num_placement_groups <= 0:
+        return []
+    else:
+        return ["pg%s" % x for x in xrange(num_placement_groups)]
 
 
 def simple_json_writer(data, debug_output=True):  # pragma: no cover
@@ -698,7 +825,15 @@ def main(argv=sys.argv, json_writer=simple_json_writer):  # pragma: no cover
         elif cmd == "create_machines":
             provider.create_machines(input_json)
         elif cmd in ["status", "create_status", "terminate_status"]:
-            provider.status(input_json)
+            if "requests" in input_json:
+                # provider.status handles both create_status and deprecated terminate_status calls.
+                provider.status(input_json)
+            elif cmd == "terminate_status":
+                # doesn't pass in a requestId but just a list of machines.
+                provider.terminate_status(input_json)
+            else:
+                # should be impossible
+                raise RuntimeError("Unexpected input json for cmd %s" % (input_json, cmd))
         elif cmd == "terminate_machines":
             provider.terminate_machines(input_json)
             
