@@ -724,8 +724,20 @@ class CycleCloudProvider:
             
             return self.json_writer({"message": message,
                                      "requestId": request_id,
-                                     "status": request_status
+                                     "status": request_status,
+                                     "machines": [ {
+                                         "name": machine["name"],
+                                         "message": message,
+                                         "privateIpAddress": None,
+                                         "publicIpAddress": None,
+                                         "rcAccount": None,
+                                         "requestId": request_id,
+                                         "returnId": request_id,
+                                         "template": None,
+                                         "status": request_status
+                                     } for machine in input_json["machines"] ]
                                      })
+
         except Exception as e:
             logger.exception(unicode(e))
             if request_id_persisted:

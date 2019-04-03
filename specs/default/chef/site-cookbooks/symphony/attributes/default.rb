@@ -48,7 +48,6 @@ default['symphony']['hostfactory']['requestors']['symA']['host_return_policy']['
 default['symphony']['hostfactory']['requestors']['symA']['host_return_policy']['billing_interval'] = 5
 default['symphony']['hostfactory']['requestors']['symA']['host_return_policy']['return_interval'] = 2
 default['symphony']['hostfactory']['requestors']['symA']['host_return_policy']['force_return_interval'] = 5
-default['symphony']['hostfactory']['requestors']['symA']['host_return_policy']['return_interval'] = 2
 default['symphony']['hostfactory']['requestors']['symA']['host_return_policy']['return_idle_only'] = false
 
 
