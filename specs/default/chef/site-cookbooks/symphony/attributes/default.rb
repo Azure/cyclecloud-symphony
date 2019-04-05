@@ -6,12 +6,14 @@ default['symphony']['license_file'] = "sym_adv_ev_entitlement.dat"
 
 default['symphony']['simplifiedwem'] = 'N'
 default['symphony']['baseport'] = 14899
+default['symphony']['lim_port'] = node['symphony']['baseport']
+default['symphony']['kd_port'] = node['symphony']['baseport'] + 1
+default['symphony']['pem_port'] = node['symphony']['baseport'] + 2
+default['symphony']['snmp_port'] = node['symphony']['baseport'] + 14
 default['symphony']['disablessl'] = true
 
-# Symphony will be installed to EGO_TOP=/opt/ibm/spectrumcomputing/
-# If node['symphony']['shared_fs_install'],
-# Then /opt/ibm -> #{node['symphony']['shared_fs_mountpoint']}/spectrumcomputing
-default['symphony']['shared_fs_mountpoint'] = '/shared'
+# Symphony will be installed to EGO_TOP=/opt/ibm/spectrumcomputing/, so mount at /opt/ibm (or symlink)
+default['symphony']['shared_fs_install'] = false
 
 default['symphony']['admin']['user'] = 'egoadmin'
 default['symphony']['admin']['uid'] = '61111'

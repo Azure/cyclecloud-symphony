@@ -1,0 +1,216 @@
+################################
+## NFS Server Template ##
+################################
+
+[cluster nfs]
+FormLayout = selectionpanel
+Category = Filesystems
+
+    [[node defaults]]
+
+    Credentials = $Credentials    
+    ImageName = $ImageName
+    SubnetId = $SubnetId
+    Region = $Region
+    KeyPairLocation = ~/.ssh/cyclecloud.pem
+    UsePublicNetwork = $UsePublicNetwork
+
+    [[node filer]]
+    MachineType = $MachineType
+    IsReturnProxy = $ReturnProxy
+
+    AdditionalClusterInitSpecs = $FileServerClusterInitSpecs
+
+
+       [[[configuration]]]
+       run_list = recipe[cganglia::server], recipe[cganglia::client]
+
+       cyclecloud.discoverable = true
+       role = sharedfs
+
+       [[[volume nfs-vol1]]]
+       Size = $FilesystemSize
+       SSD = True
+       Mount = nfs
+       Persistent = $FileSystemPersistence
+
+       [[[volume nfs-vol2]]]
+       Size = $FilesystemSize
+       SSD = True
+       Mount = nfs
+       Persistent = $FileSystemPersistence
+
+       [[[volume nfs-vol3]]]
+       Size = $FilesystemSize
+       SSD = True
+       Mount = nfs
+       Persistent = $FileSystemPersistence
+
+       [[[configuration cyclecloud.mounts.nfs]]]
+       mountpoint = /mnt/exports
+       fs_type = $FileSystemType
+       raid_level = 0
+
+       [[[configuration cyclecloud.exports.shared]]]
+       disabled = true
+
+       [[[configuration cyclecloud.exports.sched]]]
+       disabled = true
+
+       [[[configuration cyclecloud.exports.nfs]]]
+       type = nfs
+       export_path = /mnt/exports
+      
+       [[[configuration cyclecloud.exports.data]]]
+       type = nfs
+       export_path = /mnt/exports/data
+      
+       [[[configuration cyclecloud.exports.ibm]]]
+       type = nfs
+       export_path = /mnt/exports/ibm
+      
+       [[[configuration cyclecloud.exports.home]]]
+       type = nfs
+       export_path = /mnt/exports/home
+      
+       [[[cluster-init cyclecloud/nfs:default:1.0.0]]]
+        
+       [[[input-endpoint ganglia]]]
+       PrivatePort = 8652
+       PublicPort = 8652        
+
+       [[[network-interface eth0]]]
+       AssociatePublicIpAddress = $UsePublicNetwork
+
+
+
+
+[parameters About]
+Order = 1
+
+    [[parameters About NFS]]
+
+        [[[parameter Filer]]]
+        HideLabel = true
+        Config.Plugin = pico.widget.HtmlTemplateWidget
+        Config.Template := "<table><tr><td><img src='https://github.com/azure/cyclecloud-nfs/raw/master/icon.png' width='192' height='192'></td></tr><tr><td><p>Creates a basic, single-node NFS File Server exporting a configurable directory.  This file server may be mounted by other clusters as a cluster-local, persistent, shared storage device.</p></td></tr></table>"
+
+        [[[parameter Readme]]]
+        HideLabel = true
+        Config.Plugin = pico.widget.HtmlTemplateWidget
+        Config.Template := "Follow the instructions in the <a href=\"https://github.com/azure/cyclecloud-nfs/\" target=\"_blank\">README</a> for details on instructions on extending and configuring the Project for your environment."
+
+
+[parameters Required Settings]
+Order = 10
+
+    [[parameters Virtual Machines ]]
+    Description = "The cluster, in this case, has two roles: the scheduler master-node with shared filer and the execute hosts. Configure which VM types to use based on the requirements of your application."
+    Order = 20
+
+
+        [[[parameter Region]]]
+        Label = Region
+        Description = Deployment Location
+        ParameterType = Cloud.Region
+        DefaultValue = westus2
+
+        [[[parameter MachineType]]]
+        Label = NFS Machine Type
+        Description = The machine type for the NFS Server host
+        ParameterType = Cloud.MachineType
+        DefaultValue = Standard_DS4_v2
+
+
+    [[parameters Networking]]
+    Order = 40
+
+        [[[parameter SubnetId]]]
+        Label = Subnet ID
+        Description = Subnet Resource Path (ResourceGroup/VirtualNetwork/Subnet)
+        ParameterType = Azure.Subnet
+        Required = True
+
+
+[parameters Advanced Settings]
+Order = 20
+
+    [[parameters Azure Settings]]
+    Order = 10 
+
+        [[[parameter Credentials]]]
+        Description = The credentials for the cloud provider
+        ParameterType = Cloud.Credentials
+
+    [[parameters Filesystem Configuration]]
+
+        [[[parameter FsConfigDesc]]]
+        HideLabel = true
+        Config.Plugin = pico.widget.HtmlTemplateWidget
+        Config.Template = "Configure the Filesystem options."
+
+        [[[parameter FilesystemSize]]]
+        Label = Size (GB)
+        Description = The filesystem size
+        DefaultValue = 100
+        Config.Plugin = pico.form.NumberTextBox
+        Config.MinValue = 10
+        Config.MaxValue = 10240
+        Config.IntegerOnly = true
+
+        [[[parameter FileSystemType]]]
+        Label = Format
+        DefaultValue = xfs
+        Config.Plugin = pico.form.Dropdown
+            [[[[list Config.Entries]]]]
+            Name = xfs
+            Label = xfs
+            [[[[list Config.Entries]]]]
+            Name = ext3
+            Label = ext3
+            [[[[list Config.Entries]]]]
+            Name = ext4
+            Label = ext4
+
+        [[[parameter FileSystemPersistence]]]
+            Label = Filesystem Persistence
+            DefaultValue = true
+            Config.Plugin = pico.form.RadioButtonsControl
+            [[[[list Config.Entries]]]]
+            Name = false
+            Label = Ephemeral
+            [[[[list Config.Entries]]]]
+            Name = true
+            Label = Persistent
+
+    [[parameters Software]]
+    Description = "Specify the scheduling software, and base OS installed on all nodes, and optionally the cluster-init and chef versions from your Locker."
+    Order = 10
+
+        [[[parameter ImageName]]]
+        Label = Base OS
+        ParameterType = Cloud.Image
+        Config.OS = linux
+        DefaultValue = cycle.image.centos7
+
+        [[[parameter FileServerClusterInitSpecs]]]
+        Label = FileServerClusterInitSpecs
+        Description = Cluster init specs to apply to the file server
+        ParameterType = Cloud.ClusterInitSpecs
+
+
+    [[parameters Advanced Networking]]
+    Description = Advanced networking settings
+
+        [[[parameter ReturnProxy]]]
+        Label = Return Proxy
+        DefaultValue = true
+        ParameterType = Boolean
+        Config.Label = Use SSH tunnel to connect to CycleCloud (required if direct access is blocked)
+
+        [[[parameter UsePublicNetwork]]]
+        Label = Public IP
+        DefaultValue = true
+        ParameterType = Boolean
+        Config.Label = Access master node from the Internet
+

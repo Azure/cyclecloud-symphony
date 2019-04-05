@@ -117,3 +117,18 @@ template "#{hostfactory_confdir}/requestors/symA/conf/symAreq_policy_config.json
   not_if "grep -q azurecc #{hostfactory_confdir}/requestors/symA/conf/symAreq_policy_config.json"
 end
 
+
+defer_block 'Defer start of HostFactory service until ego is started' do
+  bash 'Starting HostFactory...' do
+    code <<-EOH
+    set -x
+    . /etc/profile.d/symphony.sh
+    set -e
+
+    egosh user logon -u Admin -x Admin
+    egosh service start HostFactory
+    EOH
+    user "egoadmin"
+    group "egoadmin"
+  end
+end

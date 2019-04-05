@@ -1,0 +1,317 @@
+###########################
+## IBM Spectrum Symphony ##
+###########################
+[noderef filer]
+SourceClusterName = $FileSystemClusterName
+
+
+[cluster Symphony]
+FormLayout = selectionpanel
+Category = Schedulers
+
+Autoscale = $Autoscale
+
+    [[node defaults]]
+    Credentials = $Credentials    
+    ImageName = $ImageName
+    SubnetId = $SubnetId
+    Region = $Region
+    KeyPairLocation = ~/.ssh/cyclecloud.pem
+
+    MachineType = $ExecuteMachineType
+    
+    AdditionalClusterInitSpecs = $DefaultClusterInitSpecs
+
+
+        [[[configuration]]]
+        run_list = recipe[cshared::client], recipe[cuser], recipe[cganglia::client]
+
+        cyclecloud.mounts.sched.disabled = true
+        cyclecloud.mounts.shared.disabled = true
+        cshared.server.legacy_links_disabled = true
+        cuser.base_home_dir = /shared/home
+
+        cyclecloud.exports.shared.samba.enabled = false
+        cyclecloud.exports.defaults.samba.enabled = false
+        
+        cyclecloud.selinux.policy = permissive
+        # cyclecloud.maintenance_converge.enabled = false
+
+
+        symphony.shared_fs_install = true
+        symphony.host_factory.enabled = true
+
+        [[[configuration cyclecloud.mounts.ibm]]]
+        type = nfs
+        export_path = $IbmExportPath
+        mountpoint = /opt/ibm
+        address = ${filer.instance.PrivateIp}
+
+
+        [[[configuration cyclecloud.mounts.home]]]
+        type = nfs
+        export_path = $HomeExportPath
+        mountpoint = /shared/home
+        address = ${filer.instance.PrivateIp}
+
+        [[[configuration cyclecloud.mounts.data]]]
+        type = nfs
+        export_path = $DataExportPath
+        mountpoint = /data
+        address = ${filer.instance.PrivateIp}
+
+
+        [[[network-interface eth0]]]
+        AssociatePublicIpAddress = false
+
+        [[[cluster-init symphony:default:2.0.0]]]
+
+
+	
+    [[node master]]
+    MachineType = $ManagementMachineType
+    IsReturnProxy = $ReturnProxy
+
+    AdditionalClusterInitSpecs = $ManagementClusterInitSpecs
+
+        [[[configuration]]]
+        run_list = recipe[cshared::client], recipe[cuser], recipe[cganglia::server], recipe[cganglia::client]        
+        cyclecloud.discoverable = true
+	
+        [[[configuration symphony]]]
+        is_management = true
+        is_master = true
+
+        [[[input-endpoint ganglia]]]
+        PrivatePort = 8652
+        PublicPort = 8652
+
+        [[[input-endpoint http]]]
+        PrivatePort = 8080
+        PublicPort = 8080
+
+        [[[input-endpoint https]]]
+        PrivatePort = 8443
+        PublicPort = 8443
+
+        [[[network-interface eth0]]]
+        AssociatePublicIpAddress = $UsePublicNetwork
+
+        [[[cluster-init symphony:master:2.0.0]]]
+
+    [[nodearray management]]
+    MachineType = $ManagementMachineType    
+    InitialCoreCount = 0
+    MaxCoreCount = 64
+
+    AdditionalClusterInitSpecs = $ManagementClusterInitSpecs
+
+        [[[configuration]]]
+        cyclecloud.discoverable = true
+	
+        [[[configuration symphony]]]
+        is_management = true
+
+        [[[cluster-init symphony:management:2.0.0]]]
+
+    [[nodearray execute]]
+    MaxCoreCount = $MaxExecuteCoreCount
+
+    Interruptible = $UseLowPrio
+    
+    AdditionalClusterInitSpecs = $ExecuteClusterInitSpecs
+
+        [[[configuration]]]
+        autoscaling.enabled = true
+    
+        [[[cluster-init symphony:execute:2.0.0]]]
+
+
+    [[nodearray persistent-execute]]
+    InitialCoreCount= 8
+    MaxCoreCount = 128
+    
+    AdditionalClusterInitSpecs = $ExecuteClusterInitSpecs
+
+        [[[configuration]]]
+        cyclecloud.cluster.autoscale.stop_enabled = false
+    
+        [[[cluster-init symphony:execute:2.0.0]]]
+
+
+[parameters About]
+Order = 1
+
+    [[parameters About Symphony]]
+        [[[parameter SymphonyLicense]]]
+        HideLabel = true
+        Config.Plugin = pico.widget.HtmlTemplateWidget
+        Config.Template = '''
+        <table>
+          <tr>
+            <td><p>Delivers enterprise-class management for running compute- and data-intensive distributed applications on a scalable, shared grid.</p><p>See <a href=\"https://www.ibm.com/us-en/marketplace/analytics-workload-management\" target=\"_blank\">IBM Spectrum Symphony</a> for downloads, documentation and license information.</p></td>
+          </tr>
+        </table>'''
+        Order = 10
+
+        [[[parameter LicenseWarning]]]
+        HideLabel = true
+        Config.Plugin = pico.widget.HtmlTemplateWidget
+        Config.Template := "<b>WARNING:</b> Spectrum Symphony requires that both the binaries and license file obtained from IBM be uploaded to your locker's blobs directory prior to use.   You will receive an error during cluster startup if the files are not present."
+        Order = 20
+        
+        [[[parameter Readme]]]
+        HideLabel = true
+        Config.Plugin = pico.widget.HtmlTemplateWidget
+        Config.Template := "Follow the instructions in the <a href=\"https://github.com/Azure/cyclecloud-symphony/\" target=\"_blank\">README</a> for details on instructions on extending and configuring the Project for your environment."
+        Order = 30
+
+
+
+[parameters Required Settings]
+Order = 10
+
+    [[parameters Virtual Machines ]]
+    Description = "The cluster, in this case, has two roles: the scheduler master-node with shared filer and the execute hosts. Configure which VM types to use based on the requirements of your application."
+    Order = 20
+
+
+        [[[parameter Region]]]
+        Label = Region
+        Description = Deployment Location
+        ParameterType = Cloud.Region
+        DefaultValue = westus2
+
+        [[[parameter ManagementMachineType]]]
+        Label = Mgmt Machine Type
+        Description = The machine type for the Symphony Management nodes
+        ParameterType = Cloud.MachineType
+        DefaultValue = Standard_E16_v3
+	
+        [[[parameter ExecuteMachineType]]]
+        Label = Execute VM Type
+        Description = The machine type for the default Symphony Execute nodes
+        ParameterType = Cloud.MachineType
+        DefaultValue = Standard_F2s_v2
+        Config.Multiselect = true
+
+
+    [[parameters Auto-Scaling]]
+    Description = "The cluster can autoscale to the workload, adding execute hosts as jobs are queued. To enable this check the box below and choose the initial and maximum core counts for the cluster"
+    Order = 30
+
+        [[[parameter Autoscale]]]
+        Label = Autoscale
+        DefaultValue = true
+        Widget.Plugin = pico.form.BooleanCheckBox
+        Widget.Label = Start and stop execute instances automatically
+
+        [[[parameter MaxExecuteCoreCount]]]
+        Label = Max Cores
+        Description = The total number of execute cores to start
+        DefaultValue = 100
+        Config.Plugin = pico.form.NumberTextBox
+        Config.MinValue = 1
+        Config.IntegerOnly = true
+
+        [[[parameter UseLowPrio]]]
+        Label = Use Low Prio Instances
+        DefaultValue = false
+        Widget.Plugin = pico.form.BooleanCheckBox
+        Widget.Label = Use low priority instances for execute hosts
+
+    [[parameters Networking]]
+    Order = 40
+
+        [[[parameter SubnetId]]]
+        Label = Subnet ID
+        Description = Subnet Resource Path (ResourceGroup/VirtualNetwork/Subnet)
+        ParameterType = Azure.Subnet
+        Required = True
+
+
+    [[parameters Filesystem Configuration]]
+    Description = "Select the Persistent NFS Filesystem cluster"
+    Order = 50
+
+       [[[parameter FileSystemClusterName]]]
+       Label = NFS Cluster
+       Description = The filesystem to mount
+       Config.Plugin = pico.form.QueryDropdown
+       Config.Query = select ClusterName as Name from Cloud.Node where cluster().IsTemplate isnt true && Configuration.role=?="sharedfs"
+       Config.SetDefault = false
+       Required = true
+
+       [[[parameter DataExportPath]]]
+       Label = Data Export
+       Description = The path exported by the file system for shared scratch space
+       DefaultValue = /mnt/exports/data
+
+
+       [[[parameter IbmExportPath]]]
+       Label = IBM Export
+       Description = The path exported by the file system for the shared Symphony installation
+       DefaultValue = /mnt/exports/ibm
+
+
+       [[[parameter HomeExportPath]]]
+       Label = Home Export
+       Description = The path exported by the file system for the shared user Home directories
+       DefaultValue = /mnt/exports/home
+
+
+[parameters Advanced Settings]
+Order = 20
+
+    [[parameters Azure Settings]]
+    Order = 10 
+
+        [[[parameter Credentials]]]
+        Description = The credentials for the cloud provider
+        ParameterType = Cloud.Credentials
+
+
+
+    [[parameters Software]]
+    Description = "Specify the scheduling software, and base OS installed on all nodes, and optionally the cluster-init and chef versions from your Locker."
+    Order = 10
+
+        [[[parameter ImageName]]]
+        Label = Base OS
+        ParameterType = Cloud.Image
+        Config.OS = linux
+        DefaultValue = cycle.image.centos7
+
+        [[[parameter DefaultClusterInitSpecs]]]
+        Label = Default Cluster-Init Specs
+        Description = Cluster init specs to apply to all nodes
+        ParameterType = Cloud.ClusterInitSpecs
+
+        [[[parameter ManagementClusterInitSpecs]]]
+        Label = Master Cluster-Init
+        Description = Cluster init specs to apply to all managment nodes (including master)
+        ParameterType = Cloud.ClusterInitSpecs
+
+        [[[parameter ExecuteClusterInitSpecs]]]
+        Label = Execute Cluster-Init Specs
+        DefaultValue = =undefined
+        Description = Cluster init specs to apply to execute nodes
+        ParameterType = Cloud.ClusterInitSpecs
+	
+
+    [[parameters Advanced Networking]]
+    Description = Advanced networking settings
+
+        [[[parameter ReturnProxy]]]
+        Label = Return Proxy
+        DefaultValue = false
+        ParameterType = Boolean
+        Config.Label = Use SSH tunnel to connect to CycleCloud (required if direct access is blocked)
+
+        [[[parameter UsePublicNetwork]]]
+        Label = Public Head Node
+        DefaultValue = true
+        ParameterType = Boolean
+        Config.Label = Access master node from the Internet
+
+

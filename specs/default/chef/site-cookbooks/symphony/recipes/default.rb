@@ -56,6 +56,11 @@ Chef::Log.info("Found master: #{master_node['cyclecloud']['instance']['ipv4']} a
 mgmt_hosts = mgmt_nodes.map { |n|
   n['cyclecloud']['instance']['hostname']
 }
+mgmt_hosts_shortnames = mgmt_hosts.map { |fqdn|
+  fqdn.split(".", 2)[0]
+}
+
+Chef::Log.info("Management Nodes: #{mgmt_hosts_shortnames}  ( #{mgmt_hosts} )")
 
 # TODO: Do we need to be able to configure a separate DB Host?
 derby_db_node=master_node
@@ -78,7 +83,7 @@ end
 
 
 # Install dependencies
-%w{ net-tools which }.each do |pkg|
+%w{ net-tools which gettext }.each do |pkg|
   package pkg
 end
 if node['platform_family'] == "debian"
@@ -138,10 +143,10 @@ end
 
 file "/etc/security/limits.d/#{node['symphony']['admin']['user']}.conf" do
   content <<-EOH
-  #{node['symphony']['admin']['user']} soft nproc 65536
-  #{node['symphony']['admin']['user']} hard nproc 65536
-  #{node['symphony']['admin']['user']} soft nofile 65536
-  #{node['symphony']['admin']['user']} soft nofile 65536
+ #{node['symphony']['admin']['user']} soft nproc 65536
+ #{node['symphony']['admin']['user']} hard nproc 65536
+ #{node['symphony']['admin']['user']} soft nofile 65536
+ #{node['symphony']['admin']['user']} soft nofile 65536
   EOH
 end
 
@@ -187,39 +192,37 @@ file "/etc/profile.d/symphony.sh" do
   mode 0755
 end
 
+# Base install dir should generally be /opt/ibm and may already be a mounted share
 ego_top_basedir = File.dirname(node['symphony']['ego_top'])
 directory ego_top_basedir do
   owner "root"
   group "root"
   mode "0755"
   recursive true
+  not_if { ::File.exist?(ego_top_basedir) }
 end
 
 
-# If performing a shared install, install only on master and to a shared directory
-if node['symphony']['shared_fs_install'] == true
-  ego_shared_dir=File.join(node['symphony']['shared_fs_mountpoint'], File.basename(node['symphony']['ego_top']))
-  directory ego_shared_dir do
-    owner node['symphony']['admin']['user']
-    group node['symphony']['admin']['user']
-    mode "0755"
-    recursive true
-    only_if { node['symphony']['is_master'] == true }
-  end
-  
-  link node['symphony']['ego_top'] do
-    to ego_shared_dir
-  end
 
-end  
+# EGO conf for Mgmt and Exec nodes is different, so place on local drive
+template "/etc/ego.conf" do
+  source "ego.conf.erb"
+  group "egoadmin"
+  owner "egoadmin"
 
-  
+  # master_list should be a comma-separated string here
+  variables(:master_list => master_node['cyclecloud']['instance']['hostname'])  
+end
+
+
+
+# If performing a shared install, install only on master and to a shared directory  
 # Perform the actual install (either locally on all instances OR to shared drive on Master ONLY)
 if node['symphony']['shared_fs_install'] == false or node['symphony']['is_master'] == true
 
-
   jetpack_download "symphony/#{node['symphony']['pkg']['linux']}" do
     project "symphony"
+    not_if { ::File.exists?("#{node['jetpack']['downloads']}/#{node['symphony']['pkg']['linux']}") }
   end
 
 
@@ -235,7 +238,6 @@ if node['symphony']['shared_fs_install'] == false or node['symphony']['is_master
     creates "#{node['symphony']['ego_confdir']}/profile.ego"
   end
 
-
   ruby_block "force EGO binary type for unrecognized linux variants" do
     block do
       file = Chef::Util::FileEdit.new("#{node['symphony']['ego_confdir']}/profile.ego")
@@ -246,31 +248,35 @@ if node['symphony']['shared_fs_install'] == false or node['symphony']['is_master
     not_if "grep -q 'Forcing EGO binary type' #{node['symphony']['ego_confdir']}/profile.ego"
   end
 
-  bash "use ssh for ego communication" do
-    code <<-EOH
+  template "#{node['symphony']['ego_confdir']}/ego.cluster.#{node['cyclecloud']['cluster']['name']}" do  
+    source "ego.cluster.erb"
+    group "egoadmin"
+    owner "egoadmin"
 
-    echo >> #{node['symphony']['ego_confdir']}/ego.conf
-    echo 'EGO_RSH="ssh -oPasswordAuthentication=no -oStrictHostKeyChecking=no"' >> #{node['symphony']['ego_confdir']}/ego.conf
-
-    EOH
-    not_if "grep -q 'EGO_RSH=\"ssh -oPasswordAuthentication=no -oStrictHostKeyChecking=no\"' #{node['symphony']['ego_confdir']}/ego.conf"
+    # master_list should be an array here
+    variables(:mgmt_list => mgmt_hosts_shortnames)  
   end
 
-  # EGO conf for Mgmt and Exec nodes is different (mgmt nodes don't seem to accept the `EGO_GET_CONF=LIM` setting needed by execs)
-  if node['symphony']['shared_fs_install'] == true
-    ruby_block "Split ego.conf for management and exec nodes" do
-      block do
-        ::FileUtils.cp("#{node['symphony']['ego_confdir']}/ego.conf", "#{node['symphony']['ego_confdir']}/ego.exec.conf")
-        ::FileUtils.mv("#{node['symphony']['ego_confdir']}/ego.conf", "#{node['symphony']['ego_confdir']}/ego.mgmt.conf")
-        if node['symphony']['is_management'].nil? or node['symphony']['is_management'] != true
-          ::FileUtils.ln_sf("#{node['symphony']['ego_confdir']}/ego.exec.conf", "#{node['symphony']['ego_confdir']}/ego.conf")
-        else
-          ::FileUtils.ln_sf("#{node['symphony']['ego_confdir']}/ego.mgmt.conf", "#{node['symphony']['ego_confdir']}/ego.conf")
-        end        
-      end
-      not_if { ::File.exist?("#{node['symphony']['ego_confdir']}/ego.mgmt.conf") }
-    end
+  template "#{node['symphony']['ego_confdir']}/ResourceGroups.xml" do  
+    source "ResourceGroups.xml.erb"
+    group "egoadmin"
+    owner "egoadmin"
+
+    # master_list should be an array here
+    variables(:mgmt_list => mgmt_hosts_shortnames)  
   end
 
 end
+
+bash "Link ego.conf to local drive" do
+  code <<-EOH
+  set -x
+  set -e
+  rm -f #{node['symphony']['ego_confdir']}/ego.conf
+  ln -sf /etc/ego.conf #{node['symphony']['ego_confdir']}/ego.conf
+  chown egoadmin:egoadmin #{node['symphony']['ego_confdir']}/ego.conf
+  EOH
+  not_if "test -h #{node['symphony']['ego_confdir']}/ego.conf"
+end
+
 
