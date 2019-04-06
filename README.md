@@ -5,6 +5,10 @@ This project installs and configures IBM Spectrum Symphony.
 Use of IBM Spectrum Symphony requires a license agreement and Symphony binaries obtained directly 
 from [IBM Spectrum Analytics](https://www.ibm.com/us-en/marketplace/analytics-workload-management).
 
+
+NOTE:
+Currently, this project only supports Linux-only Symphony clusters.  Windows workers are not yet supported.
+
 <!-- markdown-toc start - Don't edit this section. Run M-x markdown-toc-generate-toc again -->
 
 **Table of Contents**
@@ -21,16 +25,17 @@ from [IBM Spectrum Analytics](https://www.ibm.com/us-en/marketplace/analytics-wo
 
 ## Pre-Requisites ##
 
+This project requires running Azure CycleCloud version 7.7.1 and Symphony 7.2.0 or later.
 
-This sample requires the following:
+This project requires the following:
 
   1. A license to use IBM Spectrum Symphony from [IBM Spectrum Analytics](https://www.ibm.com/us-en/marketplace/analytics-workload-management).
   
   2. The IBM Spectrum Symphony installation binaries.
   
-     a. Download the binaries from [IBM](https://www.ibm.com/us-en/marketplace/analytics-workload-management) and place them in the `./blobs/` directory.
+     a. Download the binaries from [IBM](https://www.ibm.com/us-en/marketplace/analytics-workload-management) and place them in the `./blobs/symphony/` directory.
      
-     b. If the version is not 8.5.0 (the project default), then update the version number in the Files list
+     b. If the version is not 7.2.1.0 (the project default), then update the version number in the Files list
         in `./project.ini` and in the cluster template: `./templates/symphony.txt`
      
   3. CycleCloud must be installed and running.
@@ -64,11 +69,12 @@ The first step is to configure the project for use with your storage locker:
 
   2. Switch to the symphony directory.
 
-  3. Copy the following installers to `./blobs`
-    * symeval-7.2.0.0_x86_64.bin
-    * symeval-7.2.0.1.exe
+  3. Copy the entitlements file and installers to `./blobs/symphony`
+    * ./blobs/symphony/sym_adv_ev_entitlement.dat
+    * ./blobs/symphony/symeval-7.2.1.0_x86_64.bin
+    * ./blobs/symphony/symeval-7.2.1.0.exe
     
-  4. If the version number is not 7.2.0, update the version numbers in `project.ini` and `templates/symphony.txt`
+  4. If the version number is not 7.2.1.0, update the version numbers in `project.ini` and `templates/symphony.txt`
     
 
 ## Deploying the Project ##
@@ -117,3 +123,31 @@ To import the cluster:
     ```
 
 
+## Host Factory Provider for Azure CycleCloud
+
+This project extends the Symphony Host Factory with an Azure CycleCloud resource provider: azurecc.
+
+The Host Factory will be configured as the default autoscaler for the cluster.
+
+### Installing the azurecc HostFactory
+
+It is also possible to configure an existing Symphony installation to use the `azurecc` HostFactory to 
+burst into Azure.
+
+Please contact azure support for help with this configuration.
+
+
+
+# Contributing
+
+This project welcomes contributions and suggestions.  Most contributions require you to agree to a
+Contributor License Agreement (CLA) declaring that you have the right to, and actually do, grant us
+the rights to use your contribution. For details, visit https://cla.microsoft.com.
+
+When you submit a pull request, a CLA-bot will automatically determine whether you need to provide
+a CLA and decorate the PR appropriately (e.g., label, comment). Simply follow the instructions
+provided by the bot. You will only need to do this once across all repos using our CLA.
+
+This project has adopted the [Microsoft Open Source Code of Conduct](https://opensource.microsoft.com/codeofconduct/).
+For more information see the [Code of Conduct FAQ](https://opensource.microsoft.com/codeofconduct/faq/) or
+contact [opencode@microsoft.com](mailto:opencode@microsoft.com) with any additional questions or comments.
