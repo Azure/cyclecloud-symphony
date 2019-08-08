@@ -1,8 +1,15 @@
 
 default['symphony']['version'] = "7.2.1.0"
-default['symphony']['pkg']['linux'] = "symeval-#{node['symphony']['version']}_x86_64.bin"
-default['symphony']['pkg']['windows'] = "symeval-#{node['symphony']['version']}.exe"
-default['symphony']['license_file'] = "sym_adv_ev_entitlement.dat"
+default['symphony']['eval'] = false
+default['symphony']['pkg']['linux'] = "sym-#{node['symphony']['version']}_x86_64.bin"
+default['symphony']['pkg']['windows'] = "sym-#{node['symphony']['version']}.exe"
+# TODO: Test with std license (binaries are specific to the license type as well)
+default['symphony']['license_file'] = "sym_adv_entitlement.dat"
+if node['symphony']['eval'] == true
+  default['symphony']['pkg']['linux'] = "symeval-#{node['symphony']['version']}_x86_64.bin"
+  default['symphony']['pkg']['windows'] = "symeval-#{node['symphony']['version']}.exe"
+  default['symphony']['license_file'] = "sym_adv_ev_entitlement.dat"
+end
 
 default['symphony']['simplifiedwem'] = 'N'
 default['symphony']['baseport'] = 14899
@@ -16,8 +23,8 @@ default['symphony']['disablessl'] = true
 default['symphony']['shared_fs_install'] = false
 
 default['symphony']['admin']['user'] = 'egoadmin'
-default['symphony']['admin']['uid'] = '61111'
-default['symphony']['admin']['gid'] = '61111'
+default['symphony']['admin']['uid'] = '1001' # 61111
+default['symphony']['admin']['gid'] = '1002' # 61111
 default['symphony']['admin']['home'] = "#{node['cuser']['base_home_dir']}/#{node['symphony']['admin']['user']}"
 
 

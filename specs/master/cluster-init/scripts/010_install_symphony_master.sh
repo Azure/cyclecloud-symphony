@@ -7,7 +7,8 @@ set -x
 
 . /etc/profile.d/symphony.sh
 
-SYM_ENTITLEMENT_FILE="/etc/sym_adv_ev_entitlement.dat"
+SYM_ENTITLEMENT_FILE=$( jetpack config symphony.license_file )
+SYM_ENTITLEMENT_FILE="/etc/${SYM_ENTITLEMENT_FILE}"
 
 # mgmt nodes don't seem to accept the `EGO_GET_CONF=LIM` setting needed by execs
 sed -i '/EGO_GET_CONF/d' /etc/ego.conf

@@ -24,7 +24,7 @@ jetpack_download "symphony/#{node['symphony']['license_file']}" do
   project "symphony"
 end
 
-remote_file '/etc/sym_adv_ev_entitlement.dat' do 
+remote_file "/etc/#{node['symphony']['license_file']}" do 
   source "file://#{node['jetpack']['downloads']}/#{node['symphony']['license_file']}"
   owner 'root'
   group 'root'
@@ -222,7 +222,9 @@ if node['symphony']['shared_fs_install'] == false or node['symphony']['is_master
 
   jetpack_download "symphony/#{node['symphony']['pkg']['linux']}" do
     project "symphony"
-    not_if { ::File.exists?("#{node['jetpack']['downloads']}/#{node['symphony']['pkg']['linux']}") }
+    not_if { ::File.exists?("#{node['jetpack']['downloads']}/#{node['symphony']['pkg']['linux']}") or
+             ::File.exists?("#{node['symphony']['ego_confdir']}/profile.ego") }
+    
   end
 
 
@@ -246,6 +248,10 @@ if node['symphony']['shared_fs_install'] == false or node['symphony']['is_master
       file.write_file
     end
     not_if "grep -q 'Forcing EGO binary type' #{node['symphony']['ego_confdir']}/profile.ego"
+  end
+
+  bash "Ensure EGO MASTER list (#{master_node['cyclecloud']['instance']['hostname']})..." do
+    code "sed -i '/^EGO_MASTER_LIST=/c\EGO_MASTER_LIST=#{master_node['cyclecloud']['instance']['hostname']}' #{node['symphony']['ego_confdir']}/ego.conf"
   end
 
   template "#{node['symphony']['ego_confdir']}/ego.cluster.#{node['cyclecloud']['cluster']['name']}" do  
