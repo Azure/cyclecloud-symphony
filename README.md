@@ -70,6 +70,12 @@ The first step is to configure the project for use with your storage locker:
   2. Switch to the symphony directory.
 
   3. Copy the entitlements file and installers to `./blobs/symphony`
+    * ./blobs/symphony/sym-7.2.1.0.exe
+    * ./blobs/symphony/sym-7.2.1.0_x86_64.bin
+    * ./blobs/symphony/sym_adv_entitlement.dat
+    
+      Or, if using an eval edition:
+      
     * ./blobs/symphony/sym_adv_ev_entitlement.dat
     * ./blobs/symphony/symeval-7.2.1.0_x86_64.bin
     * ./blobs/symphony/symeval-7.2.1.0.exe
