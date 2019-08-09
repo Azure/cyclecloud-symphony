@@ -5,6 +5,10 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 
+if node['symphony']['host_factory']['enabled']
+  # HostFactory is in charge of autostop
+  return
+end
 
 if node['os'] == 'windows'
 

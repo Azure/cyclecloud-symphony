@@ -1,6 +1,9 @@
 ###########################
 ## IBM Spectrum Symphony ##
 ###########################
+[noderef filer]
+SourceClusterName = $FileSystemClusterName
+
 
 [cluster Symphony]
 FormLayout = selectionpanel
@@ -23,10 +26,47 @@ Autoscale = $Autoscale
         [[[configuration]]]
         run_list = recipe[cshared::client], recipe[cuser], recipe[cganglia::client]
 
+        cyclecloud.mounts.sched.disabled = true
+        cyclecloud.mounts.shared.disabled = true
+        cshared.server.legacy_links_disabled = true
+        cuser.base_home_dir = /shared/home
+
+        cyclecloud.exports.shared.samba.enabled = false
+        cyclecloud.exports.defaults.samba.enabled = false
+        
+        cyclecloud.selinux.policy = permissive
+        # cyclecloud.maintenance_converge.enabled = false
+
+
+        symphony.shared_fs_install = true
+        symphony.host_factory.enabled = true
+
+        [[[configuration cyclecloud.mounts.ibm]]]
+        type = nfs
+        export_path = $IbmExportPath
+        mountpoint = /opt/ibm
+        address = ${filer.instance.PrivateIp}
+
+
+        [[[configuration cyclecloud.mounts.home]]]
+        type = nfs
+        export_path = $HomeExportPath
+        mountpoint = /shared/home
+        address = ${filer.instance.PrivateIp}
+
+        [[[configuration cyclecloud.mounts.data]]]
+        type = nfs
+        export_path = $DataExportPath
+        mountpoint = /data
+        address = ${filer.instance.PrivateIp}
+
+
         [[[network-interface eth0]]]
         AssociatePublicIpAddress = false
 
         [[[cluster-init symphony:default:2.0.0]]]
+
+
 	
     [[node master]]
     MachineType = $ManagementMachineType
@@ -35,7 +75,7 @@ Autoscale = $Autoscale
     AdditionalClusterInitSpecs = $ManagementClusterInitSpecs
 
         [[[configuration]]]
-        run_list = recipe[cshared::directories], recipe[cuser], recipe[cshared::server], recipe[cganglia::server], recipe[cganglia::client]
+        run_list = recipe[cshared::client], recipe[cuser], recipe[cganglia::server], recipe[cganglia::client]        
         cyclecloud.discoverable = true
 	
         [[[configuration symphony]]]
@@ -45,6 +85,14 @@ Autoscale = $Autoscale
         [[[input-endpoint ganglia]]]
         PrivatePort = 8652
         PublicPort = 8652
+
+        [[[input-endpoint http]]]
+        PrivatePort = 8080
+        PublicPort = 8080
+
+        [[[input-endpoint https]]]
+        PrivatePort = 8443
+        PublicPort = 8443
 
         [[[network-interface eth0]]]
         AssociatePublicIpAddress = $UsePublicNetwork
@@ -180,6 +228,36 @@ Order = 10
         Description = Subnet Resource Path (ResourceGroup/VirtualNetwork/Subnet)
         ParameterType = Azure.Subnet
         Required = True
+
+
+    [[parameters Filesystem Configuration]]
+    Description = "Select the Persistent NFS Filesystem cluster"
+    Order = 50
+
+       [[[parameter FileSystemClusterName]]]
+       Label = NFS Cluster
+       Description = The filesystem to mount
+       Config.Plugin = pico.form.QueryDropdown
+       Config.Query = select ClusterName as Name from Cloud.Node where cluster().IsTemplate isnt true && Configuration.role=?="sharedfs"
+       Config.SetDefault = false
+       Required = true
+
+       [[[parameter DataExportPath]]]
+       Label = Data Export
+       Description = The path exported by the file system for shared scratch space
+       DefaultValue = /mnt/exports/data
+
+
+       [[[parameter IbmExportPath]]]
+       Label = IBM Export
+       Description = The path exported by the file system for the shared Symphony installation
+       DefaultValue = /mnt/exports/ibm
+
+
+       [[[parameter HomeExportPath]]]
+       Label = Home Export
+       Description = The path exported by the file system for the shared user Home directories
+       DefaultValue = /mnt/exports/home
 
 
 [parameters Advanced Settings]

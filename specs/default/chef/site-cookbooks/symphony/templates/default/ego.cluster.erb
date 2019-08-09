@@ -1,0 +1,63 @@
+#
+# This is a sample ego cluster definition file.  This file's name
+# should be ego.cluster.<cluster-name>.
+#
+
+Begin   ClusterAdmins
+Administrators = egoadmin
+End    ClusterAdmins
+
+Begin Host
+HOSTNAME  model    type        r1m  mem  swp  RESOURCES    #Keywords
+#lemon    PC200    LINUX86     3.5  1    2   (linux)
+#plum     !        NTX86       3.5  1    2   (nt)
+<% @mgmt_list.each do |mgmt| %>
+<%= mgmt %>    !        !            -    -    -   (mg linux)
+<% end %>
+End     Host
+
+Begin Parameters
+EGO_HOST_ADDR_RANGE=*.*.*.* *:*:*:*:*:*:*:*
+End Parameters
+
+Begin ResourceMap
+RESOURCENAME  LOCATION
+# tmp2         [default]
+# nio         [all]
+# console [default]
+scode          [default]
+agent_control  [default]
+agent_control_enhanced [default]
+cit            [default]
+uit_t          [default]
+cu_t           [default]
+cit_t          [default]
+acu            [default]
+exempt_process [default]
+close_process   [default]
+processes      [default]
+release_mode    [default]
+netcard        [default]
+diskwrite       [default]
+diskread        [default]
+netwrite        [default]
+netread         [default]
+docker_active   [default]
+ip     [default]
+mac [default]
+rxpackets [default]
+txpackets [default]
+rxbytes [default]
+txbytes [default]
+rxpacketsps [default]
+txpacketsps [default]
+rxbytesps [default]
+txbytesps [default]
+droppedrxpackets [default]
+droppedtxpackets [default]
+errorrxpackets [default]
+errortxpackets [default]
+overrunrxpackets [default]
+overruntxpackets [default]
+diskInfo [default]
+End ResourceMap

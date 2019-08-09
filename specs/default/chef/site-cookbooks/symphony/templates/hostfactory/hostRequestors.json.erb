@@ -1,0 +1,22 @@
+{
+    "requestors":[
+        {
+            "name": "symA",
+            "confPath": "${HF_CONFDIR}/requestors/symA/conf/",
+            "scriptPath": "${HF_TOP}/requestors/symA/scripts/",
+            "enabled": 1,
+            "needEGOCredential": 1,
+            "providers": [ "azurecc" ],
+            "requestMode": "POLL"
+        },
+        {
+            "name": "cwsA",
+            "confPath": "${HF_CONFDIR}/requestors/cws/",
+            "scriptPath": "${HF_TOP}/requestors/cws/scripts/",
+            "enabled": 0,
+            "needEGOCredential": 1,
+            "providers": [ "azurecc" ],
+            "requestMode": "POLL"
+        }
+    ]
+}

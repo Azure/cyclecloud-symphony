@@ -7,14 +7,26 @@ set -x
 
 . /etc/profile.d/symphony.sh
 
-SYM_ENTITLEMENT_FILE="${CYCLECLOUD_SPEC_PATH}/files/sym_adv_ev_entitlement.dat"
+SYM_ENTITLEMENT_FILE=$( jetpack config symphony.license_file )
+SYM_ENTITLEMENT_FILE="/etc/${SYM_ENTITLEMENT_FILE}"
+
+# mgmt nodes don't seem to accept the `EGO_GET_CONF=LIM` setting needed by execs
+sed -i '/EGO_GET_CONF/d' /etc/ego.conf
+
+# mgmt nodes may already be "joined" (and that may cause a non-zero exit)
+set +e
+su - -c 'source /etc/profile.d/symphony.sh && yes | egoconfig join $( hostname ) | tee -a /tmp/egojoin' egoadmin
+if [ $? -ne 0 ]; then
+    if grep -q "This host belongs to the cluster ${CLUSTERNAME}" /tmp/egojoin; then
+        echo "Host already configured for this cluster (${CLUSTERNAME})"
+    else
+        exit -1
+    fi
+fi
 
 set -e
 
-sed -i '/EGO_GET_CONF/d' ${EGO_CONFDIR}/ego.conf
 
-
-su - -c 'source /etc/profile.d/symphony.sh && yes | egoconfig join $( hostname )' egoadmin
 su - -c "source /etc/profile.d/symphony.sh && yes | egoconfig setentitlement ${SYM_ENTITLEMENT_FILE}" egoadmin
 
 # Enable automatic startup after reboot (TODO: might want to move restart to chef so volumes are mounted)

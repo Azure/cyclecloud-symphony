@@ -1,0 +1,56 @@
+# EGO kernel parameters configuration file
+#
+
+# EGO master candidate host
+EGO_MASTER_LIST="<%= @master_list %>"
+
+# EGO daemon port number
+EGO_LIM_PORT=<%= node['symphony']['lim_port'] %>
+EGO_KD_PORT=<%= node['symphony']['kd_port'] %>
+EGO_PEM_PORT=<%= node['symphony']['pem_port'] %>
+EGO_SNMP_PORT=<%= node['symphony']['snmp_port'] %>
+
+# EGO working and logging directory
+EGO_WORKDIR=/opt/ibm/spectrumcomputing/kernel/work
+EGO_LOGDIR=/opt/ibm/spectrumcomputing/kernel/log
+
+# EGO log mask
+EGO_LOG_MASK=LOG_NOTICE
+
+# EGO service directory
+EGO_ESRVDIR=/opt/ibm/spectrumcomputing/eservice
+
+# EGO security configuration
+EGO_SEC_PLUGIN=sec_ego_default
+EGO_SEC_CONF=/opt/ibm/spectrumcomputing/kernel/conf
+
+# EGO event configuration
+#EGO_EVENT_MASK=LOG_INFO
+#EGO_EVENT_PLUGIN=eventplugin_snmp[SINK=host,MIBDIRS=/opt/ibm/spectrumcomputing/kernel/conf/mibs]
+
+# EGO audit log configuration
+EGO_AUDIT_LOG=N
+EGO_AUDIT_LOGDIR=/opt/ibm/spectrumcomputing/audits
+EGO_AUDIT_LOGMASK=LOG_INFO
+
+# Parameters related to dynamic adding/removing host
+EGO_DYNAMIC_HOST_WAIT_TIME=60
+
+EGO_ENTITLEMENT_FILE="/opt/ibm/spectrumcomputing/kernel/conf/platform.entitlement"
+
+# EGO resource allocation policy configuration
+EGO_DISTRIBUTION_INTERVAL=1
+EGO_ADJUST_SHARE_TO_WORKLOAD=Y
+EGO_RECLAIM_FROM_SIBLINGS=Y
+EGO_RBAC_ALLOW_SELFASSIGNMENT=Y
+
+# Parameters for SSL
+EGO_DEFAULT_TS_PARAMS="SSL[CERTIFICATE=/opt/ibm/spectrumcomputing/wlp/usr/shared/resources/security/user.pem,CIPHER=AES256-GCM-SHA384,PRIVATE_KEY=/opt/ibm/spectrumcomputing/wlp/usr/shared/resources/security/user.key]"
+EGO_CLIENT_TS_PARAMS="SSL[CIPHER=AES256-GCM-SHA384,CAFILE=/opt/ibm/spectrumcomputing/wlp/usr/shared/resources/security/cacert.pem]"
+
+# Parameter for host software
+EGO_COMPONENTS_COLLECTION=Y
+EGO_VERSION=3.7
+
+# Use SSH for ego communication in Azure
+EGO_RSH="ssh -oPasswordAuthentication=no -oStrictHostKeyChecking=no"
