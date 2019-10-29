@@ -6,6 +6,8 @@ from subprocess import check_call
 import tempfile
 import threading
 import unittest
+import errno
+import socket
 
 
 class ClusterInitTest(unittest.TestCase):
@@ -14,8 +16,15 @@ class ClusterInitTest(unittest.TestCase):
     def setUpClass(clz):
         clz.jetpack = tempfile.mkdtemp("jetpack")
         os.chdir(clz.jetpack)
-        clz.http_server = SocketServer.TCPServer(("", 8183), SimpleHTTPServer.SimpleHTTPRequestHandler)
-
+        for port in range(8180, 8280):
+            try:
+                clz.http_server = SocketServer.TCPServer(("", port), SimpleHTTPServer.SimpleHTTPRequestHandler)
+                clz.port = port
+                break
+            except socket.error as e:
+                if e.errno != errno.EADDRINUSE:
+                    raise
+        
         def run_server():
             try:
                 clz.http_server.serve_forever(.1)
@@ -27,7 +36,7 @@ class ClusterInitTest(unittest.TestCase):
         # mock jetpack
         with open("jetpack", "w") as fw:
             fw.write("""#/bin/bash -e
-curl http://localhost:8183/$(echo $2 | sed s/\\\\./\\\\//g) > response 2>/dev/null
+curl http://localhost:%s/$(echo $2 | sed s/\\\\./\\\\//g) > response 2>/dev/null
 grep '\<body\>' response 1>&2 > /dev/null
 
 if [ $? == 0 ]; then
@@ -39,17 +48,19 @@ if [ $? == 0 ]; then
     fi
 else
     cat response
-fi""")
+fi""" % clz.port)
         
         os.system("chmod +x jetpack")
 
     def setUp(self):
-        
+        if os.path.exists("/tmp/azurecc.profile"):
+            os.remove("/tmp/azurecc.profile")
+                    
         self.symphony_top = tempfile.mkdtemp("symphony_top")
         os.makedirs(os.path.join(self.symphony_top, "conf"))
         with open(os.path.join(self.symphony_top, "conf", "symphony.conf"), "w") as fw:
             fw.write("# comment\n")
-            fw.write("Symphony_LOCAL_RESOURCES=\"[resource canary]\"\n")
+            fw.write("SYM_LOCAL_RESOURCES=\"[resource canary]\"\n")
             fw.write("SOME_TIMEOUT=100\n")
         
     def tearDown(self):
@@ -67,11 +78,13 @@ fi""")
     @classmethod
     def tearDownClass(clz):
         clz.http_server.server_close()
+        clz.http_server.shutdown()
         shutil.rmtree(clz.jetpack)
         
     def _create_jetpack_config(self, data, cwd=None):
         if cwd is None:
             cwd = os.getcwd()
+            
         # create files so that self.http_server can serve them
         for key, value in data.iteritems():
             
@@ -86,6 +99,7 @@ fi""")
                     
     def test_execute_create_azurecc_profile(self):
         self._create_jetpack_config({"symphony": {"symphony_top": self.symphony_top,
+                                            "local_etc": "/tmp",
                                             "custom_env_names": "name1 name2",
                                             "custom_env": {"name1": "value1",
                                                            "name2": "value2"}}})
@@ -93,7 +107,9 @@ fi""")
         self._assert_profile_equals({"export name1": "value1", "export name2": "value2"})
         
     def test_execute_create_azurecc_profile_empty(self):
-        self._create_jetpack_config({"symphony": {"symphony_top": self.symphony_top}})
+        assert not os.path.exists("/tmp/azurecc.profile")        
+        self._create_jetpack_config({"symphony": {"symphony_top": self.symphony_top,
+                                             "local_etc": "/tmp"}})
         self._call("00-create-azurecc-profile.sh")
         self._assert_profile_equals({})
         
@@ -109,6 +125,7 @@ fi""")
         
     def test_modify_symphony_local_resources_skip_because_uri(self):
         self._create_jetpack_config({"symphony": {"symphony_top": self.symphony_top,
+                                             "local_etc": self.symphony_top + "/conf",
                                              "custom_script_uri": "anything",
                                              "attributes": {"custom1": "custom_value1",
                                                             "custom2": "custom_value2"},
@@ -139,12 +156,15 @@ fi""")
     def test_run_custom_script_uri(self):
         with open("custom_script.sh", "w") as fw:
             fw.write("#!/bin/bash -e\n")
-            fw.write('echo Symphony_LOCAL_RESOURCES=$name1 and $name2 > %s/conf/symphony.conf' % self.symphony_top)
+            fw.write('echo SYM_LOCAL_RESOURCES=$name1 and $name2 > %s/conf/symphony.conf' % self.symphony_top)
         os.system("chmod +x custom_script.sh")
         # so we will skip step 01 and just 
         self._create_jetpack_config({"symphony": {"symphony_top": self.symphony_top,
+                                             "local_etc": self.symphony_top + "/conf",
                                              "custom_script_uri": "file://%s" % os.path.abspath("custom_script.sh"),
                                              "custom_env_names": "name1 name2",
+                                             "attributes": {"custom1": "True", "custom2": "falsE"},
+                                             "attribute_names": "custom1 custom2",
                                              "custom_env": {"name1": "value1",
                                                            "name2": "value2"}}})
         self._call("00-create-azurecc-profile.sh")
@@ -178,7 +198,8 @@ fi""")
         return key_vals 
     
     def _assert_profile_equals(self, expected):
-        profile_vars = self._parse(os.path.join(self.symphony_top, "conf", "azurecc.profile"))
+        profile_vars = self._parse("/tmp/azurecc.profile")
+        #profile_vars = self._parse(os.path.join(self.symphony_top, "conf", "azurecc.profile"))
         self.assertEquals(expected, profile_vars)
         
     def _assert_local_resources_equals(self, expected):

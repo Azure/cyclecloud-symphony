@@ -139,6 +139,7 @@ class CycleCloudProvider:
                 
                 for bucket in nodearray_root.get("buckets"):
                     machine_type_name = bucket["definition"]["machineType"]
+                    machine_type_short = machine_type_name.lower().replace("standard_", "").replace("basic_", "").replace("_", "")
                     machine_type = bucket["virtualMachine"]
                     
                     # Symphony hates special characters
@@ -209,6 +210,8 @@ class CycleCloudProvider:
                     
                     for n, placement_group in enumerate(_placement_groups(self.config)):
                         template_id = record["templateId"] + placement_group
+                        # placement groups can't be the same across templates. Might as well make them the same as the templateid
+                        namespaced_placement_group = template_id
                         if is_low_prio:
                             # not going to create mpi templates for interruptible nodearrays.
                             # if the person updated the template, set maxNumber to 0 on any existing ones
@@ -219,8 +222,8 @@ class CycleCloudProvider:
                                 break
                         
                         record_mpi = deepcopy(record)
-                        record_mpi["attributes"]["placementgroup"] = ["String", placement_group]
-                        record_mpi["UserData"]["symphony"]["attributes"]["placementgroup"] = placement_group
+                        record_mpi["attributes"]["placementgroup"] = ["String", named_placement_group]
+                        record_mpi["UserData"]["symphony"]["attributes"]["placementgroup"] = named_placement_group
                         record_mpi["attributes"]["azureccmpi"] = ["Boolean", "1"]
                         record_mpi["UserData"]["symphony"]["attributes"]["azureccmpi"] = True
                         # regenerate names, as we have added placementgroup
@@ -455,6 +458,13 @@ class CycleCloudProvider:
             
             response["requests"].append(request)
             
+            report_failure_states = ["Unavailable", "Failed"]
+            terminate_states = []
+            
+            if self.config.get("symphony.terminate_failed_nodes", False):
+                report_failure_states = ["Unavailable"]
+                terminate_states = ["Failed"]
+            
             for node in requested_nodes["nodes"]:
                 # for new nodes, completion is Ready. For "released" nodes, as long as
                 # the node has begun terminated etc, we can just say success.
@@ -470,16 +480,36 @@ class CycleCloudProvider:
                     unknown_state_count = unknown_state_count + 1
                     continue
                 
-                elif node_status in ["Unavailable", "Failed"]:
+                elif node_status in report_failure_states:
                     machine_result = MachineResults.failed
                     machine_status = MachineStates.error
                     if request_status != RequestStates.running:
                         message = node.get("StatusMessage", "Unknown error.")
                         request_status = RequestStates.complete_with_error
+                        
+                elif node_status in terminate_states:
+                    # just terminate the node and next iteration the node will be gone. This allows retries of the shutdown to happen, as 
+                    # we will report that the node is still booting.
+                    unknown_state_count = unknown_state_count + 1
+                    machine_result = MachineResults.executing
+                    machine_status = MachineStates.building
+                    request_status = RequestStates.running
+                    
+                    hostname = None
+                    if node.get("PrivateIp"):
+                        try:
+                            hostname = self.hostnamer.hostname(node.get("PrivateIp"))
+                        except Exception:
+                            logger.exception("Could not convert ip to hostname - %s" % node.get("PrivateIp"))
+                    try:
+                        self.cluster.terminate([{"machineId": node.get("NodeId"), "name": hostname}], self.hostnamer)
+                    except Exception:
+                        logger.exception("Could not terminate node with id %s" % node.get("NodeId"))
         
                 elif not node.get("InstanceId"):
                     requesting_count = requesting_count + 1
                     request_status = RequestStates.running
+                    machine_result = MachineResults.executing
                     continue
                 
                 elif node_status == "Started":
@@ -490,6 +520,7 @@ class CycleCloudProvider:
                         logger.warn("No ip address found for ready node %s", node.get("Name"))
                         machine_result = MachineResults.executing
                         machine_status = MachineStates.building
+                        request_status = RequestStates.running
                     else:
                         hostname = self.hostnamer.hostname(private_ip_address)
                 else:
