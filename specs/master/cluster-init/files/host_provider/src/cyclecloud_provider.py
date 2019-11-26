@@ -82,7 +82,7 @@ class CycleCloudProvider:
         {'templates': [{'attributes': {'azurecchost': ['Boolean', '1'],
                                'mem': ['Numeric', '2048'],
                                'ncores': ['Numeric', '4'],
-                               'ncpus': ['Numeric', '4'],
+                               'ncpus': ['Numeric', '1'],
                                'type': ['String', 'X86_64'],
                                'zone': ['String', 'southeastus']},
                 'instanceTags': 'group=project1',
@@ -93,7 +93,7 @@ class CycleCloudProvider:
                {'attributes': {'azurecchost': ['Boolean', '1'],
                                'mem': ['Numeric', '4096'],
                                'ncores': ['Numeric', '8'],
-                               'ncpus': ['Numeric', '8'],
+                               'ncpus': ['Numeric', '1'],
                                'type': ['String', 'X86_64'],
                                'zone': ['String', 'southeastus']},
                 'instanceTags': 'group=project1',
@@ -171,7 +171,12 @@ class CycleCloudProvider:
                             "zone": ["String", nodearray.get("Region")],
                             "mem": ["Numeric", "%d" % memory],
                             "nram": ["Numeric", "%d" % memory],
-                            "ncpus": ["Numeric", "%d" % machine_type.get("vcpuCount")],
+                            # NOTE:
+                            #  ncpus == num_sockets == ncores / cores_per_socket
+                            #  Since we don't generally know the num_sockets,
+                            #      just set ncpus = 1 for all skus (1 giant CPU with N cores)
+                            #"ncpus": ["Numeric", "%d" % machine_type.get("???physical_socket_count???")],
+                            "ncpus": ["Numeric", "1"],  
                             "ncores": ["Numeric", "%d" % machine_type.get("vcpuCount")],
                             "ngpus": ["Numeric", ngpus],                            
                             "azurecchost": ["Boolean", "1"],
