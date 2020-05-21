@@ -39,7 +39,7 @@ class MockCluster:
     def __init__(self, nodearrays):
         self._nodearrays = nodearrays
         self._nodearrays["nodearrays"].append({"name": "execute",
-                                               "nodearray": {"Configuration": {"run_list": ["recipe[symphony::master]"]}}})
+                                               "nodearray": {"Configuration": {"run_list": ["recipe[symphony::execute]"]}}})
         # template -> requestI
         self._nodes = {}
         self.raise_during_termination = False

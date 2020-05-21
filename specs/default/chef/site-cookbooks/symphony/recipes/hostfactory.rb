@@ -126,6 +126,9 @@ defer_block 'Defer start of HostFactory service until ego is started' do
     set -e
 
     egosh user logon -u Admin -x Admin
+    set +e
+    egosh service stop HostFactory
+    set -e
     egosh service start HostFactory
     EOH
     user "egoadmin"
