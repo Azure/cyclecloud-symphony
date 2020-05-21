@@ -33,33 +33,25 @@ class Cluster:
             responses[request_id] = self.get("/clusters/%s/nodes" % self.cluster_name, request_id=request_id)
         return responses
 
-    def terminate(self, machines, hostnamer):
-        id_to_ip = {}
-        for machine in machines:
-            id_to_ip[machine["machineId"]] = hostnamer.private_ip_address(machine["name"])
-        
-        response_raw = self.post("/clusters/%s/nodes/terminate" % self.cluster_name, json={"ids": id_to_ip.keys()})
+    def terminate(self, machines):
+        machine_ids = [machine["machineId"] for machine in machines]
+        response_raw = self.post("/clusters/%s/nodes/terminate" % self.cluster_name, json={"ids": machine_ids})
         response = json.loads(response_raw)
-        for node in response["nodes"]:
-            id_to_ip.pop(node["id"])
-        
+
         # kludge: work around
-        # if Symphony has a stale machineId -> hostname mapping, find the existing instance with that ip and kill it
-        
-        if id_to_ip:
-            ips = id_to_ip.values()
-            self.logger.warn("Terminating the following nodes by ip address: %s", id_to_ip.keys())
-            
-            for i in range(0, len(ips), 10):
-                subset_ips = ips[i:min(len(ips), i + 10)]
-                f = urlencode({"instance-filter": 'PrivateIp in {%s}' % ",".join('"%s"' % x for x in subset_ips)})
-                
-                try:
-                    self.post("/cloud/actions/terminate_node/%s?%s" % (self.cluster_name, f))
-                except cyclecli.UserError as e:
-                    if "No instances were found matching your query" in unicode(e):
-                        return
-                    raise
+        # if Symphony may have a stale machineId -> hostname mapping, so find the existing instance with that hostname and kill it
+        machine_names = [ machine["name"].split(".")[0] for machine in machines if machine.get("name") ]
+        if machine_names:
+            self.logger.warn("Terminating the following nodes by machine_names: %s", machine_names)
+
+            f = urlencode({"instance-filter": 'HostName in {%s}' % ",".join('"%s"' % x for x in machine_names)})
+            try:
+                self.post("/cloud/actions/terminate_node/%s?%s" % (self.cluster_name, f))
+            except cyclecli.UserError as e:
+                if "No instances were found matching your query" in unicode(e):
+                   return
+                raise
+
             
     def _session(self):
         config = {"verify_certificates": False,

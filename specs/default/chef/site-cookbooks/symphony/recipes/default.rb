@@ -143,10 +143,18 @@ end
 
 file "/etc/security/limits.d/#{node['symphony']['admin']['user']}.conf" do
   content <<-EOH
- #{node['symphony']['admin']['user']} soft nproc 65536
- #{node['symphony']['admin']['user']} hard nproc 65536
- #{node['symphony']['admin']['user']} soft nofile 65536
- #{node['symphony']['admin']['user']} soft nofile 65536
+#{node['symphony']['admin']['user']} soft nproc 65536
+#{node['symphony']['admin']['user']} hard nproc 65536
+#{node['symphony']['admin']['user']} soft nofile 65536
+#{node['symphony']['admin']['user']} soft nofile 65536
+* soft nproc 65536
+* hard nproc 65536
+* soft nofile 65536
+* soft nofile 65536
+root soft nproc unlimited
+root hard nproc unlimited
+root soft nofile unlimited
+root soft nofile unlimited
   EOH
 end
 

@@ -31,6 +31,10 @@ default['symphony']['admin']['home'] = "#{node['cuser']['base_home_dir']}/#{node
 default['symphony']['is_master'] = false
 default['symphony']['is_management'] = false
 
+default['symphony']['ego_top'] = '/opt/ibm/spectrumcomputing'
+default['symphony']['ego_version'] = '3.7'
+default['symphony']['ego_confdir'] = "#{node['symphony']['ego_top']}/kernel/conf"
+
 
 
 # Auto-scaling configuration
@@ -52,11 +56,16 @@ default['symphony']['hostfactory']['HF_REST_RESULT_MAX_PAGESIZE'] = 10000
 
 # symA requestor params
 default['symphony']['hostfactory']['requestors']['symA']['scaling_policy']['warmup_time'] = 1
-default['symphony']['hostfactory']['requestors']['symA']['scaling_policy']['desired_task_complete_duration'] = 10
-default['symphony']['hostfactory']['requestors']['symA']['host_return_policy']['name'] = 'lazy'
-default['symphony']['hostfactory']['requestors']['symA']['host_return_policy']['billing_interval'] = 5
+default['symphony']['hostfactory']['requestors']['symA']['scaling_policy']['history_expiry_time'] = 10
+default['symphony']['hostfactory']['requestors']['symA']['scaling_policy']['active_task_moving_avg']  = 3
+default['symphony']['hostfactory']['requestors']['symA']['scaling_policy']['startup_cores_if_no_history'] = 1
+default['symphony']['hostfactory']['requestors']['symA']['scaling_policy']['desired_task_complete_duration'] = 1
+default['symphony']['hostfactory']['requestors']['symA']['scaling_policy']['ego_host_startup_time'] = 5
+default['symphony']['hostfactory']['requestors']['symA']['scaling_policy']['ego_failover_timeout'] = 10
+default['symphony']['hostfactory']['requestors']['symA']['host_return_policy']['name'] = 'immediate'
+# Billing interval MUST be >= Return Interval (required by SymA requestor)
+default['symphony']['hostfactory']['requestors']['symA']['host_return_policy']['billing_interval'] = 2
 default['symphony']['hostfactory']['requestors']['symA']['host_return_policy']['return_interval'] = 2
 default['symphony']['hostfactory']['requestors']['symA']['host_return_policy']['force_return_interval'] = 5
-default['symphony']['hostfactory']['requestors']['symA']['host_return_policy']['return_idle_only'] = false
-
+default['symphony']['hostfactory']['requestors']['symA']['host_return_policy']['return_idle_only'] = true
 

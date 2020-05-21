@@ -24,7 +24,7 @@ def init_logging(loglevel=logging.INFO, logfile=None):
     global _logging_init
     if logfile is None:
         logfile = "azurecc_prov.log"
-    logfile_path = os.path.join(os.getenv("PRO_Symphony_LOGDIR", "/tmp"), logfile)
+    logfile_path = os.path.join(os.getenv("PRO_SYMPHONY_LOGDIR", "/tmp"), logfile)
     
     try:
         import jetpack
@@ -76,20 +76,29 @@ class JsonStore:
         self.formatted = formatted
         self.data = None
         self.lockfp = None
+        self.lock_count = 0
         self.logger = init_logging()
     
     def _lock(self):
+        self.lock_count += 1
+        if self.lock_count > 1:
+            return True
+        
         try:
-            self.lockfp = os.open(self.lockpath, os.O_EXCL)
-            fcntl.flock(self.lockfp, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            self.lockfp = open(self.lockpath, 'w')
+            fcntl.lockf(self.lockfp, fcntl.LOCK_EX | fcntl.LOCK_NB)
             return True
         except IOError:
             self.logger.exception("Could not acquire lock - %s" % self.lockpath)
             return False
             
     def _unlock(self):
+        self.lock_count -= 1
+        if self.lock_count > 0:
+            return
+        
         try:
-            os.close(self.lockfp)
+            self.lockfp.close()
         except IOError:
             self.logger.exception("Error closing lock - %s" % self.lockpath)
             

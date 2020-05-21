@@ -12,7 +12,7 @@
     ],
     "resource_groups":["ComputeHosts"],
     "resource_plans":["ComputeHosts"],
-    "host_return_policy": "lazy",
+    "host_return_policy": "<%= node['symphony']['hostfactory']['requestors']['symA']['host_return_policy']['name'] %>",
     "unavailable_host_timeout":30,
     "azurecc": true
 }
