@@ -459,7 +459,7 @@ class CycleCloudProvider:
         req_return_count = 0
         
 
-        for node in all_nodes.iteritems():
+        for node in all_nodes.values():
 
             if node.get("PrivateIp"):
                 try:
@@ -902,7 +902,7 @@ def simple_json_writer(data, debug_output=True):  # pragma: no cover
     data_str = json.dumps(data)
     if debug_output:
         logger.debug("Response: %s", data_str)
-    print data_str
+    print(data_str)
     return data
 
 

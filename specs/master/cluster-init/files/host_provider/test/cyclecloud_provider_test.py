@@ -9,8 +9,8 @@ import unittest
 
 import cyclecloud_provider
 from symphony import RequestStates, MachineStates, MachineResults
-import test_json_source_helper
-from util import JsonStore
+# import test_json_source_helper
+# from util import JsonStore
 import util
 
 
@@ -98,23 +98,21 @@ class MockCluster:
         Just yield each node that matches the attrs specified. If the value is a 
         list or set, use 'in' instead of ==
         '''
-        ret = {}
         
         def _yield_nodes(**attrs):
             for nodes_for_template in self._nodes.itervalues():
                 for node in nodes_for_template:
-                    all_match = True
+                    all_match = True                                        
                     for key, value in attrs.iteritems():
                         if isinstance(value, list) or isinstance(value, set):
                             all_match = all_match and node[key] in value
                         else:
                             all_match = all_match and node[key] == value
                     if all_match:
-                        ret[key] = node
                         yield node
         return list(_yield_nodes(**attrs))
     
-    def terminate(self, machines, unused):
+    def terminate(self, machines):
         if self.raise_during_termination:
             raise RuntimeError("raise_during_termination")
         
@@ -144,7 +142,7 @@ def json_writer(data, debug_output=False):
     return data
             
             
-class Test(unittest.TestCase):
+class TestHostFactory(unittest.TestCase):
 
     def test_simple_lifecycle(self):
         provider = self._new_provider()
@@ -154,8 +152,9 @@ class Test(unittest.TestCase):
         
         self.assertEquals(1, len(templates))
         self.assertEquals("executea4", templates[0]["templateId"])
-        self.assertEquals(["Numeric", 4], templates[0]["attributes"]["ncores"])
-        self.assertEquals(["Numeric", 4], templates[0]["attributes"]["ncpus"])
+        # WARNING: LSF does not quote Numerics and Symphony does (Symphony will likely upgrade to match LSF eventually)
+        self.assertEquals(["Numeric", '4'], templates[0]["attributes"]["ncores"])
+        self.assertEquals(["Numeric", '1'], templates[0]["attributes"]["ncpus"])
         
         provider.cluster._nodearrays["nodearrays"][0]["buckets"].append({"maxCount": 2, "definition": {"machineType": "A8"}, "virtualMachine": MACHINE_TYPES["A8"]})
         
@@ -165,14 +164,14 @@ class Test(unittest.TestCase):
         a4 = [t for t in templates if t["templateId"] == "executea4"][0]
         a8 = [t for t in templates if t["templateId"] == "executea8"][0]
         
-        self.assertEquals(["Numeric", 4], a4["attributes"]["ncores"])
-        self.assertEquals(["Numeric", 4], a4["attributes"]["ncpus"])
-        self.assertEquals(["Numeric", 1024], a4["attributes"]["mem"])
+        self.assertEquals(["Numeric", '4'], a4["attributes"]["ncores"])
+        self.assertEquals(["Numeric", '1'], a4["attributes"]["ncpus"])
+        self.assertEquals(["Numeric", '1024'], a4["attributes"]["mem"])
         self.assertEquals(["String", "X86_64"], a4["attributes"]["type"])
         
-        self.assertEquals(["Numeric", 8], a8["attributes"]["ncores"])
-        self.assertEquals(["Numeric", 8], a8["attributes"]["ncpus"])
-        self.assertEquals(["Numeric", 2048], a8["attributes"]["mem"])
+        self.assertEquals(["Numeric", '8'], a8["attributes"]["ncores"])
+        self.assertEquals(["Numeric", '1'], a8["attributes"]["ncpus"])
+        self.assertEquals(["Numeric", '2048'], a8["attributes"]["mem"])
         self.assertEquals(["String", "X86_64"], a8["attributes"]["type"])
         
         request = provider.create_machines(self._make_request("executea4", 1))
@@ -213,9 +212,12 @@ class Test(unittest.TestCase):
                 self.assertEquals(expected_machine_status, m["status"])
                 self.assertEquals(expected_machine_result, m["result"])
             
-            if node_status == "Failed":
+            if node_status == "Failed" and provider.config.get("symphony.terminate_failed_nodes", False):
                 mutable_node = provider.cluster.inodes(Name="execute-1")
                 self.assertEquals(mutable_node[0].get("TargetState"), "Terminated")
+            else:
+                mutable_node = provider.cluster.inodes(Name="execute-1")
+                self.assertEquals(mutable_node[0].get("TargetState"), node_target_state)
             
         # no instanceid == no machines
         run_test(instance=None, expected_machines=0)
@@ -225,10 +227,18 @@ class Test(unittest.TestCase):
         
         # has an instance, but Failed
         run_test(expected_machines=1, node_status="Failed", node_status_message="fail for tests",
+                 expected_request_status=RequestStates.complete_with_error,
+                 expected_machine_status=MachineStates.error,
+                 expected_machine_result=MachineResults.failed)
+
+        # has an instance, but Failed and we're configured to Terminate Failed nodes
+        provider.config.set("symphony.terminate_failed_nodes", True)
+        run_test(expected_machines=1, node_status="Failed", node_status_message="fail for tests",
                  expected_request_status=RequestStates.running,
                  expected_machine_status=MachineStates.building,
                  expected_machine_result=MachineResults.executing)
-        
+
+                
         # node is ready to go
         run_test(node_status="Started", expected_machine_result=MachineResults.succeed, 
                                       expected_machine_status=MachineStates.active,
@@ -244,7 +254,7 @@ class Test(unittest.TestCase):
         a8bucket = {"maxCoreCount": 24, "definition": {"machineType": "A8"}, "virtualMachine": MACHINE_TYPES["A8"]}
         cluster = MockCluster({"nodearrays": [{"name": "execute",
                                                "UserData": UserData,
-                                               "nodearray": {"machineType": ["a4", "a8"], "Configuration": {"symphony": {"autoscale": True}}},
+                                               "nodearray": {"machineType": ["a4", "a8"], "Configuration": {"autoscaling": {"enabled": True}, "symphony": {"autoscale": True}}},
                                                "buckets": [a4bucket, a8bucket]}]})
         epoch_clock = MockClock((1970, 1, 1, 0, 0, 0))
         hostnamer = MockHostnamer()
@@ -314,14 +324,14 @@ class Test(unittest.TestCase):
         provider.status({"requests": [{"requestId": failed_request_id}]})
         self.assertEquals(True, provider.terminate_json.read()[failed_request_id].get("terminated"))
         
-    def test_json_store_lock(self):
-        json_store = JsonStore("test.json", "/tmp")
+    # def test_json_store_lock(self):
+    #     json_store = JsonStore("test.json", "/tmp")
         
-        json_store._lock()
-        self.assertEquals(101, subprocess.call([sys.executable, test_json_source_helper.__file__, "test.json", "/tmp"]))
+    #     json_store._lock()
+    #     self.assertEquals(101, subprocess.call([sys.executable, test_json_source_helper.__file__, "test.json", "/tmp"]))
         
-        json_store._unlock()
-        self.assertEquals(0, subprocess.call([sys.executable, test_json_source_helper.__file__, "test.json", "/tmp"]))
+    #     json_store._unlock()
+    #     self.assertEquals(0, subprocess.call([sys.executable, test_json_source_helper.__file__, "test.json", "/tmp"]))
         
     def test_templates(self):
         provider = self._new_provider()
@@ -444,7 +454,7 @@ class Test(unittest.TestCase):
         attributes = any_template("execute")["attributes"]
         self.assertEquals(["String", "custom_override_value"], attributes["custom"])
         self.assertEquals(["String", "custom_value2"], attributes["custom2"])
-        self.assertEquals(["Numeric", 1. * 1024], attributes["mem"])
+        self.assertEquals(["Numeric", '1024'], attributes["mem"])
         
         # a8 only has the default
         attributes = any_template("other")["attributes"]
@@ -485,7 +495,8 @@ class Test(unittest.TestCase):
         provider = self._new_provider(config)
         
         config.set("templates.default.UserData", "abc=123;def=1==1")
-        self.assertEquals({"abc": "123", "def": "1==1"}, provider.templates()["templates"][0]["UserData"]["symphony"]["custom_env"])
+        provider_templates = provider.templates()
+        self.assertEquals({"abc": "123", "def": "1==1"}, provider_templates["templates"][0]["UserData"]["symphony"]["custom_env"])
         self.assertEquals("abc def", provider.templates()["templates"][0]["UserData"]["symphony"]["custom_env_names"])
         
         config.set("templates.default.UserData", "abc=123;def=1==1;")
