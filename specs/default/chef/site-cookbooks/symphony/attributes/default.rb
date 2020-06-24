@@ -1,5 +1,5 @@
 
-default['symphony']['version'] = "7.2.1.0"
+default['symphony']['version'] = "7.3.0.0"
 default['symphony']['eval'] = false
 default['symphony']['pkg']['linux'] = "sym-#{node['symphony']['version']}_x86_64.bin"
 default['symphony']['pkg']['windows'] = "sym-#{node['symphony']['version']}.exe"
@@ -32,7 +32,7 @@ default['symphony']['is_master'] = false
 default['symphony']['is_management'] = false
 
 default['symphony']['ego_top'] = '/opt/ibm/spectrumcomputing'
-default['symphony']['ego_version'] = '3.7'
+default['symphony']['ego_version'] = '3.8'
 default['symphony']['ego_confdir'] = "#{node['symphony']['ego_top']}/kernel/conf"
 
 
@@ -55,6 +55,7 @@ default['symphony']['hostfactory']['HF_REST_RESULT_MAX_PAGESIZE'] = 10000
 
 
 # symA requestor params
+default['symphony']['hostfactory']['requestors']['symA']['cloud_apps']['symping']['name'] = 'symping7.3'
 default['symphony']['hostfactory']['requestors']['symA']['scaling_policy']['warmup_time'] = 1
 default['symphony']['hostfactory']['requestors']['symA']['scaling_policy']['history_expiry_time'] = 10
 default['symphony']['hostfactory']['requestors']['symA']['scaling_policy']['active_task_moving_avg']  = 3

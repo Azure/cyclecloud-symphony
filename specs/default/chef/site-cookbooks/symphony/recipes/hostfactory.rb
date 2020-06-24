@@ -29,8 +29,8 @@
 # ├── log
 # └── work
 
-# $ tree -L 3 /opt/ibm/spectrumcomputing/3.7/hostfactory/
-# /opt/ibm/spectrumcomputing/3.7/hostfactory/
+# $ tree -L 3 /opt/ibm/spectrumcomputing/3.8/hostfactory/
+# /opt/ibm/spectrumcomputing/3.8/hostfactory/
 # ├── providers
 # │   ├── aws
 # │   │   ├── lib
@@ -63,6 +63,12 @@
 hostfactory_confdir="#{node['symphony']['ego_top']}/eservice/hostfactory/conf"
 
 directory "#{hostfactory_confdir}/providers/azurecc/conf" do
+  recursive true
+  group "egoadmin"
+  owner "egoadmin"
+end
+
+directory "#{hostfactory_confdir}/requestors/symA/conf" do
   recursive true
   group "egoadmin"
   owner "egoadmin"

@@ -17,11 +17,8 @@ Autoscale = $Autoscale
 
     MachineType = $ExecuteMachineType
     
-    AdditionalClusterInitSpecs = $DefaultClusterInitSpecs
-
-
         [[[configuration]]]
-        run_list = recipe[cshared::client], recipe[cuser], recipe[cganglia::client]
+        run_list = recipe[cuser]
 
         [[[network-interface eth0]]]
         AssociatePublicIpAddress = false
@@ -32,10 +29,8 @@ Autoscale = $Autoscale
     MachineType = $ManagementMachineType
     IsReturnProxy = $ReturnProxy
 
-    AdditionalClusterInitSpecs = $ManagementClusterInitSpecs
-
         [[[configuration]]]
-        run_list = recipe[cshared::directories], recipe[cuser], recipe[cshared::server], recipe[cganglia::server], recipe[cganglia::client]
+        run_list = recipe[cshared::directories], recipe[cuser], recipe[cshared::server]
         cyclecloud.discoverable = true
 	
         [[[configuration symphony]]]
@@ -56,8 +51,6 @@ Autoscale = $Autoscale
     InitialCoreCount = 0
     MaxCoreCount = 64
 
-    AdditionalClusterInitSpecs = $ManagementClusterInitSpecs
-
         [[[configuration]]]
         cyclecloud.discoverable = true
 	
@@ -71,8 +64,6 @@ Autoscale = $Autoscale
 
     Interruptible = $UseLowPrio
     
-    AdditionalClusterInitSpecs = $ExecuteClusterInitSpecs
-
         [[[configuration]]]
         autoscaling.enabled = true
     
@@ -80,10 +71,8 @@ Autoscale = $Autoscale
 
 
     [[nodearray persistent-execute]]
-    InitialCoreCount= 8
+    InitialCoreCount= 0
     MaxCoreCount = 128
-    
-    AdditionalClusterInitSpecs = $ExecuteClusterInitSpecs
 
         [[[configuration]]]
         cyclecloud.cluster.autoscale.stop_enabled = false

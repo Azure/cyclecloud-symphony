@@ -28,11 +28,11 @@ usermod -a -G cyclecloud egoadmin
 set -e
 
 
-echo "TEMPORARY: Patching symA Requestor..."
-sed -i.orig '/#status 1: Ready with no load, add all allocated hosts as candidates for removal/a\
-        # PATCH azurecc\
-        if "allocated_hosts" not in j:\
-            j["allocated_hosts"] = []' /opt/ibm/spectrumcomputing/3.7/hostfactory/requestors/symA/scripts/Main.py
+# echo "TEMPORARY: Patching symA Requestor..."
+# sed -i.orig '/#status 1: Ready with no load, add all allocated hosts as candidates for removal/a\
+#         # PATCH azurecc\
+#         if "allocated_hosts" not in j:\
+#             j["allocated_hosts"] = []' ${EGO_TOP}/${EGO_VERSION}/hostfactory/requestors/symA/scripts/Main.py
 
 
 echo "Starting HostFactory..."

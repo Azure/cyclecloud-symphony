@@ -35,7 +35,7 @@ This project requires the following:
   
      a. Download the binaries from [IBM](https://www.ibm.com/us-en/marketplace/analytics-workload-management) and place them in the `./blobs/symphony/` directory.
      
-     b. If the version is not 7.2.1.0 (the project default), then update the version number in the Files list
+     b. If the version is not 7.3.0.0 (the project default), then update the version number in the Files list
         in `./project.ini` and in the cluster template: `./templates/symphony.txt`
      
   3. CycleCloud must be installed and running.
@@ -65,17 +65,17 @@ The first step is to configure the project for use with your storage locker:
    
 ```
   3. Download the IBM Spectrum Symphony installation binaries and license entitlement file from [IBM](https://www.ibm.com/us-en/marketplace/analytics-workload-management) and place them in the `./blobs/symphony` directory.
-    * ./blobs/symphony/sym-7.2.1.0.exe
-    * ./blobs/symphony/sym-7.2.1.0_x86_64.bin
+    * ./blobs/symphony/sym-7.3.0.0.exe
+    * ./blobs/symphony/sym-7.3.0.0_x86_64.bin
     * ./blobs/symphony/sym_adv_entitlement.dat
     
       Or, if using an eval edition:
       
     * ./blobs/symphony/sym_adv_ev_entitlement.dat
-    * ./blobs/symphony/symeval-7.2.1.0_x86_64.bin
-    * ./blobs/symphony/symeval-7.2.1.0.exe
+    * ./blobs/symphony/symeval-7.3.0.0_x86_64.bin
+    * ./blobs/symphony/symeval-7.3.0.0.exe
     
-  4. If the version number is not 7.2.1.0, update the version numbers in [`project.ini`](project.ini) and [`templates/symphony.txt`](templates/symphony.txt) 
+  4. If the version number is not 7.3.0.0, update the version numbers in [`project.ini`](project.ini) and [`templates/symphony.txt`](templates/symphony.txt) 
 
 
 ## Deploying the Project ##
