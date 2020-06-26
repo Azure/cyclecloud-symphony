@@ -1,7 +1,6 @@
 #!/bin/bash
-export PRO_LSF_LOGDIR=${HF_LOGDIR}
-export PRO_SYMPHONY_LOGDIR=${HF_LOGDIR}
-export PRO_CONF_DIR=${EGO_TOP}/eservice/hostfactory/conf/providers/azurecc
+export PRO_LOG_DIR=${HF_LOGDIR}
+export PRO_CONF_DIR=${HF_CONFDIR}/providers/azurecc
 export PRO_DATA_DIR=${HF_WORKDIR}
 
 export STDERR_FILE=${HF_LOGDIR}/azurecc_invoke.err

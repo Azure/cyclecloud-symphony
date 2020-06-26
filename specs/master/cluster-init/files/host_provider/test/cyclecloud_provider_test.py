@@ -37,6 +37,7 @@ class MockHostnamer:
 
 class MockCluster:
     def __init__(self, nodearrays):
+        self.cluster_name = "mock_cluster"
         self._nodearrays = nodearrays
         self._nodearrays["nodearrays"].append({"name": "execute",
                                                "nodearray": {"Configuration": {"run_list": ["recipe[symphony::execute]"]}}})
@@ -44,6 +45,10 @@ class MockCluster:
         self._nodes = {}
         self.raise_during_termination = False
         self.raise_during_add_nodes = False
+
+        # {<MachineType>: <ActualCapacity != MaxCount>} 
+        # {'standard_a8': 1} => max of 1 VM will be returned by add_nodes regardless of requested count
+        self.limit_capacity = {}
 
     def status(self):
         return self._nodearrays
@@ -71,6 +76,12 @@ class MockCluster:
             
         node_list = self._nodes[nodearray]
 
+        if machine_type in self.limit_capacity:
+            available_capacity = self.limit_capacity[machine_type]
+            if count > available_capacity:
+                print "Capacity Limited! <%s>  Requested: <%d>  Available Capacity: <%d>" % (machine_type, count, available_capacity)
+                count = available_capacity
+
         for i in range(count):
             node_index = len(node_list) + i + 1
             node = {"Name": "%s-%d" % (nodearray, node_index),
@@ -82,6 +93,14 @@ class MockCluster:
             }
             node.update(node_attrs)
             node_list.append(node)
+
+
+    def complete_node_startup(self, request_ids=[]):
+        instance_count = 0
+        for node in self.inodes(RequestId=request_ids):
+            node['InstanceId'] = '%s_%s' % (node["RequestId"], instance_count)
+            node['State'] = 'Started'
+            node['PrivateIp'] =  '10.0.0.%s' % instance_count
             
     def nodes(self, request_ids=[]):
         ret = {}
@@ -192,9 +211,9 @@ class TestHostFactory(unittest.TestCase):
             mutable_node[0]["PrivateIp"] = (instance or {}).get("PrivateIp")
             
             if status_type == "create":
-                statuses = provider.status({"requests": [{"requestId": request["requestId"]}]})
+                statuses = provider.status({"requests": [{"requestId": request["requestId"], 'sets': [request]}]})
             else:
-                statuses = provider.status({"requests": [{"requestId": request["requestId"]}]})
+                statuses = provider.status({"requests": [{"requestId": request["requestId"], 'sets': [request]}]})
                 
             request_status_obj = statuses["requests"][0]
             self.assertEquals(expected_request_status, request_status_obj["status"])
@@ -258,7 +277,9 @@ class TestHostFactory(unittest.TestCase):
                                                "buckets": [a4bucket, a8bucket]}]})
         epoch_clock = MockClock((1970, 1, 1, 0, 0, 0))
         hostnamer = MockHostnamer()
-        return cyclecloud_provider.CycleCloudProvider(provider_config, cluster, hostnamer, json_writer, RequestsStoreInMem(), RequestsStoreInMem(), epoch_clock)
+        provider = cyclecloud_provider.CycleCloudProvider(provider_config, cluster, hostnamer, json_writer, RequestsStoreInMem(), RequestsStoreInMem(), epoch_clock)
+        provider.capacity_tracker.reset()
+        return provider
     
     def _make_request(self, template_id, machine_count, rc_account="default", user_data={}):
         return {"user_data": user_data,
@@ -267,6 +288,73 @@ class TestHostFactory(unittest.TestCase):
                             "machineCount": machine_count
                 }
             }
+
+    def test_create(self):
+        provider = self._new_provider()
+        provider.templates()
+        request1 = provider.create_machines(self._make_request("executea4", 1))
+        self.assertEquals(RequestStates.running, request1["status"])
+
+        request2 = provider.create_machines(self._make_request("executea4", 4))
+        self.assertEquals(RequestStates.running, request2["status"])
+
+        # Order of statuses is undefined
+        def find_request_status(request_status, request):
+            for rqs in request_status['requests']:
+                if rqs['requestId'] == request['requestId']:
+                    return rqs
+            return None
+
+        request_status = provider.status({'requests': [request1, request2]})
+        self.assertEquals(RequestStates.complete, request_status["status"])
+        request_status1 = find_request_status(request_status, request1)
+        request_status2 = find_request_status(request_status, request2)
+        self.assertEquals(RequestStates.running, request_status1["status"])
+        self.assertEquals(0, len(request_status1["machines"]))
+        self.assertEquals(RequestStates.running, request_status2["status"])
+        self.assertEquals(0, len(request_status2["machines"]))
+
+        provider.cluster.complete_node_startup([request1['requestId'], request2['requestId']])
+
+        request_status = provider.status({'requests': [request1, request2]})
+        self.assertEquals(RequestStates.complete, request_status["status"])
+        request_status1 = find_request_status(request_status, request1)
+        request_status2 = find_request_status(request_status, request2)
+        self.assertEquals(RequestStates.complete, request_status1["status"])
+        self.assertEquals(1, len(request_status1["machines"]))
+        self.assertEquals(RequestStates.complete, request_status2["status"])
+        self.assertEquals(4, len(request_status2["machines"]))
+
+    def test_capacity_limited_create(self):
+        provider = self._new_provider()
+        a4bucket, a8bucket = provider.cluster._nodearrays["nodearrays"][0]["buckets"]
+        
+        # we can _never_ return an empty list, so in the case of no remaining capacity, return placeholder
+        # a8bucket["maxCoreCount"] = 0  
+        # self.assertEquals(cyclecloud_provider.PLACEHOLDER_TEMPLATE, provider.templates()["templates"][0])
+        
+        # CC thinks there are up to 50 VMs available
+        a4bucket["maxCount"] = 50
+        templates = provider.templates()
+        self.assertEquals(50, templates["templates"][0]["maxNumber"])
+
+        # Request 10 VMs, but get 1 due to out-of-capacity 
+        provider.cluster.limit_capacity[a4bucket['definition']['machineType']] = 1
+        request = provider.create_machines(self._make_request("executea4", 10))
+        self.assertEquals(RequestStates.running, request["status"])
+
+        provider.cluster.complete_node_startup([request['requestId']])
+
+        request_status = provider.status({'requests': [request]})
+        self.assertEquals(RequestStates.complete, request_status["status"])
+        self.assertEquals(RequestStates.complete, request_status["requests"][0]["status"])
+        self.assertEquals(1, len(request_status["requests"][0]["machines"]))
+
+        # IMPORTANT: 
+        # Since numRequested < MaxCount and numCreated < numRequested, we're going to assume 
+        # that remaining Capacity for this bucket is 0!
+
+
         
     def test_terminate(self):
         provider = self._new_provider()
@@ -337,23 +425,23 @@ class TestHostFactory(unittest.TestCase):
         provider = self._new_provider()
         a4bucket, a8bucket = provider.cluster._nodearrays["nodearrays"][0]["buckets"]
         nodearray = {"MaxCoreCount": 100}
-        self.assertEquals(2, provider._max_count(nodearray, 4, {"maxCount": 2}))
-        self.assertEquals(3, provider._max_count(nodearray, 8, {"maxCoreCount": 24}))
-        self.assertEquals(3, provider._max_count(nodearray, 8, {"maxCoreCount": 25}))
-        self.assertEquals(3, provider._max_count(nodearray, 8, {"maxCoreCount": 31}))
-        self.assertEquals(4, provider._max_count(nodearray, 8, {"maxCoreCount": 32}))
+        self.assertEquals(2, provider._max_count('execute', nodearray, 4, {"maxCount": 2, "definition": {"machineType": "A$"}}))
+        self.assertEquals(3, provider._max_count('execute', nodearray, 8, {"maxCoreCount": 24, "definition": {"machineType": "A$"}}))
+        self.assertEquals(3, provider._max_count('execute', nodearray, 8, {"maxCoreCount": 25, "definition": {"machineType": "A$"}}))
+        self.assertEquals(3, provider._max_count('execute', nodearray, 8, {"maxCoreCount": 31, "definition": {"machineType": "A$"}}))
+        self.assertEquals(4, provider._max_count('execute', nodearray, 8, {"maxCoreCount": 32, "definition": {"machineType": "A$"}}))
         
         # simple zero conditions
-        self.assertEquals(0, provider._max_count(nodearray, 8, {"maxCoreCount": 0}))
-        self.assertEquals(0, provider._max_count(nodearray, 8, {"maxCount": 0}))
+        self.assertEquals(0, provider._max_count('execute', nodearray, 8, {"maxCoreCount": 0, "definition": {"machineType": "A$"}}))
+        self.assertEquals(0, provider._max_count('execute', nodearray, 8, {"maxCount": 0, "definition": {"machineType": "A$"}}))
         
         # error conditions return -1
         nodearray = {}
-        self.assertEquals(-1, provider._max_count(nodearray, -100, {"maxCoreCount": 32}))
-        self.assertEquals(-1, provider._max_count(nodearray, -100, {"maxCount": 32}))
-        self.assertEquals(-1, provider._max_count(nodearray, 4, {}))
-        self.assertEquals(-1, provider._max_count(nodearray, 4, {"maxCount": -100}))
-        self.assertEquals(-1, provider._max_count(nodearray, 4, {"maxCoreCount": -100}))
+        self.assertEquals(-1, provider._max_count('execute', nodearray, -100, {"maxCoreCount": 32, "definition": {"machineType": "A$"}}))
+        self.assertEquals(-1, provider._max_count('execute', nodearray, -100, {"maxCount": 32, "definition": {"machineType": "A$"}}))
+        self.assertEquals(-1, provider._max_count('execute', nodearray, 4, {"definition": {"machineType": "A$"}}))
+        self.assertEquals(-1, provider._max_count('execute', nodearray, 4, {"maxCount": -100, "definition": {"machineType": "A$"}}))
+        self.assertEquals(-1, provider._max_count('execute', nodearray, 4, {"maxCoreCount": -100, "definition": {"machineType": "A$"}}))
         
         a4bucket["maxCount"] = 0
         a8bucket["maxCoreCount"] = 0  # we can _never_ return an empty list

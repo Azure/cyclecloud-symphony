@@ -24,7 +24,7 @@ def init_logging(loglevel=logging.INFO, logfile=None):
     global _logging_init
     if logfile is None:
         logfile = "azurecc_prov.log"
-    logfile_path = os.path.join(os.getenv("PRO_SYMPHONY_LOGDIR", "/tmp"), logfile)
+    logfile_path = os.path.join(os.getenv("PRO_LOG_DIR", "/tmp"), logfile)
     
     try:
         import jetpack
@@ -78,6 +78,11 @@ class JsonStore:
         self.lockfp = None
         self.lock_count = 0
         self.logger = init_logging()
+
+    def clear(self):
+        with self as json_data:
+            json_data = {}
+            self.data = {}
     
     def _lock(self):
         self.lock_count += 1
