@@ -7,6 +7,9 @@ set -x
 
 . /etc/profile.d/symphony.sh
 
+SOAM_USER=$( jetpack config symphony.soam.user )
+SOAM_PASSWORD=$( jetpack config symphony.soam.password )
+
 set -e
 
 su - -c "source /etc/profile.d/symphony.sh && yes | egoconfig join ${MASTER_ADDRESS}" egoadmin
@@ -17,7 +20,7 @@ egosetrc.sh
 # Grant sudoer access to egosudoers in file /etc/ego.sudoers (by default: egoadmin and root)
 egosetsudoers.sh -f
 
-su - -c 'source /etc/profile.d/symphony.sh && egosh user logon -u Admin -x Admin' egoadmin
+su - -c "source /etc/profile.d/symphony.sh && egosh user logon -u ${SOAM_USER} -x ${SOAM_PASSWORD}" egoadmin
 su - -c 'source /etc/profile.d/symphony.sh && egosh ego start' egoadmin
 
 

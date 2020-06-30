@@ -169,7 +169,7 @@ class TestHostFactory(unittest.TestCase):
         
         templates = provider.templates()["templates"]
         
-        self.assertEquals(1, len(templates))
+        self.assertEquals(3, len(templates))
         self.assertEquals("executea4", templates[0]["templateId"])
         # WARNING: LSF does not quote Numerics and Symphony does (Symphony will likely upgrade to match LSF eventually)
         self.assertEquals(["Numeric", '4'], templates[0]["attributes"]["ncores"])
@@ -179,9 +179,11 @@ class TestHostFactory(unittest.TestCase):
         
         templates = provider.templates()["templates"]
         
-        self.assertEquals(2, len(templates))
+        self.assertEquals(4, len(templates))
         a4 = [t for t in templates if t["templateId"] == "executea4"][0]
         a8 = [t for t in templates if t["templateId"] == "executea8"][0]
+        lpa4 = [t for t in templates if t["templateId"] == "lpexecutea4"][0]
+        lpa8 = [t for t in templates if t["templateId"] == "lpexecutea8"][0]
         
         self.assertEquals(["Numeric", '4'], a4["attributes"]["ncores"])
         self.assertEquals(["Numeric", '1'], a4["attributes"]["ncpus"])
@@ -192,6 +194,13 @@ class TestHostFactory(unittest.TestCase):
         self.assertEquals(["Numeric", '1'], a8["attributes"]["ncpus"])
         self.assertEquals(["Numeric", '2048'], a8["attributes"]["mem"])
         self.assertEquals(["String", "X86_64"], a8["attributes"]["type"])
+
+
+        self.assertEquals(["Boolean", "0"], a4["attributes"]["azurecclowprio"])
+        self.assertEquals(["Boolean", "0"], a8["attributes"]["azurecclowprio"])
+        self.assertEquals(["Boolean", "1"], lpa4["attributes"]["azurecclowprio"])
+        self.assertEquals(["Boolean", "1"], lpa8["attributes"]["azurecclowprio"])
+        
         
         request = provider.create_machines(self._make_request("executea4", 1))
         
@@ -274,6 +283,10 @@ class TestHostFactory(unittest.TestCase):
         cluster = MockCluster({"nodearrays": [{"name": "execute",
                                                "UserData": UserData,
                                                "nodearray": {"machineType": ["a4", "a8"], "Configuration": {"autoscaling": {"enabled": True}, "symphony": {"autoscale": True}}},
+                                               "buckets": [a4bucket, a8bucket]},
+                                               {"name": "lp_execute",
+                                               "UserData": UserData,
+                                               "nodearray": {"machineType": ["a4", "a8"], "Interruptible": True, "Configuration": {"autoscaling": {"enabled": True}, "symphony": {"autoscale": True}}},
                                                "buckets": [a4bucket, a8bucket]}]})
         epoch_clock = MockClock((1970, 1, 1, 0, 0, 0))
         hostnamer = MockHostnamer()
@@ -570,7 +583,7 @@ class TestHostFactory(unittest.TestCase):
             config, _logger, _fine = util.provider_config_from_environment(tempdir)
             provider = self._new_provider(provider_config=config)
             for template in provider.templates()["templates"]:
-                self.assertIn(template["templateId"], ["executea4", "executea8"])
+                self.assertIn(template["templateId"], ["executea4", "executea8", "lpexecutea4", "lpexecutea8"])
                 assert "custom" in template["attributes"]
                 self.assertEquals(["String", "VALUE"], template["attributes"]["custom"])
             

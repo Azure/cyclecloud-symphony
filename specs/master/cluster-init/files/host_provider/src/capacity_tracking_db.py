@@ -27,7 +27,7 @@ class CapacityTrackingDb:
         with self.requests_db as db:
             request_id = request_set['requestId']
             db[request_id] = { 'requestId': request_id,
-                               'timestamp': self.clock(),
+                               'timestamp': calendar.timegm(self.clock()),
                                'sets': [request_set] }
     
     def get_requests(self):
@@ -69,7 +69,7 @@ class CapacityTrackingDb:
 
 
     def _release_expired_limits(self):
-
+        # Return True if any limits changed
         def _limit_expired(now, capacity_limit):
             expiry_time = self.limits_timeout + capacity_limit['start_time']            
             return now >= expiry_time
@@ -80,9 +80,12 @@ class CapacityTrackingDb:
             if _limit_expired(now, v):
                 expired.append(k)
         self.remove_limits(expired)
+        return len(expired) > 0
 
 
     def request_completed(self, request_status):
+        # Return True if any limits changed
+        limits_changed = False
         request_id = request_status["requestId"]
         num_created = len(request_status["machines"])
         request_envelope = self.get_request(request_id)
@@ -96,11 +99,12 @@ class CapacityTrackingDb:
                     machine_type = req['definition']['machineType']
                     logger.warning("Out-of-capacity condition detected for machine_type %s in nodearray %s", machine_type, nodearray_name)
                     self._apply_capacity_limit(nodearray_name, machine_type)
+                    limits_changed = True
 
             self.remove_request(request_id)
 
-        self._release_expired_limits()
-        return
+        limits_changed |= self._release_expired_limits()
+        return limits_changed
     
     def apply_capacity_limit(self, nodearray_name, machine_type, max_count):
         current_max_count = max_count

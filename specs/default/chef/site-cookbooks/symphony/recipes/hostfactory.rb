@@ -131,10 +131,12 @@ defer_block 'Defer start of HostFactory service until ego is started' do
     . /etc/profile.d/symphony.sh
     set -e
 
-    egosh user logon -u Admin -x Admin
+    egosh user logon -u #{node['symphony']['soam']['user']} -x #{node['symphony']['soam']['password']}
     set +e
     egosh service stop HostFactory
     set -e
+    # Sleep to wait for DEALLOCATING state
+    sleep 5
     egosh service start HostFactory
     EOH
     user "egoadmin"

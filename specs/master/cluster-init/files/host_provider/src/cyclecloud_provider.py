@@ -9,7 +9,7 @@ import pprint
 import sys
 import uuid
 
-from symphony import RequestStates, MachineStates, MachineResults
+from symphony import RequestStates, MachineStates, MachineResults, SymphonyRestClient
 import cluster
 from capacity_tracking_db import CapacityTrackingDb
 from util import JsonStore, failureresponse
@@ -71,11 +71,10 @@ class CycleCloudProvider:
             
         for writer in writers:
             json.dump(example, writer, indent=2, separators=(',', ': '))
-            
-    # If we return an empty list or templates with 0 hosts, it removes us forever and ever more, so _always_
-    # return at least one machine.
-    @failureresponse({"templates": [PLACEHOLDER_TEMPLATE], "status": RequestStates.complete_with_error})
-    def templates(self):
+     
+    # Regenerate templates (and potentially reconfig HostFactory) without output, so 
+    #  this method is safe to call from other API calls
+    def _update_templates(self):
         """
         input (ignored):
         []
@@ -261,11 +260,23 @@ class CycleCloudProvider:
             new_template_order = ", ".join(["%s:%s" % (x.get("templateId", "?"), x.get("maxNumber", "?")) for x in symphony_templates])
             logger.warn("Templates have changed - new template priority order: %s", new_template_order)
             logger.warn("Diff:\n%s", str(difference))
+            try:
+                rest_client = SymphonyRestClient(self.config, logger)            
+                rest_client.update_hostfactory_templates({"templates": symphony_templates, "message": "Get available templates success."})
+            except:
+                logger.exception("Ignoring failure to update cluster templates via Symphony REST API. (Is REST service running?)")
 
         # Note: we aren't going to store this, so it will naturally appear as an error during allocation.
         if not at_least_one_available_bucket:
             symphony_templates.insert(0, PLACEHOLDER_TEMPLATE)
+
+        return symphony_templates
         
+    # If we return an empty list or templates with 0 hosts, it removes us forever and ever more, so _always_
+    # return at least one machine.
+    @failureresponse({"templates": [PLACEHOLDER_TEMPLATE], "status": RequestStates.complete_with_error})
+    def templates(self):
+        symphony_templates = self._update_templates()
         return self.json_writer({"templates": symphony_templates, "message": "Get available templates success."}, debug_output=False)
     
     def generate_userdata(self, template):
@@ -473,7 +484,7 @@ class CycleCloudProvider:
         req_return_count = 0
         
 
-        for _, node in all_nodes.iteritems():
+        for node in all_nodes['nodes']:
             
             hostname = node.get("Hostname")
             if not hostname:
@@ -495,7 +506,7 @@ class CycleCloudProvider:
             message = "Requesting return for %s failed nodes." % (len(response["requests"]))
 
         response["message"] = message
-        request["status"] = request_status
+        response["status"] = request_status
         return self.json_writer(response)
             
     @failureresponse({"requests": [], "status": RequestStates.running})
@@ -886,10 +897,12 @@ class CycleCloudProvider:
             assert "status" in delete_response
 
         # Update capacity tracking
+        capacity_limits_changed = False
         if 'requests' in create_response:
             for cr in create_response['requests']:
                 if cr['status'] in [ RequestStates.complete ]:
-                    self.capacity_tracker.request_completed(cr)
+                    capacity_limits_changed = self.capacity_tracker.request_completed(cr)
+
 
         create_status = create_response.get("status", RequestStates.complete)
         delete_status = delete_response.get("status", RequestStates.complete)
@@ -904,6 +917,11 @@ class CycleCloudProvider:
         else:
             combined_status = RequestStates.complete
         
+        # if the Capacity limits have changed, force a template refresh in HostFactory
+        # -> HostFactory rarely  (if ever) calls getAvailableTemplates after startup
+        if capacity_limits_changed:
+            self._update_templates()
+
         response = {"status": combined_status,
                     "requests": create_response.get("requests", []) + delete_response.get("requests", [])
                     }
