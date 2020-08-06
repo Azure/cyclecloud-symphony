@@ -9,8 +9,9 @@ import pprint
 import sys
 import uuid
 
-from symphony import RequestStates, MachineStates, MachineResults
+from symphony import RequestStates, MachineStates, MachineResults, SymphonyRestClient
 import cluster
+from capacity_tracking_db import CapacityTrackingDb
 from util import JsonStore, failureresponse
 import util
 import symphony
@@ -47,6 +48,8 @@ class CycleCloudProvider:
         self.termination_timeout = float(self.config.get("cyclecloud.termination_request_retirement", 120) * 60)
         self.node_request_timeouts = float(self.config.get("cyclecloud.machine_request_retirement", 120) * 60)
         self.fine = False
+        self.capacity_tracker = CapacityTrackingDb(self.config, self.cluster.cluster_name, self.clock)
+        self.spot_maxnumber_increment_per_sku = int(self.config.get("symphony.spot_maxnumber_increment_per_sku", 100))
 
     def _escape_id(self, name):
         return name.lower().replace("_", "")
@@ -69,11 +72,10 @@ class CycleCloudProvider:
             
         for writer in writers:
             json.dump(example, writer, indent=2, separators=(',', ': '))
-            
-    # If we return an empty list or templates with 0 hosts, it removes us forever and ever more, so _always_
-    # return at least one machine.
-    @failureresponse({"templates": [PLACEHOLDER_TEMPLATE], "status": RequestStates.complete_with_error})
-    def templates(self):
+     
+    # Regenerate templates (and potentially reconfig HostFactory) without output, so 
+    #  this method is safe to call from other API calls
+    def _update_templates(self):
         """
         input (ignored):
         []
@@ -148,7 +150,7 @@ class CycleCloudProvider:
                     template_id = self._escape_id(template_id)
                     currently_available_templates.add(template_id)
                     
-                    max_count = self._max_count(nodearray, machine_type.get("vcpuCount"), bucket)
+                    max_count = self._max_count(nodearray_name, nodearray, machine_type.get("vcpuCount"), bucket)
 
                     at_least_one_available_bucket = at_least_one_available_bucket or max_count > 0
                     memory = machine_type.get("memory") * 1024
@@ -259,11 +261,23 @@ class CycleCloudProvider:
             new_template_order = ", ".join(["%s:%s" % (x.get("templateId", "?"), x.get("maxNumber", "?")) for x in symphony_templates])
             logger.warn("Templates have changed - new template priority order: %s", new_template_order)
             logger.warn("Diff:\n%s", str(difference))
+            try:
+                rest_client = SymphonyRestClient(self.config, logger)            
+                rest_client.update_hostfactory_templates({"templates": symphony_templates, "message": "Get available templates success."})
+            except:
+                logger.exception("Ignoring failure to update cluster templates via Symphony REST API. (Is REST service running?)")
 
         # Note: we aren't going to store this, so it will naturally appear as an error during allocation.
         if not at_least_one_available_bucket:
             symphony_templates.insert(0, PLACEHOLDER_TEMPLATE)
+
+        return symphony_templates
         
+    # If we return an empty list or templates with 0 hosts, it removes us forever and ever more, so _always_
+    # return at least one machine.
+    @failureresponse({"templates": [PLACEHOLDER_TEMPLATE], "status": RequestStates.complete_with_error})
+    def templates(self):
+        symphony_templates = self._update_templates()
         return self.json_writer({"templates": symphony_templates, "message": "Get available templates success."}, debug_output=False)
     
     def generate_userdata(self, template):
@@ -304,29 +318,47 @@ class CycleCloudProvider:
             except ValueError:
                 logger.error("Invalid UserData entry! '%s'", kv)
         return ret
+
+
+    def is_capacity_limited(self, bucket):
+        return False
     
-    def _max_count(self, nodearray, machine_cores, bucket):
+    def _max_count(self, nodearray_name, nodearray, machine_cores, bucket):
         if machine_cores < 0:
             logger.error("Invalid number of machine cores - %s", machine_cores)
             return -1
-        
+
         max_count = bucket.get("maxCount")
         
         if max_count is not None:
             logger.debug("Using maxCount %s for %s", max_count, bucket)
-            return max(-1, max_count)
+            max_count = max(-1, max_count)
+        else:
+            max_core_count = bucket.get("maxCoreCount")
+            if max_core_count is None:
+                if nodearray.get("maxCoreCount") is None:
+                    logger.error("Need to define either maxCount or maxCoreCount! %s", pprint.pformat(bucket))
+                    return -1
+                logger.debug("Using maxCoreCount")
+                max_core_count = nodearray.get("maxCoreCount")
+            
+            max_core_count = max(-1, max_core_count)
         
-        max_core_count = bucket.get("maxCoreCount")
-        if max_core_count is None:
-            if nodearray.get("maxCoreCount") is None:
-                logger.error("Need to define either maxCount or maxCoreCount! %s", pprint.pformat(bucket))
-                return -1
-            logger.debug("Using maxCoreCount")
-            max_core_count = nodearray.get("maxCoreCount")
+            max_count = max_core_count / machine_cores
+
+        # We handle unexpected Capacity failures (Spot)  by zeroing out capacity for a timed duration
+        machine_type_name = bucket["definition"]["machineType"]
+        max_count = self.capacity_tracker.apply_capacity_limit(nodearray_name, machine_type_name, max_count)
         
-        max_core_count = max(-1, max_core_count)
-        
-        return max_core_count / machine_cores
+        # For Spot instances, quota and limits are not great indicators of capacity, so artificially limit 
+        # requests to single machine types to spread the load and find available skus for large workloads
+        is_low_prio = nodearray.get("Interruptible", False)
+        if is_low_prio:
+            # Allow up to N _additional_ VMs (need to keep increasing this or symphony will stop considering the sku)
+            active_count = bucket["activeCount"]
+            max_count = min(max_count, active_count+self.spot_maxnumber_increment_per_sku)
+
+        return max_count
     
     @failureresponse({"requests": [], "status": RequestStates.running})
     def create_machines(self, input_json):
@@ -377,14 +409,14 @@ class CycleCloudProvider:
             
             machinetype_name = _get("machinetypefull")
             
-            request_set = {'count': machine_count,
-                       'definition': {'machineType': machinetype_name},
-                       'nodeAttributes': {'Tags': {"rc_account": rc_account},
-                                          'Configuration': user_data},
-                       'nodearray': nodearray}
+            request_set = { 'count': machine_count,                       
+                            'definition': {'machineType': machinetype_name},
+                            'nodeAttributes': {'Tags': {"rc_account": rc_account},
+                                                'Configuration': user_data},
+                            'nodearray': nodearray }
             if template["attributes"].get("placementgroup"):
                 request_set["placementGroupId"] = template["attributes"].get("placementgroup")[1]
-                       
+                                    
             self.cluster.add_nodes({'requestId': request_id,
                                     'sets': [request_set]})
             if template["attributes"].get("placementgroup"):
@@ -392,6 +424,8 @@ class CycleCloudProvider:
             else:
                 logger.info("Requested %s instances of machine type %s in nodearray %s.", machine_count, machinetype_name, _get("nodearray"))
             
+            request_set['requestId'] = request_id
+            self.capacity_tracker.add_request(request_set)
             return self.json_writer({"requestId": request_id, "status": RequestStates.running,
                                      "message": "Request instances success from Azure CycleCloud."})
         except UserError as e:
@@ -459,16 +493,17 @@ class CycleCloudProvider:
         req_return_count = 0
         
 
-        for node in all_nodes.iteritems():
-
-            if node.get("PrivateIp"):
+        for node in all_nodes['nodes']:
+            
+            hostname = node.get("Hostname")
+            if not hostname:
                 try:
                     hostname = self.hostnamer.hostname(node.get("PrivateIp"))
                 except Exception:
-                    hostname = node.get("Hostname")
+                    logger.warn("get_return_requests: No hostname set and could not convert ip %s to hostname for \"%s\" VM.", node.get("PrivateIp"), node)
 
             machine = {"gracePeriod": 0,
-                       "machine": hostname}
+                       "machine": hostname or ""}
             node_status = node.get("State")
             node_status_msg = node.get("StatusMessage", "Unknown node failure.")
 
@@ -480,7 +515,7 @@ class CycleCloudProvider:
             message = "Requesting return for %s failed nodes." % (len(response["requests"]))
 
         response["message"] = message
-        request["status"] = request_status
+        response["status"] = request_status
         return self.json_writer(response)
             
     @failureresponse({"requests": [], "status": RequestStates.running})
@@ -576,12 +611,12 @@ class CycleCloudProvider:
                     machine_status = MachineStates.building
                     request_status = RequestStates.running
 
-                    if node.get("PrivateIp"):
+                    hostname = node.get("Hostname")
+                    if not hostname:
                         try:
                             hostname = self.hostnamer.hostname(node.get("PrivateIp"))
-                        except Exception:
-                            hostname = node.get("Hostname")
-                            logger.warn("Could not convert ip %s to hostname for \"%s\" VM.  Trying Hostname: %s", node.get("PrivateIp"), node_status, hostname)
+                        except Exception:                            
+                            logger.warn("_create_status: No hostname set and could not convert ip %s to hostname for \"%s\" VM.", node.get("PrivateIp"), node_status)
 
                     try:
                         logger.warn("Warning: Cluster status check terminating failed node %s", node)
@@ -607,11 +642,12 @@ class CycleCloudProvider:
                         machine_status = MachineStates.building
                         request_status = RequestStates.running
                     else:
-                        try:
-                            hostname = self.hostnamer.hostname(node.get("PrivateIp"))
-                        except Exception:
-                            hostname = node.get("Hostname")
-                            logger.warn("Could not convert ip %s to hostname for \"%s\" VM.  Trying Hostname: %s", node.get("PrivateIp"), node_status, hostname)
+                        hostname = node.get("Hostname")
+                        if not hostname:
+                            try:
+                                hostname = self.hostnamer.hostname(node.get("PrivateIp"))
+                            except Exception:                                
+                                logger.warn("_create_status: No hostname set and could not convert ip %s to hostname for \"%s\" VM.", node.get("PrivateIp"), node)
                 else:
                     machine_result = MachineResults.executing
                     machine_status = MachineStates.building
@@ -648,6 +684,13 @@ class CycleCloudProvider:
             request["message"] = message
         
         response["status"] = symphony.RequestStates.complete
+
+        # For Spot instances, 
+        # ... we adjust maxNumber artificially to search for available sku capacity for large workloads
+        # So we will periodically re-check the templates for capacity changes and reconfigure HF if needed
+        # (the request status check is an expensive, but reliable place to do this check since  
+        #  it will be called repeatedly if we're failing to get VMs)
+        self._update_templates()
         
         return self.json_writer(response)
         
@@ -864,10 +907,19 @@ class CycleCloudProvider:
         if creates:
             create_response = self._create_status({"requests": creates})
             assert "status" in create_response
+
         if deletes:
             delete_response = self._deperecated_terminate_status({"requests": deletes})
             assert "status" in delete_response
-        
+
+        # Update capacity tracking
+        capacity_limits_changed = False
+        if 'requests' in create_response:
+            for cr in create_response['requests']:
+                if cr['status'] in [ RequestStates.complete ]:
+                    capacity_limits_changed = self.capacity_tracker.request_completed(cr)
+
+
         create_status = create_response.get("status", RequestStates.complete)
         delete_status = delete_response.get("status", RequestStates.complete)
         
@@ -881,6 +933,11 @@ class CycleCloudProvider:
         else:
             combined_status = RequestStates.complete
         
+        # if the Capacity limits have changed, force a template refresh in HostFactory
+        # -> HostFactory rarely  (if ever) calls getAvailableTemplates after startup
+        if capacity_limits_changed:
+            self._update_templates()
+
         response = {"status": combined_status,
                     "requests": create_response.get("requests", []) + delete_response.get("requests", [])
                     }
@@ -902,7 +959,7 @@ def simple_json_writer(data, debug_output=True):  # pragma: no cover
     data_str = json.dumps(data)
     if debug_output:
         logger.debug("Response: %s", data_str)
-    print data_str
+    print(data_str)
     return data
 
 

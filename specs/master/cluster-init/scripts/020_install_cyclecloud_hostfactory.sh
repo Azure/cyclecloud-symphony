@@ -2,6 +2,10 @@
 
 . /etc/profile.d/symphony.sh
 
+SOAM_USER=$( jetpack config symphony.soam.user )
+SOAM_PASSWORD=$( jetpack config symphony.soam.password )
+
+
 USE_HOSTFACTORY=$( jetpack config symphony.host_factory.enabled )
 if [ "${USE_HOSTFACTORY,,}" != "true"]; then
     echo "Skipping Host Factory configuration: symphony.host_factory.enabled = ${USE_HOSTFACTORY,,}"
@@ -38,7 +42,7 @@ set -e
 echo "Starting HostFactory..."
 sudo -i -u egoadmin bash << EOF
 . /etc/profile.d/symphony.sh
-egosh user logon -u Admin -x Admin
+egosh user logon -u ${SOAM_USER} -x ${SOAM_PASSWORD}
 egosh service stop HostFactory
 egosh service start HostFactory
 egosh service view HostFactory

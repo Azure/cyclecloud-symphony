@@ -9,8 +9,8 @@ import unittest
 
 import cyclecloud_provider
 from symphony import RequestStates, MachineStates, MachineResults
-import test_json_source_helper
-from util import JsonStore
+# import test_json_source_helper
+# from util import JsonStore
 import util
 
 
@@ -37,6 +37,7 @@ class MockHostnamer:
 
 class MockCluster:
     def __init__(self, nodearrays):
+        self.cluster_name = "mock_cluster"
         self._nodearrays = nodearrays
         self._nodearrays["nodearrays"].append({"name": "execute",
                                                "nodearray": {"Configuration": {"run_list": ["recipe[symphony::execute]"]}}})
@@ -44,6 +45,10 @@ class MockCluster:
         self._nodes = {}
         self.raise_during_termination = False
         self.raise_during_add_nodes = False
+
+        # {<MachineType>: <ActualCapacity != MaxCount>} 
+        # {'standard_a8': 1} => max of 1 VM will be returned by add_nodes regardless of requested count
+        self.limit_capacity = {}
 
     def status(self):
         return self._nodearrays
@@ -71,6 +76,12 @@ class MockCluster:
             
         node_list = self._nodes[nodearray]
 
+        if machine_type in self.limit_capacity:
+            available_capacity = self.limit_capacity[machine_type]
+            if count > available_capacity:
+                print "Capacity Limited! <%s>  Requested: <%d>  Available Capacity: <%d>" % (machine_type, count, available_capacity)
+                count = available_capacity
+
         for i in range(count):
             node_index = len(node_list) + i + 1
             node = {"Name": "%s-%d" % (nodearray, node_index),
@@ -82,6 +93,14 @@ class MockCluster:
             }
             node.update(node_attrs)
             node_list.append(node)
+
+
+    def complete_node_startup(self, request_ids=[]):
+        instance_count = 0
+        for node in self.inodes(RequestId=request_ids):
+            node['InstanceId'] = '%s_%s' % (node["RequestId"], instance_count)
+            node['State'] = 'Started'
+            node['PrivateIp'] =  '10.0.0.%s' % instance_count
             
     def nodes(self, request_ids=[]):
         ret = {}
@@ -98,23 +117,21 @@ class MockCluster:
         Just yield each node that matches the attrs specified. If the value is a 
         list or set, use 'in' instead of ==
         '''
-        ret = {}
         
         def _yield_nodes(**attrs):
             for nodes_for_template in self._nodes.itervalues():
                 for node in nodes_for_template:
-                    all_match = True
+                    all_match = True                                        
                     for key, value in attrs.iteritems():
                         if isinstance(value, list) or isinstance(value, set):
                             all_match = all_match and node[key] in value
                         else:
                             all_match = all_match and node[key] == value
                     if all_match:
-                        ret[key] = node
                         yield node
         return list(_yield_nodes(**attrs))
     
-    def terminate(self, machines, unused):
+    def terminate(self, machines):
         if self.raise_during_termination:
             raise RuntimeError("raise_during_termination")
         
@@ -144,7 +161,7 @@ def json_writer(data, debug_output=False):
     return data
             
             
-class Test(unittest.TestCase):
+class TestHostFactory(unittest.TestCase):
 
     def test_simple_lifecycle(self):
         provider = self._new_provider()
@@ -152,28 +169,38 @@ class Test(unittest.TestCase):
         
         templates = provider.templates()["templates"]
         
-        self.assertEquals(1, len(templates))
+        self.assertEquals(3, len(templates))
         self.assertEquals("executea4", templates[0]["templateId"])
-        self.assertEquals(["Numeric", 4], templates[0]["attributes"]["ncores"])
-        self.assertEquals(["Numeric", 4], templates[0]["attributes"]["ncpus"])
+        # WARNING: LSF does not quote Numerics and Symphony does (Symphony will likely upgrade to match LSF eventually)
+        self.assertEquals(["Numeric", '4'], templates[0]["attributes"]["ncores"])
+        self.assertEquals(["Numeric", '1'], templates[0]["attributes"]["ncpus"])
         
         provider.cluster._nodearrays["nodearrays"][0]["buckets"].append({"maxCount": 2, "definition": {"machineType": "A8"}, "virtualMachine": MACHINE_TYPES["A8"]})
         
         templates = provider.templates()["templates"]
         
-        self.assertEquals(2, len(templates))
+        self.assertEquals(4, len(templates))
         a4 = [t for t in templates if t["templateId"] == "executea4"][0]
         a8 = [t for t in templates if t["templateId"] == "executea8"][0]
+        lpa4 = [t for t in templates if t["templateId"] == "lpexecutea4"][0]
+        lpa8 = [t for t in templates if t["templateId"] == "lpexecutea8"][0]
         
-        self.assertEquals(["Numeric", 4], a4["attributes"]["ncores"])
-        self.assertEquals(["Numeric", 4], a4["attributes"]["ncpus"])
-        self.assertEquals(["Numeric", 1024], a4["attributes"]["mem"])
+        self.assertEquals(["Numeric", '4'], a4["attributes"]["ncores"])
+        self.assertEquals(["Numeric", '1'], a4["attributes"]["ncpus"])
+        self.assertEquals(["Numeric", '1024'], a4["attributes"]["mem"])
         self.assertEquals(["String", "X86_64"], a4["attributes"]["type"])
         
-        self.assertEquals(["Numeric", 8], a8["attributes"]["ncores"])
-        self.assertEquals(["Numeric", 8], a8["attributes"]["ncpus"])
-        self.assertEquals(["Numeric", 2048], a8["attributes"]["mem"])
+        self.assertEquals(["Numeric", '8'], a8["attributes"]["ncores"])
+        self.assertEquals(["Numeric", '1'], a8["attributes"]["ncpus"])
+        self.assertEquals(["Numeric", '2048'], a8["attributes"]["mem"])
         self.assertEquals(["String", "X86_64"], a8["attributes"]["type"])
+
+
+        self.assertEquals(["Boolean", "0"], a4["attributes"]["azurecclowprio"])
+        self.assertEquals(["Boolean", "0"], a8["attributes"]["azurecclowprio"])
+        self.assertEquals(["Boolean", "1"], lpa4["attributes"]["azurecclowprio"])
+        self.assertEquals(["Boolean", "1"], lpa8["attributes"]["azurecclowprio"])
+        
         
         request = provider.create_machines(self._make_request("executea4", 1))
         
@@ -193,9 +220,9 @@ class Test(unittest.TestCase):
             mutable_node[0]["PrivateIp"] = (instance or {}).get("PrivateIp")
             
             if status_type == "create":
-                statuses = provider.status({"requests": [{"requestId": request["requestId"]}]})
+                statuses = provider.status({"requests": [{"requestId": request["requestId"], 'sets': [request]}]})
             else:
-                statuses = provider.status({"requests": [{"requestId": request["requestId"]}]})
+                statuses = provider.status({"requests": [{"requestId": request["requestId"], 'sets': [request]}]})
                 
             request_status_obj = statuses["requests"][0]
             self.assertEquals(expected_request_status, request_status_obj["status"])
@@ -213,9 +240,12 @@ class Test(unittest.TestCase):
                 self.assertEquals(expected_machine_status, m["status"])
                 self.assertEquals(expected_machine_result, m["result"])
             
-            if node_status == "Failed":
+            if node_status == "Failed" and provider.config.get("symphony.terminate_failed_nodes", False):
                 mutable_node = provider.cluster.inodes(Name="execute-1")
                 self.assertEquals(mutable_node[0].get("TargetState"), "Terminated")
+            else:
+                mutable_node = provider.cluster.inodes(Name="execute-1")
+                self.assertEquals(mutable_node[0].get("TargetState"), node_target_state)
             
         # no instanceid == no machines
         run_test(instance=None, expected_machines=0)
@@ -225,10 +255,18 @@ class Test(unittest.TestCase):
         
         # has an instance, but Failed
         run_test(expected_machines=1, node_status="Failed", node_status_message="fail for tests",
+                 expected_request_status=RequestStates.complete_with_error,
+                 expected_machine_status=MachineStates.error,
+                 expected_machine_result=MachineResults.failed)
+
+        # has an instance, but Failed and we're configured to Terminate Failed nodes
+        provider.config.set("symphony.terminate_failed_nodes", True)
+        run_test(expected_machines=1, node_status="Failed", node_status_message="fail for tests",
                  expected_request_status=RequestStates.running,
                  expected_machine_status=MachineStates.building,
                  expected_machine_result=MachineResults.executing)
-        
+
+                
         # node is ready to go
         run_test(node_status="Started", expected_machine_result=MachineResults.succeed, 
                                       expected_machine_status=MachineStates.active,
@@ -240,15 +278,21 @@ class Test(unittest.TestCase):
         
     def _new_provider(self, provider_config=None, UserData=""):
         provider_config = provider_config or util.ProviderConfig({}, {})
-        a4bucket = {"maxCount": 2, "definition": {"machineType": "A4"}, "virtualMachine": MACHINE_TYPES["A4"]}
-        a8bucket = {"maxCoreCount": 24, "definition": {"machineType": "A8"}, "virtualMachine": MACHINE_TYPES["A8"]}
+        a4bucket = {"maxCount": 2, "activeCount": 0, "definition": {"machineType": "A4"}, "virtualMachine": MACHINE_TYPES["A4"]}
+        a8bucket = {"maxCoreCount": 24, "activeCount": 0, "definition": {"machineType": "A8"}, "virtualMachine": MACHINE_TYPES["A8"]}
         cluster = MockCluster({"nodearrays": [{"name": "execute",
+                                               "UserData": UserData,                                               
+                                               "nodearray": {"machineType": ["a4", "a8"], "Interruptible": False, "Configuration": {"autoscaling": {"enabled": True}, "symphony": {"autoscale": True}}},
+                                               "buckets": [a4bucket, a8bucket]},
+                                               {"name": "lp_execute",
                                                "UserData": UserData,
-                                               "nodearray": {"machineType": ["a4", "a8"], "Configuration": {"symphony": {"autoscale": True}}},
+                                               "nodearray": {"machineType": ["a4", "a8"], "Interruptible": True, "Configuration": {"autoscaling": {"enabled": True}, "symphony": {"autoscale": True}}},
                                                "buckets": [a4bucket, a8bucket]}]})
         epoch_clock = MockClock((1970, 1, 1, 0, 0, 0))
         hostnamer = MockHostnamer()
-        return cyclecloud_provider.CycleCloudProvider(provider_config, cluster, hostnamer, json_writer, RequestsStoreInMem(), RequestsStoreInMem(), epoch_clock)
+        provider = cyclecloud_provider.CycleCloudProvider(provider_config, cluster, hostnamer, json_writer, RequestsStoreInMem(), RequestsStoreInMem(), epoch_clock)
+        provider.capacity_tracker.reset()
+        return provider
     
     def _make_request(self, template_id, machine_count, rc_account="default", user_data={}):
         return {"user_data": user_data,
@@ -257,6 +301,73 @@ class Test(unittest.TestCase):
                             "machineCount": machine_count
                 }
             }
+
+    def test_create(self):
+        provider = self._new_provider()
+        provider.templates()
+        request1 = provider.create_machines(self._make_request("executea4", 1))
+        self.assertEquals(RequestStates.running, request1["status"])
+
+        request2 = provider.create_machines(self._make_request("executea4", 4))
+        self.assertEquals(RequestStates.running, request2["status"])
+
+        # Order of statuses is undefined
+        def find_request_status(request_status, request):
+            for rqs in request_status['requests']:
+                if rqs['requestId'] == request['requestId']:
+                    return rqs
+            return None
+
+        request_status = provider.status({'requests': [request1, request2]})
+        self.assertEquals(RequestStates.complete, request_status["status"])
+        request_status1 = find_request_status(request_status, request1)
+        request_status2 = find_request_status(request_status, request2)
+        self.assertEquals(RequestStates.running, request_status1["status"])
+        self.assertEquals(0, len(request_status1["machines"]))
+        self.assertEquals(RequestStates.running, request_status2["status"])
+        self.assertEquals(0, len(request_status2["machines"]))
+
+        provider.cluster.complete_node_startup([request1['requestId'], request2['requestId']])
+
+        request_status = provider.status({'requests': [request1, request2]})
+        self.assertEquals(RequestStates.complete, request_status["status"])
+        request_status1 = find_request_status(request_status, request1)
+        request_status2 = find_request_status(request_status, request2)
+        self.assertEquals(RequestStates.complete, request_status1["status"])
+        self.assertEquals(1, len(request_status1["machines"]))
+        self.assertEquals(RequestStates.complete, request_status2["status"])
+        self.assertEquals(4, len(request_status2["machines"]))
+
+    def test_capacity_limited_create(self):
+        provider = self._new_provider()
+        a4bucket, a8bucket = provider.cluster._nodearrays["nodearrays"][0]["buckets"]
+        
+        # we can _never_ return an empty list, so in the case of no remaining capacity, return placeholder
+        # a8bucket["maxCoreCount"] = 0  
+        # self.assertEquals(cyclecloud_provider.PLACEHOLDER_TEMPLATE, provider.templates()["templates"][0])
+        
+        # CC thinks there are up to 50 VMs available
+        a4bucket["maxCount"] = 50
+        templates = provider.templates()
+        self.assertEquals(50, templates["templates"][0]["maxNumber"])
+
+        # Request 10 VMs, but get 1 due to out-of-capacity 
+        provider.cluster.limit_capacity[a4bucket['definition']['machineType']] = 1
+        request = provider.create_machines(self._make_request("executea4", 10))
+        self.assertEquals(RequestStates.running, request["status"])
+
+        provider.cluster.complete_node_startup([request['requestId']])
+
+        request_status = provider.status({'requests': [request]})
+        self.assertEquals(RequestStates.complete, request_status["status"])
+        self.assertEquals(RequestStates.complete, request_status["requests"][0]["status"])
+        self.assertEquals(1, len(request_status["requests"][0]["machines"]))
+
+        # IMPORTANT: 
+        # Since numRequested < MaxCount and numCreated < numRequested, we're going to assume 
+        # that remaining Capacity for this bucket is 0!
+
+
         
     def test_terminate(self):
         provider = self._new_provider()
@@ -314,36 +425,36 @@ class Test(unittest.TestCase):
         provider.status({"requests": [{"requestId": failed_request_id}]})
         self.assertEquals(True, provider.terminate_json.read()[failed_request_id].get("terminated"))
         
-    def test_json_store_lock(self):
-        json_store = JsonStore("test.json", "/tmp")
+    # def test_json_store_lock(self):
+    #     json_store = JsonStore("test.json", "/tmp")
         
-        json_store._lock()
-        self.assertEquals(101, subprocess.call([sys.executable, test_json_source_helper.__file__, "test.json", "/tmp"]))
+    #     json_store._lock()
+    #     self.assertEquals(101, subprocess.call([sys.executable, test_json_source_helper.__file__, "test.json", "/tmp"]))
         
-        json_store._unlock()
-        self.assertEquals(0, subprocess.call([sys.executable, test_json_source_helper.__file__, "test.json", "/tmp"]))
+    #     json_store._unlock()
+    #     self.assertEquals(0, subprocess.call([sys.executable, test_json_source_helper.__file__, "test.json", "/tmp"]))
         
     def test_templates(self):
         provider = self._new_provider()
         a4bucket, a8bucket = provider.cluster._nodearrays["nodearrays"][0]["buckets"]
         nodearray = {"MaxCoreCount": 100}
-        self.assertEquals(2, provider._max_count(nodearray, 4, {"maxCount": 2}))
-        self.assertEquals(3, provider._max_count(nodearray, 8, {"maxCoreCount": 24}))
-        self.assertEquals(3, provider._max_count(nodearray, 8, {"maxCoreCount": 25}))
-        self.assertEquals(3, provider._max_count(nodearray, 8, {"maxCoreCount": 31}))
-        self.assertEquals(4, provider._max_count(nodearray, 8, {"maxCoreCount": 32}))
+        self.assertEquals(2, provider._max_count('execute', nodearray, 4, {"maxCount": 2, "definition": {"machineType": "A$"}}))
+        self.assertEquals(3, provider._max_count('execute', nodearray, 8, {"maxCoreCount": 24, "definition": {"machineType": "A$"}}))
+        self.assertEquals(3, provider._max_count('execute', nodearray, 8, {"maxCoreCount": 25, "definition": {"machineType": "A$"}}))
+        self.assertEquals(3, provider._max_count('execute', nodearray, 8, {"maxCoreCount": 31, "definition": {"machineType": "A$"}}))
+        self.assertEquals(4, provider._max_count('execute', nodearray, 8, {"maxCoreCount": 32, "definition": {"machineType": "A$"}}))
         
         # simple zero conditions
-        self.assertEquals(0, provider._max_count(nodearray, 8, {"maxCoreCount": 0}))
-        self.assertEquals(0, provider._max_count(nodearray, 8, {"maxCount": 0}))
+        self.assertEquals(0, provider._max_count('execute', nodearray, 8, {"maxCoreCount": 0, "definition": {"machineType": "A$"}}))
+        self.assertEquals(0, provider._max_count('execute', nodearray, 8, {"maxCount": 0, "definition": {"machineType": "A$"}}))
         
         # error conditions return -1
         nodearray = {}
-        self.assertEquals(-1, provider._max_count(nodearray, -100, {"maxCoreCount": 32}))
-        self.assertEquals(-1, provider._max_count(nodearray, -100, {"maxCount": 32}))
-        self.assertEquals(-1, provider._max_count(nodearray, 4, {}))
-        self.assertEquals(-1, provider._max_count(nodearray, 4, {"maxCount": -100}))
-        self.assertEquals(-1, provider._max_count(nodearray, 4, {"maxCoreCount": -100}))
+        self.assertEquals(-1, provider._max_count('execute', nodearray, -100, {"maxCoreCount": 32, "definition": {"machineType": "A$"}}))
+        self.assertEquals(-1, provider._max_count('execute', nodearray, -100, {"maxCount": 32, "definition": {"machineType": "A$"}}))
+        self.assertEquals(-1, provider._max_count('execute', nodearray, 4, {"definition": {"machineType": "A$"}}))
+        self.assertEquals(-1, provider._max_count('execute', nodearray, 4, {"maxCount": -100, "definition": {"machineType": "A$"}}))
+        self.assertEquals(-1, provider._max_count('execute', nodearray, 4, {"maxCoreCount": -100, "definition": {"machineType": "A$"}}))
         
         a4bucket["maxCount"] = 0
         a8bucket["maxCoreCount"] = 0  # we can _never_ return an empty list
@@ -355,6 +466,27 @@ class Test(unittest.TestCase):
         
         a4bucket["maxCount"] = 100
         self.assertEquals(100, provider.templates()["templates"][0]["maxNumber"])
+
+
+    def test_reprioritize_template(self):
+        provider = self._new_provider()
+        
+        def any_template(template_name):
+            return [x for x in provider.templates()["templates"] if x["templateId"].startswith(template_name)][0]
+
+        def templates_by_prio():
+            return 
+        
+        provider.config.set("templates.default.attributes.custom", ["String", "custom_default_value"])
+        provider.config.set("templates.execute.attributes.custom", ["String", "custom_override_value"])
+        provider.config.set("templates.execute.attributes.custom2", ["String", "custom_value2"])
+        provider.config.set("templates.other.maxNumber", 0)
+        
+        # a4 overrides the default and has custom2 defined as well
+        attributes = any_template("execute")["attributes"]
+        self.assertEquals(["String", "custom_override_value"], attributes["custom"])
+        self.assertEquals(["String", "custom_value2"], attributes["custom2"])
+        self.assertEquals(["Numeric", '1024'], attributes["mem"])
         
     def test_errors(self):
         provider = self._new_provider()
@@ -444,7 +576,7 @@ class Test(unittest.TestCase):
         attributes = any_template("execute")["attributes"]
         self.assertEquals(["String", "custom_override_value"], attributes["custom"])
         self.assertEquals(["String", "custom_value2"], attributes["custom2"])
-        self.assertEquals(["Numeric", 1. * 1024], attributes["mem"])
+        self.assertEquals(["Numeric", '1024'], attributes["mem"])
         
         # a8 only has the default
         attributes = any_template("other")["attributes"]
@@ -472,7 +604,7 @@ class Test(unittest.TestCase):
             config, _logger, _fine = util.provider_config_from_environment(tempdir)
             provider = self._new_provider(provider_config=config)
             for template in provider.templates()["templates"]:
-                self.assertIn(template["templateId"], ["executea4", "executea8"])
+                self.assertIn(template["templateId"], ["executea4", "executea8", "lpexecutea4", "lpexecutea8"])
                 assert "custom" in template["attributes"]
                 self.assertEquals(["String", "VALUE"], template["attributes"]["custom"])
             
@@ -485,7 +617,8 @@ class Test(unittest.TestCase):
         provider = self._new_provider(config)
         
         config.set("templates.default.UserData", "abc=123;def=1==1")
-        self.assertEquals({"abc": "123", "def": "1==1"}, provider.templates()["templates"][0]["UserData"]["symphony"]["custom_env"])
+        provider_templates = provider.templates()
+        self.assertEquals({"abc": "123", "def": "1==1"}, provider_templates["templates"][0]["UserData"]["symphony"]["custom_env"])
         self.assertEquals("abc def", provider.templates()["templates"][0]["UserData"]["symphony"]["custom_env_names"])
         
         config.set("templates.default.UserData", "abc=123;def=1==1;")

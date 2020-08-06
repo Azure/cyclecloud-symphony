@@ -7,6 +7,8 @@ set -x
 
 . /etc/profile.d/symphony.sh
 
+SOAM_USER=$( jetpack config symphony.soam.user )
+SOAM_PASSWORD=$( jetpack config symphony.soam.password )
 SYM_ENTITLEMENT_FILE=$( jetpack config symphony.license_file )
 SYM_ENTITLEMENT_FILE="/etc/${SYM_ENTITLEMENT_FILE}"
 
@@ -38,7 +40,7 @@ su - -c 'source /etc/profile.d/symphony.sh && yes | egosh ego start' egoadmin
 
 # Give the services 10 tries to start
 counter=0
-until su - -c 'source /etc/profile.d/symphony.sh && egosh user logon -u Admin -x Admin' egoadmin; do
+until su - -c "source /etc/profile.d/symphony.sh && egosh user logon -u ${SOAM_USER} -x ${SOAM_PASSWORD}" egoadmin; do
     if [[ "$counter" -gt 10 ]]; then
 	echo "Failed to connect to cluster after $counter retries.  Aborting..."
 	exit -1

@@ -26,7 +26,8 @@ default['symphony']['admin']['user'] = 'egoadmin'
 default['symphony']['admin']['uid'] = '1001' # 61111
 default['symphony']['admin']['gid'] = '1002' # 61111
 default['symphony']['admin']['home'] = "#{node['cuser']['base_home_dir']}/#{node['symphony']['admin']['user']}"
-
+default['symphony']['soam']['user'] = 'Admin'
+default['symphony']['soam']['password'] = 'Admin'
 
 default['symphony']['is_master'] = false
 default['symphony']['is_management'] = false
@@ -41,6 +42,9 @@ default['symphony']['ego_confdir'] = "#{node['symphony']['ego_top']}/kernel/conf
 
 # Use hostfactory? (Else use legacy autoscale.py)
 default['symphony']['host_factory']['enabled'] = true
+
+# IP or Hostname for REST API URLs
+default['symphony']['hostfactory']['rest_address'] = '127.0.0.1'
 
 default['symphony']['hostfactory']['HF_LOGLEVEL'] = 'LOG_DEBUG'
 default['symphony']['hostfactory']['HF_REQUESTOR_POLL_INTERVAL'] = 30
