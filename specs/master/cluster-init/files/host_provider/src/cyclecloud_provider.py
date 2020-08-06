@@ -49,6 +49,7 @@ class CycleCloudProvider:
         self.node_request_timeouts = float(self.config.get("cyclecloud.machine_request_retirement", 120) * 60)
         self.fine = False
         self.capacity_tracker = CapacityTrackingDb(self.config, self.cluster.cluster_name, self.clock)
+        self.spot_maxnumber_increment_per_sku = int(self.config.get("symphony.spot_maxnumber_increment_per_sku", 100))
 
     def _escape_id(self, name):
         return name.lower().replace("_", "")
@@ -349,6 +350,14 @@ class CycleCloudProvider:
         machine_type_name = bucket["definition"]["machineType"]
         max_count = self.capacity_tracker.apply_capacity_limit(nodearray_name, machine_type_name, max_count)
         
+        # For Spot instances, quota and limits are not great indicators of capacity, so artificially limit 
+        # requests to single machine types to spread the load and find available skus for large workloads
+        is_low_prio = nodearray.get("Interruptible", False)
+        if is_low_prio:
+            # Allow up to N _additional_ VMs (need to keep increasing this or symphony will stop considering the sku)
+            active_count = bucket["activeCount"]
+            max_count = min(max_count, active_count+self.spot_maxnumber_increment_per_sku)
+
         return max_count
     
     @failureresponse({"requests": [], "status": RequestStates.running})
@@ -675,6 +684,13 @@ class CycleCloudProvider:
             request["message"] = message
         
         response["status"] = symphony.RequestStates.complete
+
+        # For Spot instances, 
+        # ... we adjust maxNumber artificially to search for available sku capacity for large workloads
+        # So we will periodically re-check the templates for capacity changes and reconfigure HF if needed
+        # (the request status check is an expensive, but reliable place to do this check since  
+        #  it will be called repeatedly if we're failing to get VMs)
+        self._update_templates()
         
         return self.json_writer(response)
         

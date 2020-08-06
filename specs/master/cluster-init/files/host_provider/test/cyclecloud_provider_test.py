@@ -278,11 +278,11 @@ class TestHostFactory(unittest.TestCase):
         
     def _new_provider(self, provider_config=None, UserData=""):
         provider_config = provider_config or util.ProviderConfig({}, {})
-        a4bucket = {"maxCount": 2, "definition": {"machineType": "A4"}, "virtualMachine": MACHINE_TYPES["A4"]}
-        a8bucket = {"maxCoreCount": 24, "definition": {"machineType": "A8"}, "virtualMachine": MACHINE_TYPES["A8"]}
+        a4bucket = {"maxCount": 2, "activeCount": 0, "definition": {"machineType": "A4"}, "virtualMachine": MACHINE_TYPES["A4"]}
+        a8bucket = {"maxCoreCount": 24, "activeCount": 0, "definition": {"machineType": "A8"}, "virtualMachine": MACHINE_TYPES["A8"]}
         cluster = MockCluster({"nodearrays": [{"name": "execute",
-                                               "UserData": UserData,
-                                               "nodearray": {"machineType": ["a4", "a8"], "Configuration": {"autoscaling": {"enabled": True}, "symphony": {"autoscale": True}}},
+                                               "UserData": UserData,                                               
+                                               "nodearray": {"machineType": ["a4", "a8"], "Interruptible": False, "Configuration": {"autoscaling": {"enabled": True}, "symphony": {"autoscale": True}}},
                                                "buckets": [a4bucket, a8bucket]},
                                                {"name": "lp_execute",
                                                "UserData": UserData,
@@ -466,6 +466,27 @@ class TestHostFactory(unittest.TestCase):
         
         a4bucket["maxCount"] = 100
         self.assertEquals(100, provider.templates()["templates"][0]["maxNumber"])
+
+
+    def test_reprioritize_template(self):
+        provider = self._new_provider()
+        
+        def any_template(template_name):
+            return [x for x in provider.templates()["templates"] if x["templateId"].startswith(template_name)][0]
+
+        def templates_by_prio():
+            return 
+        
+        provider.config.set("templates.default.attributes.custom", ["String", "custom_default_value"])
+        provider.config.set("templates.execute.attributes.custom", ["String", "custom_override_value"])
+        provider.config.set("templates.execute.attributes.custom2", ["String", "custom_value2"])
+        provider.config.set("templates.other.maxNumber", 0)
+        
+        # a4 overrides the default and has custom2 defined as well
+        attributes = any_template("execute")["attributes"]
+        self.assertEquals(["String", "custom_override_value"], attributes["custom"])
+        self.assertEquals(["String", "custom_value2"], attributes["custom2"])
+        self.assertEquals(["Numeric", '1024'], attributes["mem"])
         
     def test_errors(self):
         provider = self._new_provider()
