@@ -29,7 +29,7 @@ This project requires running Azure CycleCloud version 7.7.1 and Symphony 7.2.0 
 
 This project requires the following:
 
-  1. A license to use IBM Spectrum Symphony from [IBM Spectrum Analytics](https://www.ibm.com/us-en/marketplace/analytics-workload-management).  If you don't already have a license you can "Start a Free Trial" to get one.
+  1. A license to use IBM Spectrum Symphony from [IBM Spectrum Analytics](https://www.ibm.com/us-en/marketplace/analytics-workload-management).  
   
   2. The IBM Spectrum Symphony installation binaries.
   
