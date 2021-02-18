@@ -2,7 +2,7 @@ import json
 
 import logging
 import requests
-from urllib import urlencode
+from urllib.parse import urlencode
 
 class MachineStates:
     building = "building"

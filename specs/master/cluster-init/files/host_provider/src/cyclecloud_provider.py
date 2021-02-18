@@ -8,6 +8,8 @@ import os
 import pprint
 import sys
 import uuid
+from builtins import str
+
 
 from symphony import RequestStates, MachineStates, MachineResults, SymphonyRestClient
 import cluster
@@ -206,10 +208,10 @@ class CycleCloudProvider:
                     
                     if custom_env:
                         record["UserData"]["symphony"] = {"custom_env": custom_env,
-                                                     "custom_env_names": " ".join(sorted(custom_env.iterkeys()))}
+                                                     "custom_env_names": " ".join(sorted(custom_env))}
                     
                     record["UserData"]["symphony"]["attributes"] = attributes
-                    record["UserData"]["symphony"]["attribute_names"] = " ".join(sorted(attributes.iterkeys()))
+                    record["UserData"]["symphony"]["attribute_names"] = " ".join(sorted(attributes))
 
                     record["pgrpName"] = None
                     
@@ -234,7 +236,7 @@ class CycleCloudProvider:
                         record_mpi["attributes"]["azureccmpi"] = ["Boolean", "1"]
                         record_mpi["UserData"]["symphony"]["attributes"]["azureccmpi"] = True
                         # regenerate names, as we have added placementgroup
-                        record_mpi["UserData"]["symphony"]["attribute_names"] = " ".join(sorted(record_mpi["attributes"].iterkeys()))
+                        record_mpi["UserData"]["symphony"]["attribute_names"] = " ".join(sorted(record_mpi["attributes"]))
                         record_mpi["priority"] = record_mpi["priority"] - n - 1
                         record_mpi["templateId"] = template_id
                         record_mpi["maxNumber"] = min(record["maxNumber"], nodearray.get("Azure", {}).get("MaxScalesetSize", 40))
@@ -259,8 +261,8 @@ class CycleCloudProvider:
             generator = difflib.context_diff(prior_templates_str.splitlines(), new_templates_str.splitlines())
             difference = "\n".join([str(x) for x in generator])
             new_template_order = ", ".join(["%s:%s" % (x.get("templateId", "?"), x.get("maxNumber", "?")) for x in symphony_templates])
-            logger.warn("Templates have changed - new template priority order: %s", new_template_order)
-            logger.warn("Diff:\n%s", str(difference))
+            logger.warning("Templates have changed - new template priority order: %s", new_template_order)
+            logger.warning("Diff:\n%s", str(difference))
             try:
                 rest_client = SymphonyRestClient(self.config, logger)            
                 rest_client.update_hostfactory_templates({"templates": symphony_templates, "message": "Get available templates success."})
@@ -283,7 +285,7 @@ class CycleCloudProvider:
     def generate_userdata(self, template):
         ret = {}
         
-        for key, value_array in template.get("attributes", {}).iteritems():
+        for key, value_array in template.get("attributes", {}).items():
             if len(value_array) != 2:
                 logger.error("Invalid attribute %s %s", key, value_array)
                 continue
@@ -358,7 +360,7 @@ class CycleCloudProvider:
             active_count = bucket["activeCount"]
             max_count = min(max_count, active_count+self.spot_maxnumber_increment_per_sku)
 
-        return max_count
+        return int(max_count)
     
     @failureresponse({"requests": [], "status": RequestStates.running})
     def create_machines(self, input_json):
@@ -431,15 +433,15 @@ class CycleCloudProvider:
         except UserError as e:
             logger.exception("Azure CycleCloud experienced an error and the node creation request failed. %s", e)
             return self.json_writer({"requestId": request_id, "status": RequestStates.complete_with_error,
-                                     "message": "Azure CycleCloud experienced an error: %s" % unicode(e)})
+                                     "message": "Azure CycleCloud experienced an error: %s" % str(e)})
         except ValueError as e:
             logger.exception("Azure CycleCloud experienced an error and the node creation request failed. %s", e)
             return self.json_writer({"requestId": request_id, "status": RequestStates.complete_with_error,
-                                     "message": "Azure CycleCloud experienced an error: %s" % unicode(e)})
+                                     "message": "Azure CycleCloud experienced an error: %s" % str(e)})
         except Exception as e:
             logger.exception("Azure CycleCloud experienced an error, though it may have succeeded: %s", e)
             return self.json_writer({"requestId": request_id, "status": RequestStates.running,
-                                     "message": "Azure CycleCloud experienced an error, though it may have succeeded: %s" % unicode(e)})
+                                     "message": "Azure CycleCloud experienced an error, though it may have succeeded: %s" % str(e)})
 
     @failureresponse({"requests": [], "status": RequestStates.complete_with_error})
     def get_return_requests(self, input_json):
@@ -479,12 +481,12 @@ class CycleCloudProvider:
             logger.exception("Azure CycleCloud experienced an error and the get return request failed. %s", e)
             return self.json_writer({"status": RequestStates.complete_with_error,
                                      "requests": [],
-                                     "message": "Azure CycleCloud experienced an error: %s" % unicode(e)})
+                                     "message": "Azure CycleCloud experienced an error: %s" % str(e)})
         except ValueError as e:
             logger.exception("Azure CycleCloud experienced an error and the get return request failed. %s", e)
             return self.json_writer({"status": RequestStates.complete_with_error,
                                      "requests": [],
-                                     "message": "Azure CycleCloud experienced an error: %s" % unicode(e)})
+                                     "message": "Azure CycleCloud experienced an error: %s" % str(e)})
         
         message = ""
         report_failure_states = ["Unavailable", "Failed"]
@@ -500,7 +502,7 @@ class CycleCloudProvider:
                 try:
                     hostname = self.hostnamer.hostname(node.get("PrivateIp"))
                 except Exception:
-                    logger.warn("get_return_requests: No hostname set and could not convert ip %s to hostname for \"%s\" VM.", node.get("PrivateIp"), node)
+                    logger.warning("get_return_requests: No hostname set and could not convert ip %s to hostname for \"%s\" VM.", node.get("PrivateIp"), node)
 
             machine = {"gracePeriod": 0,
                        "machine": hostname or ""}
@@ -549,12 +551,13 @@ class CycleCloudProvider:
         except UserError as e:
             logger.exception("Azure CycleCloud experienced an error and the node creation request failed. %s", e)
             return self.json_writer({"status": RequestStates.complete_with_error,
-                                    "requests": [{"requestId": request_id, "status": RequestStates.complete_with_error} for request_id in request_ids] ,
-                                     "message": "Azure CycleCloud experienced an error: %s" % unicode(e)})
+                                    "requests": [{"requestId": request_id, "status": RequestStates.complete_with_error} for request_id in request_ids],
+                                     "message": "Azure CycleCloud experienced an error: %s" % str(e)})
         except ValueError as e:
             logger.exception("Azure CycleCloud experienced an error and the node creation request failed. %s", e)
-            return self.json_writer({"requestId": request_id, "status": RequestStates.complete_with_error,
-                                     "message": "Azure CycleCloud experienced an error: %s" % unicode(e)})
+            return self.json_writer({"status": RequestStates.complete_with_error,
+                                    "requests": [{"requestId": request_id, "status": RequestStates.complete_with_error} for request_id in request_ids],
+                                     "message": "Azure CycleCloud experienced an error: %s" % str(e)})
         
         message = ""
         
@@ -563,10 +566,10 @@ class CycleCloudProvider:
         unknown_state_count = 0
         requesting_count = 0
         
-        for request_id, requested_nodes in nodes_by_request_id.iteritems():
+        for request_id, requested_nodes in nodes_by_request_id.items():
             if not requested_nodes:
                 # nothing to do.
-                logger.warn("No nodes found for request id %s.", request_id)
+                logger.warning("No nodes found for request id %s.", request_id)
             
             machines = []
             request = {"requestId": request_id,
@@ -616,12 +619,12 @@ class CycleCloudProvider:
                         try:
                             hostname = self.hostnamer.hostname(node.get("PrivateIp"))
                         except Exception:                            
-                            logger.warn("_create_status: No hostname set and could not convert ip %s to hostname for \"%s\" VM.", node.get("PrivateIp"), node_status)
+                            logger.warning("_create_status: No hostname set and could not convert ip %s to hostname for \"%s\" VM.", node.get("PrivateIp"), node_status)
 
                     try:
-                        logger.warn("Warning: Cluster status check terminating failed node %s", node)
+                        logger.warning("Warning: Cluster status check terminating failed node %s", node)
                         # import traceback
-                        #logger.warn("Traceback:\n%s", '\n'.join([line  for line in traceback.format_stack()]))
+                        #logger.warning("Traceback:\n%s", '\n'.join([line  for line in traceback.format_stack()]))
                         self.cluster.terminate([{"machineId": node.get("NodeId"), "name": hostname}])
                     except Exception:
                         logger.exception("Could not terminate node with id %s" % node.get("NodeId"))
@@ -637,7 +640,7 @@ class CycleCloudProvider:
                     machine_status = MachineStates.active
                     private_ip_address = node.get("PrivateIp")
                     if not private_ip_address:
-                        logger.warn("No ip address found for ready node %s", node.get("Name"))
+                        logger.warning("No ip address found for ready node %s", node.get("Name"))
                         machine_result = MachineResults.executing
                         machine_status = MachineStates.building
                         request_status = RequestStates.running
@@ -647,7 +650,7 @@ class CycleCloudProvider:
                             try:
                                 hostname = self.hostnamer.hostname(node.get("PrivateIp"))
                             except Exception:                                
-                                logger.warn("_create_status: No hostname set and could not convert ip %s to hostname for \"%s\" VM.", node.get("PrivateIp"), node)
+                                logger.warning("_create_status: No hostname set and could not convert ip %s to hostname for \"%s\" VM.", node.get("PrivateIp"), node)
                 else:
                     machine_result = MachineResults.executing
                     machine_status = MachineStates.building
@@ -680,7 +683,7 @@ class CycleCloudProvider:
             if request_status == RequestStates.complete:
                 logger.info("Request %s is complete.", request_id)
             elif request_status == RequestStates.complete_with_error:
-                logger.warn("Request %s completed with error: %s.", request_id, message)
+                logger.warning("Request %s completed with error: %s.", request_id, message)
             request["message"] = message
         
         response["status"] = symphony.RequestStates.complete
@@ -713,11 +716,11 @@ class CycleCloudProvider:
                     if termination_id in terminate_requests:
                         termination = terminate_requests[termination_id]
                         if not termination.get("terminated"):
-                            for machine_id, name in termination["machines"].iteritems():
+                            for machine_id, name in termination["machines"].items():
                                 machines_to_terminate.append({"machineId": machine_id, "name": name})
                 
                 if machines_to_terminate:
-                    logger.warn("Re-attempting termination of nodes %s", machines_to_terminate)
+                    logger.warning("Re-attempting termination of nodes %s", machines_to_terminate)
                     self.cluster.terminate(machines_to_terminate)
                     
                 for termination_id in termination_ids:
@@ -741,19 +744,19 @@ class CycleCloudProvider:
                     machines = termination_request.get("machines", {})
                     
                     if machines:
-                        logger.info("Terminating machines: %s", [hostname for hostname in machines.itervalues()])
+                        logger.info("Terminating machines: %s", [hostname for hostname in machines.values()])
                     else:
-                        logger.warn("No machines found for termination request %s. Will retry.", termination_id)
+                        logger.warning("No machines found for termination request %s. Will retry.", termination_id)
                         request_status = RequestStates.running
                     
-                    for machine_id, hostname in machines.iteritems():
+                    for machine_id, hostname in machines.items():
                         response_machines.append({"name": hostname,
                                                    "status": MachineStates.deleted,
                                                    "result": MachineResults.succeed,
                                                    "machineId": machine_id})
                 else:
                     # we don't recognize this termination request!
-                    logger.warn("Unknown termination request %s. You may intervene manually by updating terminate_nodes.json" + 
+                    logger.warning("Unknown termination request %s. You may intervene manually by updating terminate_nodes.json" + 
                                  " to contain the relevant NodeIds. %s ", termination_id, terminate_requests)
                     # set to running so symphony will keep retrying, hopefully, until someone intervenes.
                     request_status = RequestStates.running
@@ -774,10 +777,10 @@ class CycleCloudProvider:
         
         with self.terminate_json as term_requests:
             requests = {}
-            for node_id, hostname in ids_to_hostname.iteritems():
+            for node_id, hostname in ids_to_hostname.items():
                 machine_record = {"machineId": node_id, "name": hostname}
                 found_a_request = False
-                for request_id, request in term_requests.iteritems():
+                for request_id, request in term_requests.items():
                     if node_id in request["machines"]:
                         
                         found_a_request = True
@@ -788,10 +791,10 @@ class CycleCloudProvider:
                         requests[request_id]["machines"].append(machine_record)
                 
                 if not found_a_request:
-                    logger.warn("No termination request found for machine %s", machine_record)
-                    # logger.warn("Forcing termination request for machine %s", machine_record)
+                    logger.warning("No termination request found for machine %s", machine_record)
+                    # logger.warning("Forcing termination request for machine %s", machine_record)
                     # import traceback
-                    # logger.warn("Traceback:\n%s" % '\n'.join([line  for line in traceback.format_stack()]))
+                    # logger.warning("Traceback:\n%s" % '\n'.join([line  for line in traceback.format_stack()]))
                     # terminate_request = { "machines": [ machine_record ]}
                     # self.terminate_machines( terminate_request, lambda x: x )
             
@@ -888,10 +891,10 @@ class CycleCloudProvider:
             })
 
         except Exception as e:
-            logger.exception(unicode(e))
+            logger.exception(str(e))
             if request_id_persisted:
                 return json_writer({"status": RequestStates.running, "requestId": request_id})
-            return json_writer({"status": RequestStates.complete_with_error, "requestId": request_id, "message": unicode(e)})
+            return json_writer({"status": RequestStates.complete_with_error, "requestId": request_id, "message": str(e)})
         
     def status(self, input_json):
         '''
@@ -952,7 +955,7 @@ def _placement_groups(config):
     if num_placement_groups <= 0:
         return []
     else:
-        return ["pg%s" % x for x in xrange(num_placement_groups)]
+        return ["pg%s" % x for x in range(num_placement_groups)]
 
 
 def simple_json_writer(data, debug_output=True):  # pragma: no cover
@@ -1015,11 +1018,11 @@ def main(argv=sys.argv, json_writer=simple_json_writer):  # pragma: no cover
             provider.terminate_machines(input_json)
             
     except ImportError as e:
-        logger.exception(unicode(e))
+        logger.exception(str(e))
 
     except Exception as e:
         if logger:
-            logger.exception(unicode(e))
+            logger.exception(str(e))
         else:
             import traceback
             traceback.print_exc()

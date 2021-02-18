@@ -79,7 +79,7 @@ class MockCluster:
         if machine_type in self.limit_capacity:
             available_capacity = self.limit_capacity[machine_type]
             if count > available_capacity:
-                print "Capacity Limited! <%s>  Requested: <%d>  Available Capacity: <%d>" % (machine_type, count, available_capacity)
+                print("Capacity Limited! <%s>  Requested: <%d>  Available Capacity: <%d>" % (machine_type, count, available_capacity))
                 count = available_capacity
 
         for i in range(count):
@@ -119,10 +119,10 @@ class MockCluster:
         '''
         
         def _yield_nodes(**attrs):
-            for nodes_for_template in self._nodes.itervalues():
+            for nodes_for_template in self._nodes.values():
                 for node in nodes_for_template:
                     all_match = True                                        
-                    for key, value in attrs.iteritems():
+                    for key, value in attrs.items():
                         if isinstance(value, list) or isinstance(value, set):
                             all_match = all_match and node[key] in value
                         else:
@@ -169,37 +169,37 @@ class TestHostFactory(unittest.TestCase):
         
         templates = provider.templates()["templates"]
         
-        self.assertEquals(3, len(templates))
-        self.assertEquals("executea4", templates[0]["templateId"])
+        self.assertEqual(3, len(templates))
+        self.assertEqual("executea4", templates[0]["templateId"])
         # WARNING: LSF does not quote Numerics and Symphony does (Symphony will likely upgrade to match LSF eventually)
-        self.assertEquals(["Numeric", '4'], templates[0]["attributes"]["ncores"])
-        self.assertEquals(["Numeric", '1'], templates[0]["attributes"]["ncpus"])
+        self.assertEqual(["Numeric", '4'], templates[0]["attributes"]["ncores"])
+        self.assertEqual(["Numeric", '1'], templates[0]["attributes"]["ncpus"])
         
         provider.cluster._nodearrays["nodearrays"][0]["buckets"].append({"maxCount": 2, "definition": {"machineType": "A8"}, "virtualMachine": MACHINE_TYPES["A8"]})
         
         templates = provider.templates()["templates"]
         
-        self.assertEquals(4, len(templates))
+        self.assertEqual(4, len(templates))
         a4 = [t for t in templates if t["templateId"] == "executea4"][0]
         a8 = [t for t in templates if t["templateId"] == "executea8"][0]
         lpa4 = [t for t in templates if t["templateId"] == "lpexecutea4"][0]
         lpa8 = [t for t in templates if t["templateId"] == "lpexecutea8"][0]
         
-        self.assertEquals(["Numeric", '4'], a4["attributes"]["ncores"])
-        self.assertEquals(["Numeric", '1'], a4["attributes"]["ncpus"])
-        self.assertEquals(["Numeric", '1024'], a4["attributes"]["mem"])
-        self.assertEquals(["String", "X86_64"], a4["attributes"]["type"])
+        self.assertEqual(["Numeric", '4'], a4["attributes"]["ncores"])
+        self.assertEqual(["Numeric", '1'], a4["attributes"]["ncpus"])
+        self.assertEqual(["Numeric", '1024'], a4["attributes"]["mem"])
+        self.assertEqual(["String", "X86_64"], a4["attributes"]["type"])
         
-        self.assertEquals(["Numeric", '8'], a8["attributes"]["ncores"])
-        self.assertEquals(["Numeric", '1'], a8["attributes"]["ncpus"])
-        self.assertEquals(["Numeric", '2048'], a8["attributes"]["mem"])
-        self.assertEquals(["String", "X86_64"], a8["attributes"]["type"])
+        self.assertEqual(["Numeric", '8'], a8["attributes"]["ncores"])
+        self.assertEqual(["Numeric", '1'], a8["attributes"]["ncpus"])
+        self.assertEqual(["Numeric", '2048'], a8["attributes"]["mem"])
+        self.assertEqual(["String", "X86_64"], a8["attributes"]["type"])
 
 
-        self.assertEquals(["Boolean", "0"], a4["attributes"]["azurecclowprio"])
-        self.assertEquals(["Boolean", "0"], a8["attributes"]["azurecclowprio"])
-        self.assertEquals(["Boolean", "1"], lpa4["attributes"]["azurecclowprio"])
-        self.assertEquals(["Boolean", "1"], lpa8["attributes"]["azurecclowprio"])
+        self.assertEqual(["Boolean", "0"], a4["attributes"]["azurecclowprio"])
+        self.assertEqual(["Boolean", "0"], a8["attributes"]["azurecclowprio"])
+        self.assertEqual(["Boolean", "1"], lpa4["attributes"]["azurecclowprio"])
+        self.assertEqual(["Boolean", "1"], lpa8["attributes"]["azurecclowprio"])
         
         
         request = provider.create_machines(self._make_request("executea4", 1))
@@ -225,27 +225,27 @@ class TestHostFactory(unittest.TestCase):
                 statuses = provider.status({"requests": [{"requestId": request["requestId"], 'sets': [request]}]})
                 
             request_status_obj = statuses["requests"][0]
-            self.assertEquals(expected_request_status, request_status_obj["status"])
+            self.assertEqual(expected_request_status, request_status_obj["status"])
             machines = request_status_obj["machines"]
-            self.assertEquals(expected_machines, len(machines))
-            self.assertEquals(expected_node_status, mutable_node[0]["State"])
+            self.assertEqual(expected_machines, len(machines))
+            self.assertEqual(expected_node_status, mutable_node[0]["State"])
 
             if expected_machines == 0:
                 return
             
             for n, m in enumerate(machines):
                 if m["privateIpAddress"]:
-                    self.assertEquals(MockHostnamer().hostname(m["privateIpAddress"]), m["name"])
-                self.assertEquals("execute-%d_id" % (n + 1), m["machineId"])
-                self.assertEquals(expected_machine_status, m["status"])
-                self.assertEquals(expected_machine_result, m["result"])
+                    self.assertEqual(MockHostnamer().hostname(m["privateIpAddress"]), m["name"])
+                self.assertEqual("execute-%d_id" % (n + 1), m["machineId"])
+                self.assertEqual(expected_machine_status, m["status"])
+                self.assertEqual(expected_machine_result, m["result"])
             
             if node_status == "Failed" and provider.config.get("symphony.terminate_failed_nodes", False):
                 mutable_node = provider.cluster.inodes(Name="execute-1")
-                self.assertEquals(mutable_node[0].get("TargetState"), "Terminated")
+                self.assertEqual(mutable_node[0].get("TargetState"), "Terminated")
             else:
                 mutable_node = provider.cluster.inodes(Name="execute-1")
-                self.assertEquals(mutable_node[0].get("TargetState"), node_target_state)
+                self.assertEqual(mutable_node[0].get("TargetState"), node_target_state)
             
         # no instanceid == no machines
         run_test(instance=None, expected_machines=0)
@@ -306,10 +306,10 @@ class TestHostFactory(unittest.TestCase):
         provider = self._new_provider()
         provider.templates()
         request1 = provider.create_machines(self._make_request("executea4", 1))
-        self.assertEquals(RequestStates.running, request1["status"])
+        self.assertEqual(RequestStates.running, request1["status"])
 
         request2 = provider.create_machines(self._make_request("executea4", 4))
-        self.assertEquals(RequestStates.running, request2["status"])
+        self.assertEqual(RequestStates.running, request2["status"])
 
         # Order of statuses is undefined
         def find_request_status(request_status, request):
@@ -319,24 +319,24 @@ class TestHostFactory(unittest.TestCase):
             return None
 
         request_status = provider.status({'requests': [request1, request2]})
-        self.assertEquals(RequestStates.complete, request_status["status"])
+        self.assertEqual(RequestStates.complete, request_status["status"])
         request_status1 = find_request_status(request_status, request1)
         request_status2 = find_request_status(request_status, request2)
-        self.assertEquals(RequestStates.running, request_status1["status"])
-        self.assertEquals(0, len(request_status1["machines"]))
-        self.assertEquals(RequestStates.running, request_status2["status"])
-        self.assertEquals(0, len(request_status2["machines"]))
+        self.assertEqual(RequestStates.running, request_status1["status"])
+        self.assertEqual(0, len(request_status1["machines"]))
+        self.assertEqual(RequestStates.running, request_status2["status"])
+        self.assertEqual(0, len(request_status2["machines"]))
 
         provider.cluster.complete_node_startup([request1['requestId'], request2['requestId']])
 
         request_status = provider.status({'requests': [request1, request2]})
-        self.assertEquals(RequestStates.complete, request_status["status"])
+        self.assertEqual(RequestStates.complete, request_status["status"])
         request_status1 = find_request_status(request_status, request1)
         request_status2 = find_request_status(request_status, request2)
-        self.assertEquals(RequestStates.complete, request_status1["status"])
-        self.assertEquals(1, len(request_status1["machines"]))
-        self.assertEquals(RequestStates.complete, request_status2["status"])
-        self.assertEquals(4, len(request_status2["machines"]))
+        self.assertEqual(RequestStates.complete, request_status1["status"])
+        self.assertEqual(1, len(request_status1["machines"]))
+        self.assertEqual(RequestStates.complete, request_status2["status"])
+        self.assertEqual(4, len(request_status2["machines"]))
 
     def test_capacity_limited_create(self):
         provider = self._new_provider()
@@ -344,24 +344,24 @@ class TestHostFactory(unittest.TestCase):
         
         # we can _never_ return an empty list, so in the case of no remaining capacity, return placeholder
         # a8bucket["maxCoreCount"] = 0  
-        # self.assertEquals(cyclecloud_provider.PLACEHOLDER_TEMPLATE, provider.templates()["templates"][0])
+        # self.assertEqual(cyclecloud_provider.PLACEHOLDER_TEMPLATE, provider.templates()["templates"][0])
         
         # CC thinks there are up to 50 VMs available
         a4bucket["maxCount"] = 50
         templates = provider.templates()
-        self.assertEquals(50, templates["templates"][0]["maxNumber"])
+        self.assertEqual(50, templates["templates"][0]["maxNumber"])
 
         # Request 10 VMs, but get 1 due to out-of-capacity 
         provider.cluster.limit_capacity[a4bucket['definition']['machineType']] = 1
         request = provider.create_machines(self._make_request("executea4", 10))
-        self.assertEquals(RequestStates.running, request["status"])
+        self.assertEqual(RequestStates.running, request["status"])
 
         provider.cluster.complete_node_startup([request['requestId']])
 
         request_status = provider.status({'requests': [request]})
-        self.assertEquals(RequestStates.complete, request_status["status"])
-        self.assertEquals(RequestStates.complete, request_status["requests"][0]["status"])
-        self.assertEquals(1, len(request_status["requests"][0]["machines"]))
+        self.assertEqual(RequestStates.complete, request_status["status"])
+        self.assertEqual(RequestStates.complete, request_status["requests"][0]["status"])
+        self.assertEqual(1, len(request_status["requests"][0]["machines"]))
 
         # IMPORTANT: 
         # Since numRequested < MaxCount and numCreated < numRequested, we're going to assume 
@@ -374,98 +374,98 @@ class TestHostFactory(unittest.TestCase):
         term_requests = provider.terminate_json
         term_response = provider.terminate_machines({"machines": [{"name": "host-123", "machineId": "id-123"}]})
         
-        self.assertEquals(term_response["status"], "complete")
+        self.assertEqual(term_response["status"], "complete")
         self.assertTrue(term_response["requestId"] in term_requests.requests)
-        self.assertEquals({"id-123": "host-123"}, term_requests.requests[term_response["requestId"]]["machines"])
+        self.assertEqual({"id-123": "host-123"}, term_requests.requests[term_response["requestId"]]["machines"])
         
         status_response = provider.status({"requests": [{"requestId": term_response["requestId"]}]})
-        self.assertEquals(1, len(status_response["requests"]))
-        self.assertEquals(1, len(status_response["requests"][0]["machines"]))
+        self.assertEqual(1, len(status_response["requests"]))
+        self.assertEqual(1, len(status_response["requests"][0]["machines"]))
         
         status_response = provider.status({"requests": [{"requestId": "missing"}]})
-        self.assertEquals({'status': 'complete', 'requests': [{'status': 'complete', 'message': '', 'requestId': 'missing', 'machines': []}]}, status_response)
+        self.assertEqual({'status': 'complete', 'requests': [{'status': 'complete', 'message': '', 'requestId': 'missing', 'machines': []}]}, status_response)
         
         status_response = provider.status({"requests": [{"requestId": "delete-missing"}]})
-        self.assertEquals({'status': 'running', 'requests': [{'status': 'running', "message": "Unknown termination request id.", 'requestId': 'delete-missing', 'machines': []}]}, status_response)
+        self.assertEqual({'status': 'running', 'requests': [{'status': 'running', "message": "Unknown termination request id.", 'requestId': 'delete-missing', 'machines': []}]}, status_response)
         
     def test_terminate_status(self):
         provider = self._new_provider()
         term_requests = provider.terminate_json
         term_response = provider.terminate_machines({"machines": [{"name": "host-123", "machineId": "id-123"}]})
         
-        self.assertEquals(term_response["status"], "complete")
+        self.assertEqual(term_response["status"], "complete")
         self.assertTrue(term_response["requestId"] in term_requests.requests)
-        self.assertEquals({"id-123": "host-123"}, term_requests.requests[term_response["requestId"]]["machines"])
+        self.assertEqual({"id-123": "host-123"}, term_requests.requests[term_response["requestId"]]["machines"])
         
         status_response = provider.terminate_status({"machines": [{"machineId": "id-123", "name": "host-123"}]})
-        self.assertEquals(1, len(status_response["requests"]))
-        self.assertEquals(1, len(status_response["requests"][0]["machines"]))
+        self.assertEqual(1, len(status_response["requests"]))
+        self.assertEqual(1, len(status_response["requests"][0]["machines"]))
         
         status_response = provider.terminate_status({"machines": [{"machineId": "missing", "name": "missing-123"}]})
-        self.assertEquals({'requests': [], 'status': 'complete'}, status_response)
+        self.assertEqual({'requests': [], 'status': 'complete'}, status_response)
         
     def test_terminate_error(self):
         provider = self._new_provider()
         term_response = provider.terminate_machines({"machines": [{"name": "host-123", "machineId": "id-123"}]})
-        self.assertEquals(term_response["status"], RequestStates.complete)
+        self.assertEqual(term_response["status"], RequestStates.complete)
         
         # if it raises an exception, don't mark the request id as successful.
         provider.cluster.raise_during_termination = True
         term_response = provider.terminate_machines({"machines": [{"name": "host-123", "machineId": "id-123"}]})
-        self.assertEquals(RequestStates.running, term_response["status"])
+        self.assertEqual(RequestStates.running, term_response["status"])
         failed_request_id = term_response["requestId"]
         self.assertNotEquals(True, provider.terminate_json.read()[term_response["requestId"]].get("terminated"))
         
         # if it raises an exception, don't mark the request id as successful.
         provider.cluster.raise_during_termination = False
         term_response = provider.terminate_machines({"machines": [{"name": "host-123", "machineId": "id-123"}]})
-        self.assertEquals(RequestStates.complete, term_response["status"])
-        self.assertEquals(True, provider.terminate_json.read()[term_response["requestId"]].get("terminated"))
+        self.assertEqual(RequestStates.complete, term_response["status"])
+        self.assertEqual(True, provider.terminate_json.read()[term_response["requestId"]].get("terminated"))
         
         provider.status({"requests": [{"requestId": failed_request_id}]})
-        self.assertEquals(True, provider.terminate_json.read()[failed_request_id].get("terminated"))
+        self.assertEqual(True, provider.terminate_json.read()[failed_request_id].get("terminated"))
         
     # def test_json_store_lock(self):
     #     json_store = JsonStore("test.json", "/tmp")
         
     #     json_store._lock()
-    #     self.assertEquals(101, subprocess.call([sys.executable, test_json_source_helper.__file__, "test.json", "/tmp"]))
+    #     self.assertEqual(101, subprocess.call([sys.executable, test_json_source_helper.__file__, "test.json", "/tmp"]))
         
     #     json_store._unlock()
-    #     self.assertEquals(0, subprocess.call([sys.executable, test_json_source_helper.__file__, "test.json", "/tmp"]))
+    #     self.assertEqual(0, subprocess.call([sys.executable, test_json_source_helper.__file__, "test.json", "/tmp"]))
         
     def test_templates(self):
         provider = self._new_provider()
         a4bucket, a8bucket = provider.cluster._nodearrays["nodearrays"][0]["buckets"]
         nodearray = {"MaxCoreCount": 100}
-        self.assertEquals(2, provider._max_count('execute', nodearray, 4, {"maxCount": 2, "definition": {"machineType": "A$"}}))
-        self.assertEquals(3, provider._max_count('execute', nodearray, 8, {"maxCoreCount": 24, "definition": {"machineType": "A$"}}))
-        self.assertEquals(3, provider._max_count('execute', nodearray, 8, {"maxCoreCount": 25, "definition": {"machineType": "A$"}}))
-        self.assertEquals(3, provider._max_count('execute', nodearray, 8, {"maxCoreCount": 31, "definition": {"machineType": "A$"}}))
-        self.assertEquals(4, provider._max_count('execute', nodearray, 8, {"maxCoreCount": 32, "definition": {"machineType": "A$"}}))
+        self.assertEqual(2, provider._max_count('execute', nodearray, 4, {"maxCount": 2, "definition": {"machineType": "A$"}}))
+        self.assertEqual(3, provider._max_count('execute', nodearray, 8, {"maxCoreCount": 24, "definition": {"machineType": "A$"}}))
+        self.assertEqual(3, provider._max_count('execute', nodearray, 8, {"maxCoreCount": 25, "definition": {"machineType": "A$"}}))
+        self.assertEqual(3, provider._max_count('execute', nodearray, 8, {"maxCoreCount": 31, "definition": {"machineType": "A$"}}))
+        self.assertEqual(4, provider._max_count('execute', nodearray, 8, {"maxCoreCount": 32, "definition": {"machineType": "A$"}}))
         
         # simple zero conditions
-        self.assertEquals(0, provider._max_count('execute', nodearray, 8, {"maxCoreCount": 0, "definition": {"machineType": "A$"}}))
-        self.assertEquals(0, provider._max_count('execute', nodearray, 8, {"maxCount": 0, "definition": {"machineType": "A$"}}))
+        self.assertEqual(0, provider._max_count('execute', nodearray, 8, {"maxCoreCount": 0, "definition": {"machineType": "A$"}}))
+        self.assertEqual(0, provider._max_count('execute', nodearray, 8, {"maxCount": 0, "definition": {"machineType": "A$"}}))
         
         # error conditions return -1
         nodearray = {}
-        self.assertEquals(-1, provider._max_count('execute', nodearray, -100, {"maxCoreCount": 32, "definition": {"machineType": "A$"}}))
-        self.assertEquals(-1, provider._max_count('execute', nodearray, -100, {"maxCount": 32, "definition": {"machineType": "A$"}}))
-        self.assertEquals(-1, provider._max_count('execute', nodearray, 4, {"definition": {"machineType": "A$"}}))
-        self.assertEquals(-1, provider._max_count('execute', nodearray, 4, {"maxCount": -100, "definition": {"machineType": "A$"}}))
-        self.assertEquals(-1, provider._max_count('execute', nodearray, 4, {"maxCoreCount": -100, "definition": {"machineType": "A$"}}))
+        self.assertEqual(-1, provider._max_count('execute', nodearray, -100, {"maxCoreCount": 32, "definition": {"machineType": "A$"}}))
+        self.assertEqual(-1, provider._max_count('execute', nodearray, -100, {"maxCount": 32, "definition": {"machineType": "A$"}}))
+        self.assertEqual(-1, provider._max_count('execute', nodearray, 4, {"definition": {"machineType": "A$"}}))
+        self.assertEqual(-1, provider._max_count('execute', nodearray, 4, {"maxCount": -100, "definition": {"machineType": "A$"}}))
+        self.assertEqual(-1, provider._max_count('execute', nodearray, 4, {"maxCoreCount": -100, "definition": {"machineType": "A$"}}))
         
         a4bucket["maxCount"] = 0
         a8bucket["maxCoreCount"] = 0  # we can _never_ return an empty list
-        self.assertEquals(cyclecloud_provider.PLACEHOLDER_TEMPLATE, provider.templates()["templates"][0])
+        self.assertEqual(cyclecloud_provider.PLACEHOLDER_TEMPLATE, provider.templates()["templates"][0])
         
         a8bucket["maxCoreCount"] = 24
-        self.assertEquals(3, provider.templates()["templates"][-1]["maxNumber"])
+        self.assertEqual(3, provider.templates()["templates"][-1]["maxNumber"])
         a8bucket["maxCoreCount"] = 0
         
         a4bucket["maxCount"] = 100
-        self.assertEquals(100, provider.templates()["templates"][0]["maxNumber"])
+        self.assertEqual(100, provider.templates()["templates"][0]["maxNumber"])
 
 
     def test_reprioritize_template(self):
@@ -484,36 +484,36 @@ class TestHostFactory(unittest.TestCase):
         
         # a4 overrides the default and has custom2 defined as well
         attributes = any_template("execute")["attributes"]
-        self.assertEquals(["String", "custom_override_value"], attributes["custom"])
-        self.assertEquals(["String", "custom_value2"], attributes["custom2"])
-        self.assertEquals(["Numeric", '1024'], attributes["mem"])
+        self.assertEqual(["String", "custom_override_value"], attributes["custom"])
+        self.assertEqual(["String", "custom_value2"], attributes["custom2"])
+        self.assertEqual(["Numeric", '1024'], attributes["mem"])
         
     def test_errors(self):
         provider = self._new_provider()
         provider.cluster.raise_during_add_nodes = True
         provider.templates()
         response = provider.create_machines(self._make_request("executea4", 1))
-        self.assertEquals('Azure CycleCloud experienced an error, though it may have succeeded: raise_during_add_nodes', response["message"])
-        self.assertEquals(RequestStates.running, response["status"])
+        self.assertEqual('Azure CycleCloud experienced an error, though it may have succeeded: raise_during_add_nodes', response["message"])
+        self.assertEqual(RequestStates.running, response["status"])
         self.assertNotEquals(None, response.get("requestId"))
         
         provider.cluster.raise_during_termination = True
         term_response = provider.terminate_machines({"machines": [{"machineId": "mach123", "name": "n-1-123"}]})
-        self.assertEquals(RequestStates.running, term_response["status"])
+        self.assertEqual(RequestStates.running, term_response["status"])
                                                      
     def test_missing_template_in_request(self):
         provider = self._new_provider()
         provider.templates_json.requests.clear()
         request = provider.create_machines(self._make_request("executea4", 1))
-        self.assertEquals(RequestStates.complete_with_error, request["status"])
+        self.assertEqual(RequestStates.complete_with_error, request["status"])
         
     def test_expired_terminations(self):
         provider = self._new_provider()
         term_response = provider.terminate_machines({"machines": [{"machineId": "id-123", "name": "e-1-123"},
                                                                   {"machineId": "id-124", "name": "e-2-234"}]})
-        self.assertEquals(RequestStates.complete, term_response["status"])
+        self.assertEqual(RequestStates.complete, term_response["status"])
         stat_response = provider.status({"requests": [{"requestId": term_response["requestId"]}]})
-        self.assertEquals(RequestStates.complete, stat_response["requests"][0]["status"])
+        self.assertEqual(RequestStates.complete, stat_response["requests"][0]["status"])
         self.assertIn(term_response["requestId"], provider.terminate_json.read())
         
         # expires after 2 hours, so this is just shy of 2 hours
@@ -523,19 +523,19 @@ class TestHostFactory(unittest.TestCase):
         
         term_response = provider.terminate_machines({"machines": [{"machineId": "id-234", "name": "n-1-123"}]})
         stat_response = provider.status({"requests": [{"requestId": term_response["requestId"]}]})
-        self.assertEquals(RequestStates.complete, stat_response["requests"][0]["status"])
+        self.assertEqual(RequestStates.complete, stat_response["requests"][0]["status"])
         self.assertIn(expired_request, provider.terminate_json.read())
         
         # just over 2 hours, it will be gone.
         provider.clock.now = (1970, 1, 1, 2.01, 0, 0)
         with provider.terminate_json as requests:
-            for _, request in requests.iteritems():
+            for _, request in requests.items():
                 request["terminated"] = False
         stat_response = provider.status({"requests": [{"requestId": term_response["requestId"]}]})
         self.assertIn(expired_request, provider.terminate_json.read())
         
         with provider.terminate_json as requests:
-            for _, request in requests.iteritems():
+            for _, request in requests.items():
                 request["terminated"] = True
         stat_response = provider.status({"requests": [{"requestId": term_response["requestId"]}]})
         self.assertNotIn(expired_request, provider.terminate_json.read())
@@ -546,7 +546,7 @@ class TestHostFactory(unittest.TestCase):
         
         def _maxNumber(name):
             ret = [t for t in templates if t["templateId"] == name]
-            self.assertEquals(1, len(ret))
+            self.assertEqual(1, len(ret))
             return ret[0]["maxNumber"]
         
         self.assertTrue(_maxNumber("executea4") > 0)
@@ -574,20 +574,20 @@ class TestHostFactory(unittest.TestCase):
         
         # a4 overrides the default and has custom2 defined as well
         attributes = any_template("execute")["attributes"]
-        self.assertEquals(["String", "custom_override_value"], attributes["custom"])
-        self.assertEquals(["String", "custom_value2"], attributes["custom2"])
-        self.assertEquals(["Numeric", '1024'], attributes["mem"])
+        self.assertEqual(["String", "custom_override_value"], attributes["custom"])
+        self.assertEqual(["String", "custom_value2"], attributes["custom2"])
+        self.assertEqual(["Numeric", '1024'], attributes["mem"])
         
         # a8 only has the default
         attributes = any_template("other")["attributes"]
-        self.assertEquals(["String", "custom_default_value"], attributes["custom"])
+        self.assertEqual(["String", "custom_default_value"], attributes["custom"])
         self.assertNotIn("custom2", attributes)
-        self.assertEquals(0, any_template("other")["maxNumber"])
+        self.assertEqual(0, any_template("other")["maxNumber"])
         
     def test_invalid_template(self):
         provider = self._new_provider()
         response = provider.create_machines(self._make_request("nonsense", 1))
-        self.assertEquals(RequestStates.complete_with_error, response["status"])
+        self.assertEqual(RequestStates.complete_with_error, response["status"])
         
     def test_provider_config_from_env(self):
         tempdir = tempfile.mkdtemp()
@@ -606,7 +606,7 @@ class TestHostFactory(unittest.TestCase):
             for template in provider.templates()["templates"]:
                 self.assertIn(template["templateId"], ["executea4", "executea8", "lpexecutea4", "lpexecutea8"])
                 assert "custom" in template["attributes"]
-                self.assertEquals(["String", "VALUE"], template["attributes"]["custom"])
+                self.assertEqual(["String", "VALUE"], template["attributes"]["custom"])
             
         except Exception:
             shutil.rmtree(tempdir, ignore_errors=True)
@@ -618,21 +618,21 @@ class TestHostFactory(unittest.TestCase):
         
         config.set("templates.default.UserData", "abc=123;def=1==1")
         provider_templates = provider.templates()
-        self.assertEquals({"abc": "123", "def": "1==1"}, provider_templates["templates"][0]["UserData"]["symphony"]["custom_env"])
-        self.assertEquals("abc def", provider.templates()["templates"][0]["UserData"]["symphony"]["custom_env_names"])
+        self.assertEqual({"abc": "123", "def": "1==1"}, provider_templates["templates"][0]["UserData"]["symphony"]["custom_env"])
+        self.assertEqual("abc def", provider.templates()["templates"][0]["UserData"]["symphony"]["custom_env_names"])
         
         config.set("templates.default.UserData", "abc=123;def=1==1;")
-        self.assertEquals({"abc": "123", "def": "1==1"}, provider.templates()["templates"][0]["UserData"]["symphony"]["custom_env"])
-        self.assertEquals("abc def", provider.templates()["templates"][0]["UserData"]["symphony"]["custom_env_names"])
+        self.assertEqual({"abc": "123", "def": "1==1"}, provider.templates()["templates"][0]["UserData"]["symphony"]["custom_env"])
+        self.assertEqual("abc def", provider.templates()["templates"][0]["UserData"]["symphony"]["custom_env_names"])
         
         config.set("templates.default.UserData", "abc=123;def=1==1;bad_form")
         
-        self.assertEquals({"abc": "123", "def": "1==1"}, provider.templates()["templates"][0]["UserData"]["symphony"]["custom_env"])
-        self.assertEquals("abc def", provider.templates()["templates"][0]["UserData"]["symphony"]["custom_env_names"])
+        self.assertEqual({"abc": "123", "def": "1==1"}, provider.templates()["templates"][0]["UserData"]["symphony"]["custom_env"])
+        self.assertEqual("abc def", provider.templates()["templates"][0]["UserData"]["symphony"]["custom_env_names"])
         
         config.set("templates.default.UserData", "abc=123;def=1==1;good_form=234;bad_form_123")
-        self.assertEquals({"abc": "123", "def": "1==1", "good_form": "234"}, provider.templates()["templates"][0]["UserData"]["symphony"]["custom_env"])
-        self.assertEquals("abc def good_form", provider.templates()["templates"][0]["UserData"]["symphony"]["custom_env_names"])
+        self.assertEqual({"abc": "123", "def": "1==1", "good_form": "234"}, provider.templates()["templates"][0]["UserData"]["symphony"]["custom_env"])
+        self.assertEqual("abc def good_form", provider.templates()["templates"][0]["UserData"]["symphony"]["custom_env_names"])
         
         def assert_no_user_data():
             templates = provider.templates()

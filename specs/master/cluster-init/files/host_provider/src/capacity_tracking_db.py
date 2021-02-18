@@ -76,7 +76,7 @@ class CapacityTrackingDb:
 
         now = calendar.timegm(self.clock())
         expired = []
-        for k, v in self.capacity_db.read().iteritems():
+        for k, v in self.capacity_db.read().items():
             if _limit_expired(now, v):
                 expired.append(k)
         self.remove_limits(expired)

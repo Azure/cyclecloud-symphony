@@ -134,46 +134,46 @@ def get_resource_status():
 
 def close_host(hostname, reclaim=True, dry_run=False):
     if dry_run:
-        print "Would Close host %s with reclaim %s" % (hostname, reclaim)
+        print("Would Close host %s with reclaim %s" % (hostname, reclaim))
     else:
-        print "Closing host %s with reclaim %s" % (hostname, reclaim)
+        print("Closing host %s with reclaim %s" % (hostname, reclaim))
         if reclaim:
             retcode, out, err = egosh(['resource', 'close', '-reclaim', hostname])
         else:
             retcode, out, err = egosh(['resource', 'close', hostname])
-        print "Status: %s \n Out: %s \n Err: %s \n" % (retcode, out, err)
+        print("Status: %s \n Out: %s \n Err: %s \n" % (retcode, out, err))
 
 
 def close_unavail_hosts(host_status, dry_run=False):
-    for h, status in host_status.iteritems():
+    for h, status in host_status.items():
         if status.lower() == "unavail":
             if dry_run:
-                print "Would Close unavail host %s with status %s" % (h, status)
+                print("Would Close unavail host %s with status %s" % (h, status))
             else:
                 close_host(h, reclaim=False, dry_run=dry_run)
 
 
 def remove_hosts(host_status, dry_run=False):
-    for h, status in host_status.iteritems():
+    for h, status in host_status.items():
          if dry_run:
-             print "Would Remove host %s with status %s" % (h, status)
+             print("Would Remove host %s with status %s" % (h, status))
          else:
-             print "Removing host %s with status %s" % (h, status)
+             print("Removing host %s with status %s" % (h, status))
              close_host(h, reclaim=True, dry_run=dry_run)
              retcode, out, err = egosh(['resource', 'remove', h])
-             print "Status: %s \n Out: %s \n Err: %s \n" % (retcode, out, err)
+             print("Status: %s \n Out: %s \n Err: %s \n" % (retcode, out, err))
                  
 
 def remove_unavail_hosts(host_status, dry_run=False):
     close_unavail_hosts(host_status, dry_run=dry_run)
-    for h, status in host_status.iteritems():
+    for h, status in host_status.items():
         if status.lower() == "unavail":
             if dry_run:
-                print "Would unavail Remove host %s with status %s" % (h, status)
+                print("Would unavail Remove host %s with status %s" % (h, status))
             else:
-                print "Removing unavail host %s with status %s" % (h, status)
+                print("Removing unavail host %s with status %s" % (h, status))
                 retcode, out, err = egosh(['resource', 'remove', h])
-                print "Status: %s \n Out: %s \n Err: %s \n" % (retcode, out, err)
+                print("Status: %s \n Out: %s \n Err: %s \n" % (retcode, out, err))
 
 
 def count_tasks(app_name):
@@ -245,8 +245,8 @@ def estimate_runtime_per_task(app_name):
 
 def run(args):
     r_status = get_resource_status()
-    print "Current Resource states: "
-    print r_status
+    print("Current Resource states: ")
+    print(r_status)
     remove_unavail_hosts(r_status)
     
     

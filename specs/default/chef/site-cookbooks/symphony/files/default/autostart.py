@@ -187,27 +187,27 @@ def run(args):
     apps = list_apps()    
     for app in apps:
         all_tasks, running_tasks, pending_tasks = count_tasks(app)
-        print "Tasks for %s :\t%s\t%s\t%s" % (app, all_tasks, running_tasks, pending_tasks)
+        print("Tasks for %s :\t%s\t%s\t%s" % (app, all_tasks, running_tasks, pending_tasks))
         estimated_runtime = estimate_runtime_per_task(app)
-        print "\nAvg runtime for %s = %s" % (app, estimated_runtime)
+        print("\nAvg runtime for %s = %s" % (app, estimated_runtime))
         
         # Max is 1 CPU per Task, but fit to expected Tasks per hour
         hours_per_task = float(estimated_runtime)/3600
         demand_by_app[app] = min(all_tasks, int(math.ceil(all_tasks * hours_per_task))) 
-        print "Demand for %s = %s with %s tasks" % (app, demand_by_app[app], all_tasks)
+        print("Demand for %s = %s with %s tasks" % (app, demand_by_app[app], all_tasks))
         
         total_slots, free_slots = count_resources()
-    print "Slots: %s free of %s" % (free_slots, total_slots)
+    print("Slots: %s free of %s" % (free_slots, total_slots))
 
     total_demand = 0
     if demand_by_app:
-        total_demand = sum(d for app, d in demand_by_app.iteritems())
+        total_demand = sum(d for app, d in demand_by_app.items())
     
-    print "\nUnmet Demand = %s" % (max(0, total_demand - total_slots))
+    print("\nUnmet Demand = %s" % (max(0, total_demand - total_slots)))
 
     # TODO:  We need to take Dynamic Slot Requests into account (multi-slot or partial-slot tasks)
     cores_per_slot=1
-    print "Requesting %i ideal %i-core slots from the cloud." % (total_demand, cores_per_slot)
+    print("Requesting %i ideal %i-core slots from the cloud." % (total_demand, cores_per_slot))
 
 
     # TODO: We should allow each app (or maybe resource group?) to specify a slot_type
@@ -220,7 +220,7 @@ def run(args):
         'request_cpus': slot_demand
     }]
 
-    print "Requesting %d slots of type: %s" % (slot_demand, slot_type)
+    print("Requesting %d slots of type: %s" % (slot_demand, slot_type))
     jetpack.autoscale.scale_by_jobs(autoscale_requests)
     
     

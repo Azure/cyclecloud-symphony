@@ -1,7 +1,8 @@
 import json
 
 import logging
-from urllib import urlencode
+from urllib.parse import urlencode
+from builtins import str
 
 
 try:
@@ -42,13 +43,13 @@ class Cluster:
         # if Symphony may have a stale machineId -> hostname mapping, so find the existing instance with that hostname and kill it
         machine_names = [ machine["name"].split(".")[0] for machine in machines if machine.get("name") ]
         if machine_names:
-            self.logger.warn("Terminating the following nodes by machine_names: %s", machine_names)
+            self.logger.warning("Terminating the following nodes by machine_names: %s", machine_names)
 
             f = urlencode({"instance-filter": 'HostName in {%s}' % ",".join('"%s"' % x for x in machine_names)})
             try:
                 self.post("/cloud/actions/terminate_node/%s?%s" % (self.cluster_name, f))
             except cyclecli.UserError as e:
-                if "No instances were found matching your query" in unicode(e):
+                if "No instances were found matching your query" in str(e):
                    return
                 raise
 

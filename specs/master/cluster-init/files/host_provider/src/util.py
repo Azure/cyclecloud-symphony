@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import sys
 import traceback
+from builtins import str
 
 
 try:
@@ -152,7 +153,7 @@ def failureresponse(response):
                 return func(*args, **kwargs)
             except cyclecli.UserError as ue:
                 with_message = deepcopy(response)
-                message = unicode(ue)
+                message = str(ue)
                 logger.debug(traceback.format_exc())
                 
                 try:
@@ -164,13 +165,13 @@ def failureresponse(response):
                 with_message["message"] = message
                 return args[0].json_writer(with_message)
             except Exception as e:
-                logger.exception(unicode(e))
+                logger.exception(str(e))
                 logger.debug(traceback.format_exc())
                 with_message = deepcopy(response)
-                with_message["message"] = unicode(e)
+                with_message["message"] = str(e)
                 return args[0].json_writer(with_message)
             except:  # nopep8 ignore the bare except
-                logger.exception(unicode(e))
+                logger.exception("Caught unknown exception...")
                 logger.debug(traceback.format_exc())
                 with_message = deepcopy(response)
                 with_message["message"] = traceback.format_exc()
@@ -203,7 +204,7 @@ class ProviderConfig:
                 break
             
             if not hasattr(top_value, "keys"):
-                self.logger.warn("Invalid format, as a child key was specified for %s when its type is %s ", key, type(top_value))
+                self.logger.warning("Invalid format, as a child key was specified for %s when its type is %s ", key, type(top_value))
                 return {}
                 
             value = top_value.get(keys[n])
@@ -217,7 +218,7 @@ class ProviderConfig:
             try:
                 return self.jetpack_config.get(key, default_value)
             except cyclecli.ConfigError as e:
-                if key in unicode(e):
+                if key in str(e):
                     return default_value
                 raise
         
@@ -293,20 +294,20 @@ def provider_config_from_environment(pro_conf_dir=os.getenv('PRO_CONF_DIR', os.g
     
     # don't let the user define these in two places
     if config.pop("templates", {}):
-        logger.warn("Please define template overrides in %s, not the azureccprov_config.json" % templates_file)
+        logger.warning("Please define template overrides in %s, not the azureccprov_config.json" % templates_file)
     
     # and merge them so it is transparent to the code
     flattened_templates = {}
     for template in customer_templates.get("templates", []):
         
         if "templateId" not in template:
-            logger.warn("Skipping template because templateId is not defined: %s", template)
+            logger.warning("Skipping template because templateId is not defined: %s", template)
             continue
         
         nodearray = template.pop("templateId")  # definitely don't want to rename them as machineId
         
         if nodearray in flattened_templates:
-            logger.warn("Ignoring redefinition of templateId %s", nodearray)
+            logger.warning("Ignoring redefinition of templateId %s", nodearray)
             continue
         
         flattened_templates[nodearray] = template
