@@ -30,6 +30,16 @@ def init_logging(loglevel=logging.INFO, logfile=None):
     try:
         import jetpack
         jetpack.util.setup_logging()
+        root_logger = logging.getLogger()
+        filtered_handlers = []
+        for handler in root_logger.handlers:
+            if hasattr(handler, "baseFilename"):
+                bfn = getattr(handler, "baseFilename")
+                if bfn and bfn.endswith("jetpack.log"):
+                    continue
+            filtered_handlers.append(handler)
+            
+        root_logger.handlers = filtered_handlers
         for handler in logging.getLogger().handlers:
             handler.setLevel(logging.ERROR)
     except ImportError:
