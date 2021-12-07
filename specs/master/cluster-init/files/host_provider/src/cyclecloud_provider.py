@@ -995,8 +995,7 @@ def main(argv=sys.argv, json_writer=simple_json_writer):  # pragma: no cover
 
         input_json = util.load_json(input_json_path)
         
-        if provider.fine:
-            logger.debug("Arguments - %s %s %s", cmd, ignore, json.dumps(input_json))
+        logger.info("Arguments - %s %s %s", cmd, ignore, json.dumps(input_json))
                 
         if cmd == "templates":
             provider.templates()
