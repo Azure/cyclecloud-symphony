@@ -23,7 +23,11 @@ class Cluster:
         return self.get("/clusters/%s/status" % self.cluster_name)
 
     def add_nodes(self, request):
-        return self.post("/clusters/%s/nodes/create" % self.cluster_name, json=request)
+        response_raw = self.post("/clusters/%s/nodes/create" % self.cluster_name, json=request)
+        try:
+            return json.loads(response_raw)
+        except:
+            raise RuntimeError("Could not parse response as json to create_nodes! '%s'" % response_raw)
     
     def all_nodes(self):
         return self.get("/clusters/%s/nodes" % self.cluster_name)
@@ -33,6 +37,11 @@ class Cluster:
         for request_id in request_ids:
             responses[request_id] = self.get("/clusters/%s/nodes" % self.cluster_name, request_id=request_id)
         return responses
+    
+    def nodes_by_operation_id(self, operation_id):
+        if not operation_id:
+            raise RuntimeError("You must specify operation id!")
+        return self.get("/clusters/%s/nodes?operation=%s" % (self.cluster_name, operation_id))
 
     def terminate(self, machines):
         machine_ids = [machine["machineId"] for machine in machines]
@@ -48,11 +57,10 @@ class Cluster:
             f = urlencode({"instance-filter": 'HostName in {%s}' % ",".join('"%s"' % x for x in machine_names)})
             try:
                 self.post("/cloud/actions/terminate_node/%s?%s" % (self.cluster_name, f))
-            except cyclecli.UserError as e:
+            except Exception as e:
                 if "No instances were found matching your query" in str(e):
                    return
                 raise
-
             
     def _session(self):
         config = {"verify_certificates": False,
