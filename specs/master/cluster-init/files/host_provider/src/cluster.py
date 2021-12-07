@@ -76,15 +76,22 @@ class Cluster:
         self.logger.debug("POST %s with data %s json %s kwargs %s", root_url + url, data, json, kwargs)
         session = self._session()
         response = session.post(root_url + url, data, json, **kwargs)
+        response_content = response.content
+        if response_content is not None and isinstance(response_content, bytes):
+            response_content = response_content.decode()
         if response.status_code < 200 or response.status_code > 299:
-            raise ValueError(response.content)
-        return response.content
+            raise ValueError(response_content)
+        return response_content
         
     def get(self, url, **params):
         root_url = self._get_or_raise("cyclecloud.config.web_server")
         self.logger.debug("GET %s with params %s", root_url + url, params)
         session = self._session()
         response = session.get(root_url + url, params=params)
+        response_content = response.content
+        if response_content is not None and isinstance(response_content, bytes):
+            response_content = response_content.decode()
+
         if response.status_code < 200 or response.status_code > 299:
-            raise ValueError(response.content)
-        return json.loads(response.content)
+            raise ValueError(response_content)
+        return json.loads(response_content)
