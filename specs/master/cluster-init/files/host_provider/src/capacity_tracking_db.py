@@ -98,7 +98,7 @@ class CapacityTrackingDb:
                 if num_created < num_requested:
                     nodearray_name = req['nodearray']
                     machine_type = req['definition']['machineType']
-                    logger.warning("Out-of-capacity condition detected for machine_type %s in nodearray %s", machine_type, nodearray_name)
+                    self.logger.warning("Out-of-capacity condition detected for machine_type %s in nodearray %s", machine_type, nodearray_name)
                     self._apply_capacity_limit(nodearray_name, machine_type)
                     limits_changed = True
 
@@ -114,7 +114,7 @@ class CapacityTrackingDb:
         limited_buckets = self.capacity_db.read()
         if key in limited_buckets:            
             current_max_count = limited_buckets[key]['max_count']
-            logger.info("Limiting reported maxNumber to %s for machine_type %s in nodearray %s", current_max_count, machine_type, nodearray_name)
+            self.logger.info("Limiting reported maxNumber to %s for machine_type %s in nodearray %s", current_max_count, machine_type, nodearray_name)
 
         self._release_expired_limits()
         return current_max_count
