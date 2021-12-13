@@ -2,6 +2,7 @@ import json
 
 import logging
 import requests
+from shutil import which
 from urllib.parse import urlencode
 
 class MachineStates:
@@ -30,13 +31,11 @@ class SymphonyRestClient:
 
     def __init__(self, config, logger=None):
         self.config = config
+        self.logger = logger or logging.getLogger()
         self.webserviceUrl = self.rest_url()
         self.username = self.config.get('symphony.soam.user', 'Admin')
         self.password = self.config.get('symphony.soam.password', 'Admin')
         self.token = None
-        self.logger = logger or logging.getLogger()
-
-        
 
     def rest_url(self):
         import os
@@ -46,8 +45,15 @@ class SymphonyRestClient:
         try:
             # Firt, try to get the url from ego (supports manual cluster config changes)
             # egosh client view REST_HOST_FACTORY_URL | grep DESCRIPTION | sed 's/^DESCRIPTION\:\s//g' -
-            egosh_cmd = os.path.join(os.environ['EGO_BINDIR'], 'egosh')
-            client_view = subprocess.check_output([egosh_cmd, 'client', 'view', 'REST_HOST_FACTORY_URL'])
+            # add which or command -v
+            egosh_cmd = "egosh"
+            if "EGO_BINDIR" in os.environ:
+                egosh_cmd = os.path.join(os.environ["EGO_BINDIR"], egosh_cmd)
+            else:
+                # which returns nothing, so revert to the default
+                egosh_cmd = which(egosh_cmd) or egosh_cmd
+
+            client_view = subprocess.check_output([egosh_cmd, 'client', 'view', 'REST_HOST_FACTORY_URL']).decode()
             description = filter(lambda x: 'DESCRIPTION' in x, client_view.split('\n'))[0]        
             url = description.split()[1]
         except:
@@ -56,7 +62,7 @@ class SymphonyRestClient:
             webservicePort = self.config.get('symphony.hostfactory.HF_REST_LISTEN_PORT', '9080')
             webserviceSsl = self.config.get('symphony.hostfactory.HF_REST_TRANSPORT', 'TCPIPv4').lower() == 'TCPIPv4SSL'.lower()
             prefix = 'https' if webserviceSsl else 'http'
-            url = '%s://%s:%s' % (prefix, webserviceHostname, webservicePort)
+            url = '%s://%s:%s/platform/rest/hostfactory' % (prefix, webserviceHostname, webservicePort)
 
         return url.rstrip('/')
 
@@ -64,7 +70,7 @@ class SymphonyRestClient:
         self.logger.info("Symphony REST API [%s] response (%s)", r.url, r.status_code)
         if 400 <= r.status_code < 500:
             if r.text:
-                raise Exception("Invalid Symphony REST call (%s): %s" % r.status_code, r.text)
+                raise Exception("Invalid Symphony REST call (%s): %s" % (r.status_code, r.text))
             else:
                 raise Exception("Unspecified Symphony REST Error (%s)" % r.status_code)
 
@@ -83,9 +89,5 @@ class SymphonyRestClient:
         hfcsrftoken = self._login()
         params = {'hfcsrftoken': hfcsrftoken}
         url = self.webserviceUrl + '/provider/azurecc/templates'
-
         r = requests.put(url, auth=(self.username, self.password), params=params, json=templates)
         self._raise_on_error(r)
-
-
-

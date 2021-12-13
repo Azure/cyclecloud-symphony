@@ -38,16 +38,18 @@ class InvalidCycleCloudVersionError(RuntimeError):
 
 class CycleCloudProvider:
     
-    def __init__(self, config, cluster, hostnamer, json_writer, terminate_requests, templates, clock):
+    def __init__(self, config, cluster, hostnamer, json_writer, terminate_requests, creation_requests, templates, clock):
         self.config = config
         self.cluster = cluster
         self.hostnamer = hostnamer
         self.json_writer = json_writer
         self.terminate_json = terminate_requests
         self.templates_json = templates
+        self.creation_json = creation_requests
         self.exit_code = 0
         self.clock = clock
         self.termination_timeout = float(self.config.get("cyclecloud.termination_request_retirement", 120) * 60)
+        self.creation_request_ttl = int(self.config.get("symphony.creation_request_ttl", 40 * 60))
         self.node_request_timeouts = float(self.config.get("cyclecloud.machine_request_retirement", 120) * 60)
         self.fine = False
         self.capacity_tracker = CapacityTrackingDb(self.config, self.cluster.cluster_name, self.clock)
@@ -106,7 +108,6 @@ class CycleCloudProvider:
                 'priority': 0,
                 'templateId': 'execute1'}]}
         """
-        
         prior_templates = self.templates_json.read()
         prior_templates_str = json.dumps(prior_templates, indent=2)
         
@@ -375,6 +376,13 @@ class CycleCloudProvider:
          'requestId': 'req-123'}
         """
         request_id = str(uuid.uuid4())
+
+        # save the request so we can time it out
+        with self.creation_json as requests_store:
+            requests_store[request_id] = {"requestTime": calendar.timegm(self.clock()),
+                                          "completedNodes": [],
+                                          "allNodes": None,
+                                          "completed": False}
         
         try:
             template_store = self.templates_json.read()
@@ -419,8 +427,14 @@ class CycleCloudProvider:
             if template["attributes"].get("placementgroup"):
                 request_set["placementGroupId"] = template["attributes"].get("placementgroup")[1]
                                     
-            self.cluster.add_nodes({'requestId': request_id,
-                                    'sets': [request_set]})
+            add_nodes_response = self.cluster.add_nodes({'requestId': request_id,
+                                                         'sets': [request_set]})
+            logger.info("Create nodes response: %s", add_nodes_response)
+            nodes_response = self.cluster.nodes_by_operation_id(operation_id=add_nodes_response["operationId"])
+            
+            with self.creation_json as requests_store:
+                requests_store[request_id]["allNodes"] = [x["NodeId"] for x in nodes_response["nodes"]]
+
             if template["attributes"].get("placementgroup"):
                 logger.info("Requested %s instances of machine type %s in placement group %s for nodearray %s.", machine_count, machinetype_name, _get("placementgroup"), _get("nodearray"))
             else:
@@ -494,7 +508,6 @@ class CycleCloudProvider:
                     "requests": []}
         req_return_count = 0
         
-
         for node in all_nodes['nodes']:
             
             hostname = node.get("Hostname")
@@ -506,7 +519,7 @@ class CycleCloudProvider:
 
             machine = {"gracePeriod": 0,
                        "machine": hostname or ""}
-            node_status = node.get("State")
+            node_status = node.get("Status")
             node_status_msg = node.get("StatusMessage", "Unknown node failure.")
 
             if node_status in report_failure_states:
@@ -521,7 +534,7 @@ class CycleCloudProvider:
         return self.json_writer(response)
             
     @failureresponse({"requests": [], "status": RequestStates.running})
-    def _create_status(self, input_json):
+    def _create_status(self, input_json, json_writer=None):
         """
         input:
         {'requests': [{'requestId': 'req-123'}, {'requestId': 'req-234'}]}
@@ -543,21 +556,29 @@ class CycleCloudProvider:
          'status': 'complete'}
 
         """
+        json_writer = json_writer or self.json_writer
         request_status = RequestStates.complete
         
         request_ids = [r["requestId"] for r in input_json["requests"]]
-        try:
-            nodes_by_request_id = self.cluster.nodes(request_ids=request_ids)
-        except UserError as e:
-            logger.exception("Azure CycleCloud experienced an error and the node creation request failed. %s", e)
-            return self.json_writer({"status": RequestStates.complete_with_error,
-                                    "requests": [{"requestId": request_id, "status": RequestStates.complete_with_error} for request_id in request_ids],
-                                     "message": "Azure CycleCloud experienced an error: %s" % str(e)})
-        except ValueError as e:
-            logger.exception("Azure CycleCloud experienced an error and the node creation request failed. %s", e)
-            return self.json_writer({"status": RequestStates.complete_with_error,
-                                    "requests": [{"requestId": request_id, "status": RequestStates.complete_with_error} for request_id in request_ids],
-                                     "message": "Azure CycleCloud experienced an error: %s" % str(e)})
+        
+        nodes_by_request_id = {}
+        exceptions = []
+        # go one by one in case one of the request_ids does not exist in CycleCloud
+        for request_id in request_ids:
+            try:
+                nodes_by_request_id.update(self.cluster.nodes(request_ids=[request_id]))                
+            except Exception as e:
+                if "No operation found for request id" in str(e):
+                    nodes_by_request_id[request_id] = {"nodes": []}
+                else:
+                    exceptions.append(e)
+                    logger.exception("Azure CycleCloud experienced an error and the node creation request failed for request_id %s. %s", request_id, e)
+
+        if not nodes_by_request_id:
+            error_messages = " | ".join(list(set([str(e) for e in exceptions])))
+            return json_writer({"status": RequestStates.complete_with_error,
+                                        "requests": [{"requestId": request_id, "status": RequestStates.complete_with_error} for request_id in request_ids],
+                                        "message": "Azure CycleCloud experienced an error: %s" % error_messages})
         
         message = ""
         
@@ -571,6 +592,9 @@ class CycleCloudProvider:
                 # nothing to do.
                 logger.warning("No nodes found for request id %s.", request_id)
             
+            completed_nodes = []
+            all_nodes = []
+
             machines = []
             request = {"requestId": request_id,
                         "machines": machines}
@@ -587,8 +611,11 @@ class CycleCloudProvider:
             for node in requested_nodes["nodes"]:
                 # for new nodes, completion is Ready. For "released" nodes, as long as
                 # the node has begun terminated etc, we can just say success.
-                node_status = node.get("State")
+                # node_status = node.get("State")
+                node_status = node.get("Status")
+
                 node_target_state = node.get("TargetState", "Started")
+                all_nodes.append(node["NodeId"])
                 
                 machine_status = MachineStates.active
                 
@@ -635,7 +662,7 @@ class CycleCloudProvider:
                     machine_result = MachineResults.executing
                     continue
                 
-                elif node_status == "Started":
+                elif node_status in ["Ready", "Started"]:
                     machine_result = MachineResults.succeed
                     machine_status = MachineStates.active
                     private_ip_address = node.get("PrivateIp")
@@ -651,6 +678,8 @@ class CycleCloudProvider:
                                 hostname = self.hostnamer.hostname(node.get("PrivateIp"))
                             except Exception:                                
                                 logger.warning("_create_status: No hostname set and could not convert ip %s to hostname for \"%s\" VM.", node.get("PrivateIp"), node)
+                        else:
+                            completed_nodes.append({"hostname": hostname, "nodeid": node["NodeId"]})
                 else:
                     machine_result = MachineResults.executing
                     machine_status = MachineStates.building
@@ -672,6 +701,16 @@ class CycleCloudProvider:
                 
                 machines.append(machine)
             
+            with self.creation_json as requests_store:
+                if request_id not in requests_store:
+                    logger.warning("Unknown request_id %s. Creating a new entry and resetting requestTime", request_id)
+                    requests_store[request_id] = {"requestTime": calendar.timegm(self.clock())}
+
+                requests_store[request_id]["completedNodes"] = completed_nodes
+                if requests_store[request_id].get("allNodes") is None:
+                    requests_store[request_id]["allNodes"] = all_nodes
+                requests_store[request_id]["completed"] = len(nodes_by_request_id) == len(completed_nodes)
+
             active = len([x for x in machines if x["status"] == MachineStates.active])
             building = len([x for x in machines if x["status"] == MachineStates.building])
             failed = len([x for x in machines if x["status"] == MachineStates.error])
@@ -695,7 +734,7 @@ class CycleCloudProvider:
         #  it will be called repeatedly if we're failing to get VMs)
         self._update_templates()
         
-        return self.json_writer(response)
+        return json_writer(response)
         
     @failureresponse({"requests": [], "status": RequestStates.running})
     def _deperecated_terminate_status(self, input_json):
@@ -710,8 +749,8 @@ class CycleCloudProvider:
             self._cleanup_expired_requests(terminate_requests, self.termination_timeout, "terminated")
             
             termination_ids = [r["requestId"] for r in input_json["requests"] if r["requestId"]]
+            machines_to_terminate = []
             try:
-                machines_to_terminate = []
                 for termination_id in termination_ids:
                     if termination_id in terminate_requests:
                         termination = terminate_requests[termination_id]
@@ -800,6 +839,27 @@ class CycleCloudProvider:
             
             deprecated_json = {"requests": [{"requestId": request_id, "machines": requests[request_id]["machines"]} for request_id in requests]}
             return self._deperecated_terminate_status(deprecated_json)
+
+    def _retry_termination_requests(self):
+        with self.terminate_json as terminate_requests:
+            machines_to_terminate = []
+            try:
+                for termination_id in terminate_requests:
+                    termination = terminate_requests[termination_id]
+                    if not termination.get("terminated"):
+                        for machine_id, name in termination["machines"].items():
+                            machines_to_terminate.append({"machineId": machine_id, "name": name})
+                
+                if machines_to_terminate:
+                    logger.info("Attempting termination of nodes %s", machines_to_terminate)
+                    self.cluster.terminate(machines_to_terminate)
+                    
+                for termination_id in terminate_requests:
+                    termination = terminate_requests[termination_id]
+                    termination["terminated"] = True
+                        
+            except Exception:
+                logger.exception("Could not terminate nodes with ids %s. Will retry", machines_to_terminate)
         
     def _cleanup_expired_requests(self, requests, retirement, completed_key):
         now = calendar.timegm(self.clock())
@@ -812,14 +872,13 @@ class CycleCloudProvider:
                     logger.info("Request has no requestTime")
                     request["requestTime"] = request_time = now
                 
-                if not request.get(completed_key):
-                    logger.info("Request has not completed, ignoring expiration: %s", request)
-                    continue
-                
                 # in case someone puts in a string manuall
                 request_time = float(request_time)
                     
                 if (now - request_time) > retirement:
+                    if not request.get(completed_key):
+                        logger.info("Request has expired but has not completed, ignoring expiration: %s", request)
+                        continue
                     logger.debug("Found retired request %s", request)
                     requests.pop(req_id)
                 
@@ -945,7 +1004,91 @@ class CycleCloudProvider:
                     "requests": create_response.get("requests", []) + delete_response.get("requests", [])
                     }
         return json_writer(response)
-    
+
+    def _terminate_expired_requests(self):
+
+        # if a request is made but no subsequent status call is ever made, we won't have any information stored about the request.
+        # this forces a status call of those before moving on.
+        # Note we aren't in the creation_json lock here, as status will grab the lock.
+        never_queried_requests = []
+        for request_id, request in self.creation_json.read().items():
+            if request["allNodes"] is None:
+                never_queried_requests.append(request_id)
+
+        if never_queried_requests:
+            try:
+                unrecoverable_request_ids = []
+
+                response = self._create_status({"requests": [{"requestId": r} for r in never_queried_requests]}, lambda input_json, **ignore: input_json)
+
+                for request in response["requests"]:
+                    if request["status"] == RequestStates.complete_with_error and not request.get("_recoverable_", True):
+                        unrecoverable_request_ids.append(request["requestId"])
+
+                # if we got a 404 on the request_id (a failed nodes/create call), set allNodes to an empty list so that we don't retry indefinitely. 
+                with self.creation_json as creation_requests:
+                    for request_id in unrecoverable_request_ids:
+                        creation_requests[request_id]["allNodes"] = []
+
+            except Exception:
+                logger.exception("Could not request status of creation quests.")
+
+        with self.creation_json as requests_store:
+            to_shutdown = []
+            to_mark_complete = []
+
+            for request_id, request in requests_store.items():
+                if request.get("completed"):
+                    continue
+
+                if request.get("allNodes") is None:
+                    logger.warning("Yet to find any NodeIds for RequestId %s", request_id)
+                    continue
+
+                created_timestamp = request["requestTime"]
+                now = calendar.timegm(self.clock())
+                delta = now - created_timestamp
+
+                if delta > self.creation_request_ttl:
+                    completed_node_ids = [x["nodeid"] for x in request["completedNodes"]]
+                    to_shutdown.extend(set(request["allNodes"]) - set(completed_node_ids))
+                    to_mark_complete.append(request)
+
+                    logger.warning("Expired creation request found - %s. %d out of %d completed.", request_id, len(completed_node_ids), len(request["allNodes"]))
+
+            if not to_mark_complete:
+                return
+
+            if to_shutdown:
+                original_writer = self.json_writer
+                self.json_writer = lambda data, debug_output=True: 0
+                self.terminate_machines({"machines": [{"machineId": x, "name": x} for x in to_shutdown]})
+                self.json_writer = original_writer
+
+            for request in to_mark_complete:
+                request["completed"] = True
+
+    def periodic_cleanup(self):
+        try:
+            self._retry_termination_requests()
+        except Exception:
+            logger.exception("Could not retry termination")
+
+        try:
+            self._terminate_expired_requests()
+        except Exception:
+            logger.exception("Could not terminate expired requests")
+
+        try:
+            with self.terminate_json as terminate_requests:
+                self._cleanup_expired_requests(terminate_requests, self.termination_timeout, "terminated")
+
+            with self.creation_json as creation_requests:
+                self._cleanup_expired_requests(creation_requests, self.termination_timeout, "completed")
+
+        except Exception:
+            logger.exception("Could not cleanup old requests")
+
 
 def _placement_groups(config):
     try:
@@ -986,6 +1129,7 @@ def main(argv=sys.argv, json_writer=simple_json_writer):  # pragma: no cover
                                       hostnamer=hostnamer,
                                       json_writer=json_writer,
                                       terminate_requests=JsonStore("terminate_requests.json", data_dir),
+                                      creation_requests=JsonStore("create_requests.json", data_dir),
                                       templates=JsonStore("templates.json", data_dir, formatted=True),
                                       clock=true_gmt_clock)
         provider.fine = fine
@@ -995,8 +1139,7 @@ def main(argv=sys.argv, json_writer=simple_json_writer):  # pragma: no cover
 
         input_json = util.load_json(input_json_path)
         
-        if provider.fine:
-            logger.debug("Arguments - %s %s %s", cmd, ignore, json.dumps(input_json))
+        logger.info("Arguments - %s %s %s", cmd, ignore, json.dumps(input_json))
                 
         if cmd == "templates":
             provider.templates()
@@ -1016,6 +1159,9 @@ def main(argv=sys.argv, json_writer=simple_json_writer):  # pragma: no cover
             provider.get_return_requests(input_json)
         elif cmd == "terminate_machines":
             provider.terminate_machines(input_json)
+        
+        # best effort cleanup.
+        provider.periodic_cleanup()
             
     except ImportError as e:
         logger.exception(str(e))

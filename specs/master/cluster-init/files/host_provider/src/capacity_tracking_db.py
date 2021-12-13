@@ -2,8 +2,6 @@ import os
 import calendar
 from util import JsonStore, init_logging
 
-logger = init_logging()
-
 
 class CapacityTrackingDb:
     
@@ -12,6 +10,9 @@ class CapacityTrackingDb:
         self.cluster_name = cluster_name
         self.clock = clock
         self.limits_timeout = limits_timeout
+        # initialize in constructor so that cyclecloud_provider can initialize this
+        # with the proper log_level. In tests, this will use the default.
+        self.logger = init_logging()
 
         default_dir = os.getenv('HF_WORKDIR', '/var/tmp')
         self.db_dir = config.get('symphony.hostfactory.db_path', default_dir)

@@ -30,6 +30,16 @@ def init_logging(loglevel=logging.INFO, logfile=None):
     try:
         import jetpack
         jetpack.util.setup_logging()
+        root_logger = logging.getLogger()
+        filtered_handlers = []
+        for handler in root_logger.handlers:
+            if hasattr(handler, "baseFilename"):
+                bfn = getattr(handler, "baseFilename")
+                if bfn and bfn.endswith("jetpack.log"):
+                    continue
+            filtered_handlers.append(handler)
+            
+        root_logger.handlers = filtered_handlers
         for handler in logging.getLogger().handlers:
             handler.setLevel(logging.ERROR)
     except ImportError:
@@ -323,7 +333,8 @@ class Hostnamer:
         self.use_fqdn = use_fqdn
     
     def hostname(self, private_ip_address):
-        toks = [x.strip() for x in subprocess.check_output(["getent", "hosts", private_ip_address]).split()]
+        stdout = subprocess.check_output(["getent", "hosts", private_ip_address]).decode()
+        toks = [x.strip() for x in stdout.split()]
         if self.use_fqdn:
             if len(toks) >= 2:
                 return toks[1]
@@ -332,7 +343,8 @@ class Hostnamer:
             return toks[-1]
         
     def private_ip_address(self, hostname):
-        toks = [x.strip() for x in subprocess.check_output(["getent", "hosts", hostname]).split()]
+        stdout = subprocess.check_output(["getent", "hosts", hostname]).decode()
+        toks = [x.strip() for x in stdout.split()]
         return toks[0]
     
         
