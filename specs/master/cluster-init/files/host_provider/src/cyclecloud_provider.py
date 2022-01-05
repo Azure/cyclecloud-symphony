@@ -76,6 +76,29 @@ class CycleCloudProvider:
             
         for writer in writers:
             json.dump(example, writer, indent=2, separators=(',', ': '))
+
+    def _check_for_zero_capacity(self, nodearrays):
+        at_least_one_available_bucket = False
+        for nodearray_root in nodearrays:
+            nodearray = nodearray_root.get("nodearray")
+            
+            # legacy, ignore any dynamically created arrays.
+            if nodearray.get("Dynamic"):
+                continue
+            
+            autoscale_enabled = nodearray.get("Configuration", {}).get("autoscaling", {}).get("enabled", False)
+            if not autoscale_enabled:
+                continue
+            
+            for bucket in nodearray_root.get("buckets"):
+                machine_type = bucket["virtualMachine"]
+                
+                # Symphony hates special characters
+                nodearray_name = nodearray_root["name"]
+                
+                max_count = self._max_count(nodearray_name, nodearray, machine_type.get("vcpuCount"), bucket)
+                at_least_one_available_bucket = at_least_one_available_bucket or max_count > 0
+        return not at_least_one_available_bucket
      
     # Regenerate templates (and potentially reconfig HostFactory) without output, so 
     #  this method is safe to call from other API calls
@@ -126,6 +149,12 @@ class CycleCloudProvider:
             
             if self.fine:
                 logger.debug("nodearrays response\n%s", json.dumps(nodearrays, indent=2))
+            
+            # We cannot report to Symphony that we have 0 capacity on all VMs. If we detect this we
+            # simply reset any temporary capacity constraints.
+            if self._check_for_zero_capacity(nodearrays):
+                logger.warning("All buckets have 0 capacity. Resetting capacity tracker.")
+                self.capacity_tracker.reset()
             
             currently_available_templates = set()
             
@@ -726,13 +755,6 @@ class CycleCloudProvider:
             request["message"] = message
         
         response["status"] = symphony.RequestStates.complete
-
-        # For Spot instances, 
-        # ... we adjust maxNumber artificially to search for available sku capacity for large workloads
-        # So we will periodically re-check the templates for capacity changes and reconfigure HF if needed
-        # (the request status check is an expensive, but reliable place to do this check since  
-        #  it will be called repeatedly if we're failing to get VMs)
-        self._update_templates()
         
         return json_writer(response)
         
@@ -979,7 +1001,7 @@ class CycleCloudProvider:
         if 'requests' in create_response:
             for cr in create_response['requests']:
                 if cr['status'] in [ RequestStates.complete ]:
-                    capacity_limits_changed = self.capacity_tracker.request_completed(cr)
+                    capacity_limits_changed = self.capacity_tracker.request_completed(cr) or capacity_limits_changed
 
 
         create_status = create_response.get("status", RequestStates.complete)
@@ -995,10 +1017,11 @@ class CycleCloudProvider:
         else:
             combined_status = RequestStates.complete
         
-        # if the Capacity limits have changed, force a template refresh in HostFactory
+        # if the Capacity limits have changed, templates will be updated at the end of this call.
         # -> HostFactory rarely  (if ever) calls getAvailableTemplates after startup
+        
         if capacity_limits_changed:
-            self._update_templates()
+            logger.info("Capacity limits have changed. Updating templates.")
 
         response = {"status": combined_status,
                     "requests": create_response.get("requests", []) + delete_response.get("requests", [])
@@ -1051,10 +1074,14 @@ class CycleCloudProvider:
 
                 if delta > self.creation_request_ttl:
                     completed_node_ids = [x["nodeid"] for x in request["completedNodes"]]
-                    to_shutdown.extend(set(request["allNodes"]) - set(completed_node_ids))
+                    failed_to_start = set(request["allNodes"]) - set(completed_node_ids)
+                    if failed_to_start:
+                        to_shutdown.extend(set(request["allNodes"]) - set(completed_node_ids))
+                        logger.warning("Expired creation request found - %s. %d out of %d completed.", request_id, 
+                            len(completed_node_ids), len(request["allNodes"]))
                     to_mark_complete.append(request)
 
-                    logger.warning("Expired creation request found - %s. %d out of %d completed.", request_id, len(completed_node_ids), len(request["allNodes"]))
+                    
 
             if not to_mark_complete:
                 return
@@ -1069,6 +1096,11 @@ class CycleCloudProvider:
                 request["completed"] = True
 
     def periodic_cleanup(self):
+        try:
+            self._update_templates()
+        except Exception:
+            logger.exception("Could not update templates")
+
         try:
             self._retry_termination_requests()
         except Exception:

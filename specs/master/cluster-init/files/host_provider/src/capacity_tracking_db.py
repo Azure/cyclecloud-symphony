@@ -74,17 +74,14 @@ class CapacityTrackingDb:
         def _limit_expired(now, capacity_limit):
             expiry_time = self.limits_timeout + capacity_limit['start_time']            
             return now >= expiry_time
-
-        # If all Machine Types are clamped to zero, remove the limits and start checking from first
-        # (avoids issues where symphony never asks because maxNumber is 0 on all templates!)
-        all_clamped = all([v['max_count'] == 0 for _, v in self.capacity_db.read().items()])
         
         now = calendar.timegm(self.clock())        
         expired = []
         for k, v in self.capacity_db.read().items():
-            if all_clamped or _limit_expired(now, v):
+            if _limit_expired(now, v):
                 expired.append(k)
-        self.remove_limits(expired)
+        if expired:
+            self.remove_limits(expired)
 
         return len(expired) > 0
 
