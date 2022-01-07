@@ -38,32 +38,17 @@ class SymphonyRestClient:
         self.token = None
 
     def rest_url(self):
-        import os
-        import subprocess
+        # It's possible to the url from ego (supports manual cluster config changes)
+        #     egosh client view REST_HOST_FACTORY_URL | grep DESCRIPTION | sed 's/^DESCRIPTION\:\s//g' -
+        # But HostFactory does not have the correct environment for egosh
+        # Instead, generate the url from cluster config
+        webserviceHostname = self.config.get('symphony.hostfactory.rest_address', '127.0.0.1')
+        webservicePort = self.config.get('HF_REST_LISTEN_PORT', self.config.get('symphony.hostfactory.HF_REST_LISTEN_PORT', '9080'))
+        webserviceSsl = self.config.get('symphony.hostfactory.HF_REST_TRANSPORT', 'TCPIPv4').lower() == 'TCPIPv4SSL'.lower()
+        prefix = 'https' if webserviceSsl else 'http'
+        url = '%s://%s:%s/platform/rest/hostfactory' % (prefix, webserviceHostname, webservicePort)
 
-        url = None
-        try:
-            # Firt, try to get the url from ego (supports manual cluster config changes)
-            # egosh client view REST_HOST_FACTORY_URL | grep DESCRIPTION | sed 's/^DESCRIPTION\:\s//g' -
-            # add which or command -v
-            egosh_cmd = "egosh"
-            if "EGO_BINDIR" in os.environ:
-                egosh_cmd = os.path.join(os.environ["EGO_BINDIR"], egosh_cmd)
-            else:
-                # which returns nothing, so revert to the default
-                egosh_cmd = which(egosh_cmd) or egosh_cmd
-
-            client_view = subprocess.check_output([egosh_cmd, 'client', 'view', 'REST_HOST_FACTORY_URL']).decode()
-            description = filter(lambda x: 'DESCRIPTION' in x, client_view.split('\n'))[0]        
-            url = description.split()[1]
-        except:
-            # Fall back to generating the url from cluster config if we can't find it above
-            webserviceHostname = self.config.get('symphony.hostfactory.rest_address', '127.0.0.1')
-            webservicePort = self.config.get('symphony.hostfactory.HF_REST_LISTEN_PORT', '9080')
-            webserviceSsl = self.config.get('symphony.hostfactory.HF_REST_TRANSPORT', 'TCPIPv4').lower() == 'TCPIPv4SSL'.lower()
-            prefix = 'https' if webserviceSsl else 'http'
-            url = '%s://%s:%s/platform/rest/hostfactory' % (prefix, webserviceHostname, webservicePort)
-
+        self.logger.info(f"Using HF URL: {url.rstrip('/')}")
         return url.rstrip('/')
 
     def _raise_on_error(self, r):

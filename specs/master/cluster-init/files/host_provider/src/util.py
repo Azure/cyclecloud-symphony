@@ -245,10 +245,16 @@ class ProviderConfig:
             
         top_value[keys[-1]] = value
 
+    def __str__(self) -> str:
+        return json.dumps(self.config)
+
 
 def provider_config_from_environment(pro_conf_dir=os.getenv('PRO_CONF_DIR', os.getcwd())):
     config_file = os.path.join(pro_conf_dir, "conf", "azureccprov_config.json")
     templates_file = os.path.join(pro_conf_dir, "conf", "azureccprov_templates.json")
+
+    hf_conf_dir = os.getenv('HF_CONFDIR', os.path.join(pro_conf_dir, "..", "..", ".."))
+    hf_config_file = os.path.join(hf_conf_dir, "hostfactoryconf.json")
     
     delayed_log_statements = []
     
@@ -265,6 +271,9 @@ def provider_config_from_environment(pro_conf_dir=os.getenv('PRO_CONF_DIR', os.g
         except IOError:
             delayed_log_statements.append((logging.DEBUG, "Provider config does not exist and can't write a default one: %s" % config_file))
             
+    if os.path.exists(hf_config_file):
+        config.update(load_json(hf_config_file))
+
     import logging as logginglib
     log_level_name = config.get("log_level", "info")
     
