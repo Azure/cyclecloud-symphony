@@ -517,6 +517,7 @@ class CycleCloudProvider:
         }
         """
         request_status = RequestStates.complete
+        sym_existing_hostnames = set([m["name"] for m in input_json["machines"]])
         
         try:
             all_nodes = self.cluster.all_nodes()
@@ -536,6 +537,7 @@ class CycleCloudProvider:
         response = {"message": message,
                     "requests": []}
         req_return_count = 0
+        cc_existing_hostnames = set()
         
         for node in all_nodes['nodes']:
             
@@ -545,7 +547,7 @@ class CycleCloudProvider:
                     hostname = self.hostnamer.hostname(node.get("PrivateIp"))
                 except Exception:
                     logger.warning("get_return_requests: No hostname set and could not convert ip %s to hostname for \"%s\" VM.", node.get("PrivateIp"), node)
-
+            cc_existing_hostnames.add(hostname)
             machine = {"gracePeriod": 0,
                        "machine": hostname or ""}
             node_status = node.get("Status")
@@ -555,9 +557,19 @@ class CycleCloudProvider:
                 logger.error("Requesting Return for failed node: %s (%s) with State: %s (%s)", hostname, node.get("NodeId") or "", node_status, node_status_msg)
                 response["requests"].append(machine)
 
+        missing_from_cc = sym_existing_hostnames - cc_existing_hostnames
+
         if len(response["requests"]) > 0:
             message = "Requesting return for %s failed nodes." % (len(response["requests"]))
-
+        
+        for hostname in missing_from_cc:
+            if hostname:
+                machine = {"gracePeriod": 0,
+                           "machine": hostname}
+                response["requests"].append(machine)
+        if missing_from_cc:
+            message = "%s Requesting return for %s previously terminated nodes." % len(missing_from_cc)
+            
         response["message"] = message
         response["status"] = request_status
         return self.json_writer(response)
