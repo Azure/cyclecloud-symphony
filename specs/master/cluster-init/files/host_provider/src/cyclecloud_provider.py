@@ -538,7 +538,8 @@ class CycleCloudProvider:
                     "requests": []}
         req_return_count = 0
         cc_existing_hostnames = set()
-        
+        to_shutdown = []
+
         for node in all_nodes['nodes']:
             
             hostname = node.get("Hostname")
@@ -555,8 +556,14 @@ class CycleCloudProvider:
 
             if node_status in report_failure_states:
                 logger.error("Requesting Return for failed node: %s (%s) with State: %s (%s)", hostname, node.get("NodeId") or "", node_status, node_status_msg)
+                to_shutdown.append({"name": hostname, "machineId": node.get("NodeId")})
                 response["requests"].append(machine)
-
+        # these nodes may not even exist in symphony, so we will just shut them down and then report them
+        # to symphony.
+        try:
+            self.terminate_machines({"machines": to_shutdown})
+        except:
+            logger.exception()
         missing_from_cc = sym_existing_hostnames - cc_existing_hostnames
 
         if len(response["requests"]) > 0:
