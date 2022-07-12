@@ -561,7 +561,9 @@ class CycleCloudProvider:
         # these nodes may not even exist in symphony, so we will just shut them down and then report them
         # to symphony.
         try:
-            self.terminate_machines({"machines": to_shutdown})
+            if to_shutdown:
+                logger.debug("Terminating returned machines: %s", to_shutdown)
+                self.terminate_machines({"machines": to_shutdown})
         except:
             logger.exception()
         missing_from_cc = sym_existing_hostnames - cc_existing_hostnames
@@ -944,7 +946,7 @@ class CycleCloudProvider:
         }
         """
         json_writer = json_writer or self.json_writer
-        logger.info("Terminate_machines request for : %s", input_json)
+        logger.info("Terminate_machines request for : %s", input_json)         
         request_id = "delete-%s" % str(uuid.uuid4())
         request_id_persisted = False
         try:
