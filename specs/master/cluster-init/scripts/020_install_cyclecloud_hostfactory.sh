@@ -11,6 +11,16 @@ if [ "${USE_HOSTFACTORY,,}" != "true"]; then
     echo "Skipping Host Factory configuration: symphony.host_factory.enabled = ${USE_HOSTFACTORY,,}"
     exit 0
 fi
+HF_TOP=$( jetpack config symphony.hostfactory.top )
+if [ -z "${HF_TOP}" ]; then
+   # In Symphony 7.2 and earlier: HF_TOP=$EGO_TOP/eservice/hostfactory
+   HF_TOP=$EGO_TOP/hostfactory
+fi
+
+HF_VERSION=$( jetpack config symphony.hostfactory.version )
+if [ -z "${HF_VERSION}" ]; then
+    HF_VERSION="1.1"
+fi
 
 set -e
 set -x
@@ -19,11 +29,17 @@ set -x
 # For now...
 # Just link the files directory from the Symphony install to make it easy to update the factory
 
-chmod 775 /opt/ibm/spectrumcomputing/eservice/hostfactory/conf
+chmod 775 ${HF_TOP}/conf
 chmod 775 ${CYCLECLOUD_SPEC_PATH}/files/host_provider/*.sh
 
+# Symphony 7.2 and earlier
 mkdir -p ${EGO_TOP}/${EGO_VERSION}/hostfactory/providers/azurecc
 ln -sf ${CYCLECLOUD_SPEC_PATH}/files/host_provider ${EGO_TOP}/${EGO_VERSION}/hostfactory/providers/azurecc/scripts
+
+# Symphony 7.3 and later
+mkdir -p ${HF_TOP}/${HF_VERSION}/providerplugins/azurecc
+ln -sf ${CYCLECLOUD_SPEC_PATH}/files/host_provider ${HF_TOP}/${HF_VERSION}/providerplugins/azurecc/scripts
+
 
 
 set +e
