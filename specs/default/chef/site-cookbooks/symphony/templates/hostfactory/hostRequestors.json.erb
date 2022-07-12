@@ -1,28 +1,46 @@
 {
+    "version": 2,
     "requestors":[
         {
-            "name": "symA",
-            "confPath": "${HF_CONFDIR}/requestors/symA/conf/",
-            "scriptPath": "${HF_TOP}/requestors/symA/scripts/",
+            "name": "symAinst",
             "enabled": 1,
-            "needEGOCredential": 1,
-            "providers": [ "azurecc" ],
-            "requestMode": "POLL"
-        },
-	{
-            "name": "admin",
-            "enabled": 1,
-            "providers": [ "azurecc" ],
-            "requestMode": "REST"
+            "plugin": "symA",
+            "confPath": "${HF_CONFDIR}/requestors/symAinst/",
+            "workPath": "${HF_WORKDIR}/requestors/symAinst/",
+            "logPath": "${HF_LOGDIR}/",
+            "providers": ["azurecc"],
+            "requestMode": "POLL",
+            "resourceRequestParameters": {
+                "hostSelectionPolicy": "rank",
+                "typicalHostRetentionTimeMinutes": 43200,
+                "fulfillmentType": "partial"
+            }
         },
         {
-            "name": "cwsA",
-            "confPath": "${HF_CONFDIR}/requestors/cws/",
-            "scriptPath": "${HF_TOP}/requestors/cws/scripts/",
+            "name": "admin",
+            "enabled": 1,
+            "providers": ["awsinst","azureinst","ibmcloudinst","openshiftinst"],
+            "requestMode": "REST_MANUAL",
+            "resourceRequestParameters": {
+                "hostSelectionPolicy": "rank",
+                "typicalHostRetentionTimeMinutes": 43200,
+                "fulfillmentType": "partial"
+            }
+        },
+        {
+            "name": "cwsinst",
             "enabled": 0,
-            "needEGOCredential": 1,
-            "providers": [ "azurecc" ],
-            "requestMode": "POLL"
+            "plugin": "cws",
+            "confPath": "${HF_CONFDIR}/requestors/cwsinst/",
+            "workPath": "${HF_WORKDIR}/requestors/cwsinst/",
+            "logPath": "${HF_LOGDIR}/",
+            "providers": ["azurecc"],
+            "requestMode": "POLL",
+            "resourceRequestParameters": {
+                "hostSelectionPolicy": "rank",
+                "typicalHostRetentionTimeMinutes": 43200,
+                "fulfillmentType": "partial"
+            }
         }
     ]
 }

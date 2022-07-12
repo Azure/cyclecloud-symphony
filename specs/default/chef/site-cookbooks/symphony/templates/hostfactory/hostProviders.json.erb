@@ -1,28 +1,13 @@
 {
+    "version": 2,
     "providers":[
-        {
-            "name": "aws",
-            "enabled": 0,
-            "confPath": "${HF_CONFDIR}/providers/aws/conf/",
-            "scriptPath": "${HF_TOP}/providers/aws/scripts/"
-        },
-        {
-            "name": "ibmcloud",
-            "enabled": 0,
-            "confPath": "${HF_CONFDIR}/providers/softlayer/conf/",
-            "scriptPath": "${HF_TOP}/providers/softlayer/scripts/"
-        },
-        {
-            "name": "azure",
-            "enabled": 0,
-            "confPath": "${HF_CONFDIR}/providers/azure/conf/",
-            "scriptPath": "${HF_TOP}/providers/azure/scripts/"
-        },
-        {
+       {
             "name": "azurecc",
             "enabled": 1,
+            "plugin": "azurecc", 
             "confPath": "${HF_CONFDIR}/providers/azurecc/conf/",
-            "scriptPath": "${HF_TOP}/providers/azurecc/scripts/"
-        }         
+            "workPath": "${HF_WORKDIR}/providers/azurecc/",
+            "logPath": "${HF_LOGDIR}/"
+       }
     ]
 }

@@ -1,5 +1,5 @@
 
-default['symphony']['version'] = "7.3.0.0"
+default['symphony']['version'] = "7.3.1.0"
 default['symphony']['eval'] = false
 default['symphony']['pkg']['linux'] = "sym-#{node['symphony']['version']}_x86_64.bin"
 default['symphony']['pkg']['windows'] = "sym-#{node['symphony']['version']}.exe"
@@ -42,6 +42,15 @@ default['symphony']['ego_confdir'] = "#{node['symphony']['ego_top']}/kernel/conf
 
 # Use hostfactory? (Else use legacy autoscale.py)
 default['symphony']['host_factory']['enabled'] = true
+
+# Hostfactory location has changed in Symphony 7.3+
+if (Gem::Version.new(node['symphony']['version']) >= Gem::Version.new('7.3.0'))
+  default['symphony']['hostfactory']['top'] = "#{node['symphony']['ego_top']}/hostfactory"
+else
+  default['symphony']['hostfactory']['top'] = "#{node['symphony']['ego_top']}/eservice/hostfactory"
+end
+default['symphony']['hostfactory']['confdir'] = "#{node['symphony']['hostfactory']['top']}/conf"
+default['symphony']['hostfactory']['version'] = "1.1"
 
 # IP or Hostname for REST API URLs
 default['symphony']['hostfactory']['rest_address'] = '127.0.0.1'

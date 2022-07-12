@@ -6,7 +6,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 
-
+# NOTE : In Symphony 7.2 and earlier:
 # $ tree -L 3 /opt/ibm/spectrumcomputing/eservice/hostfactory/
 # /opt/ibm/spectrumcomputing/eservice/hostfactory/
 # ├── conf
@@ -60,9 +60,15 @@
 # - will be installed by cluster-init for easy updates
 ######################
 
-hostfactory_confdir="#{node['symphony']['ego_top']}/eservice/hostfactory/conf"
+hostfactory_confdir="#{node['symphony']['hostfactory']['confdir']}"
 
 directory "#{hostfactory_confdir}/providers/azurecc/conf" do
+  recursive true
+  group "egoadmin"
+  owner "egoadmin"
+end
+
+directory "#{hostfactory_confdir}/providerplugins/azurecc/conf" do
   recursive true
   group "egoadmin"
   owner "egoadmin"
@@ -79,6 +85,13 @@ template "#{hostfactory_confdir}/hostfactoryconf.json" do
   group "egoadmin"
   owner "egoadmin"
   not_if "grep -q AZURECC #{hostfactory_confdir}/hostfactoryconf.json"
+end
+
+template "#{hostfactory_confdir}/providerplugins/hostProviderPlugins.json" do
+  source "hostfactory/hostProviderPlugins.json.erb"
+  group "egoadmin"
+  owner "egoadmin"
+  not_if "grep -q azurecc #{hostfactory_confdir}/providerplugins/hostProviderPlugins.json"
 end
 
 template "#{hostfactory_confdir}/providers/hostProviders.json" do
@@ -102,12 +115,12 @@ template "#{hostfactory_confdir}/providers/azurecc/conf/azureccprov_templates.js
   owner "egoadmin"
 end
 
-template "#{hostfactory_confdir}/requestors/hostRequestors.json" do
-  source "hostfactory/hostRequestors.json.erb"
-  group "egoadmin"
-  owner "egoadmin"
-  not_if "grep -q azurecc #{hostfactory_confdir}/requestors/hostRequestors.json"
-end
+# template "#{hostfactory_confdir}/requestors/hostRequestors.json" do
+#   source "hostfactory/hostRequestors.json.erb"
+#   group "egoadmin"
+#   owner "egoadmin"
+#   not_if "grep -q azurecc #{hostfactory_confdir}/requestors/hostRequestors.json"
+# end
 
 template "#{hostfactory_confdir}/requestors/symA/conf/symAreq_config.json" do
   source "hostfactory/symAreq_config.json.erb"
