@@ -31,6 +31,26 @@ def init_logging(loglevel=logging.INFO, logfile=None):
     try:
         import jetpack
         jetpack.util.setup_logging()
+    except ImportError:
+        LOGGING = {
+            'version': 1,
+            'disable_existing_loggers': False,
+            'formatters': {
+                'default': {
+                    'format': '%(asctime)s %(levelname)-8s %(message)s'
+                },
+            },
+            'handlers': {
+            },
+            'root': {
+                'handlers': ['file'],
+                'level': loglevel.upper(),
+            },
+        }
+
+        logging.config.dictConfig(LOGGING)
+    
+    try:
         root_logger = logging.getLogger()
         filtered_handlers = []
         for handler in root_logger.handlers:
@@ -43,7 +63,7 @@ def init_logging(loglevel=logging.INFO, logfile=None):
         root_logger.handlers = filtered_handlers
         for handler in logging.getLogger().handlers:
             handler.setLevel(logging.ERROR)
-    except ImportError:
+    except:
         pass
     
     # this is really chatty

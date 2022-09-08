@@ -40,6 +40,8 @@ function Write-Log
     }
 }
 
+$startTime = $(get-date -f yyyyMMddhhmm)
+
 # Set vars
 $EGO_TOP = $env:EGO_TOP
 if (-not $EGO_TOP)
@@ -87,7 +89,7 @@ function Generate-Provider-Config
 
 # TODO: We should load the JSON, Insert our conf and spit out the updated JSON    
 if (Test-Path -Path "$providerConfPath\\hostProviders.json") {
-    Copy-Item "$providerConfPath\\hostProviders.json" -Destination "$providerConfPath\\hostProviders.original.json"
+    Copy-Item "$providerConfPath\\hostProviders.json" -Destination "$providerConfPath\\hostProviders.$startTime.json"
 }
 @'
 {
@@ -150,7 +152,7 @@ function Generate-Provider-Plugins-Config
 
 # TODO: We should load the JSON, Insert our conf and spit out the updated JSON
 if (Test-Path -Path "$providerPluginsConfPath\\hostProviderPlugins.json") {
-    Copy-Item "$providerPluginsConfPath\\hostProviderPlugins.json" -Destination "$providerPluginsConfPath\\hostProviderPlugins.original.json"
+    Copy-Item "$providerPluginsConfPath\\hostProviderPlugins.json" -Destination "$providerPluginsConfPath\\hostProviderPlugins.$startTime.json"
 }
 @'
 {
@@ -176,7 +178,7 @@ function Update-Requestors-Config
 
 # TODO: We should load the JSON, Insert our conf and spit out the updated JSON
 if (Test-Path -Path "$requestorConfPath\\hostRequestors.json") {
-    Copy-Item "$requestorConfPath\\hostRequestors.json" -Destination "$requestorConfPath\\hostRequestors.original.json"
+    Copy-Item "$requestorConfPath\\hostRequestors.json" -Destination "$requestorConfPath\\hostRequestors.$startTime.json"
 } else {
     Write-Log WARNING "Expected default host requestors conf file!   Will generate, but this may indicate a failure..."
 @'
