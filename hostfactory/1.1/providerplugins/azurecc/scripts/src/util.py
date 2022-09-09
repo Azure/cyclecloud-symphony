@@ -2,6 +2,7 @@ import collections
 from copy import deepcopy
 import json
 import logging
+import logging.config
 from logging.handlers import RotatingFileHandler
 import os
 import shutil
@@ -26,12 +27,12 @@ def init_logging(loglevel=logging.INFO, logfile=None):
     global _logging_init
     if logfile is None:
         logfile = "azurecc_prov.log"
-    logfile_path = os.path.join(os.getenv("PRO_LOG_DIR", "/tmp"), logfile)
+    logfile_path = os.path.join(os.getenv("PRO_LOG_DIR", "."), logfile)
     
     try:
         import jetpack
         jetpack.util.setup_logging()
-    except ImportError:
+    except (ModuleNotFoundError,ImportError) as ex:
         LOGGING = {
             'version': 1,
             'disable_existing_loggers': False,
@@ -41,13 +42,24 @@ def init_logging(loglevel=logging.INFO, logfile=None):
                 },
             },
             'handlers': {
+                'file': {
+                    # The values below are popped from this dictionary and
+                    # used to create the handler, set the handler's level and
+                    # its formatter.
+                    '()': RotatingFileHandler,
+                    'level': logging.INFO,
+                    'formatter': 'default',
+                    # The values below are passed to the handler creator callable
+                    # as keyword arguments.
+                    # 'owner': ['root', 'cyclecloud'],
+                    'filename': logfile_path,
+                },
             },
             'root': {
                 'handlers': ['file'],
-                'level': loglevel.upper(),
+                'level': logging.INFO,
             },
         }
-
         logging.config.dictConfig(LOGGING)
     
     try:
@@ -78,7 +90,7 @@ def init_logging(loglevel=logging.INFO, logfile=None):
     logger.setLevel(logging.DEBUG)
     
     tenMB = 10 * 1024 * 1024
-    logfile_handler = RotatingFileHandler(logfile_path, maxBytes=tenMB, backupCount=5)
+    logfile_handler = RotatingFileHandler(logfile_path, mode='a',maxBytes=tenMB, backupCount=5)
     logfile_handler.setLevel(loglevel)
     logfile_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
     
@@ -224,7 +236,7 @@ class ProviderConfig:
             try:
                 import jetpack
                 jetpack_config = jetpack.config 
-            except ImportError:
+            except (ModuleNotFoundError,ImportError) as ex:
                 jetpack_config = {}
         self.jetpack_config = jetpack_config
         
@@ -388,5 +400,5 @@ class Hostnamer:
     
         
 def load_json(path):
-    with open(path) as fr:
+    with open(path,'rb') as fr:
         return json.load(fr, object_pairs_hook=collections.OrderedDict)
