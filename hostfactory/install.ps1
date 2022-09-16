@@ -242,11 +242,12 @@ function Install-Provider
 
 function Install-Python-Packages {
     Write-Log INFO "Installing Python virtualenv at $venv_path"
-    # python3 -m venv $venv_path
-    # . $venv_path\\Scripts\\Activate.ps1
-    pip install ../packages/*
+    python -m venv $venv_path
+    . $venv_path\Scripts\Activate.ps1 
+    Get-ChildItem ..\packages\ -Filter *.whl | 
+      ForEach-Object{
+         pip install $_.FullName
+      }
 }
-
-
 Install-Provider
 Install-Python-Packages
