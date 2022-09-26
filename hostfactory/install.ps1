@@ -107,7 +107,7 @@ if (Test-Path -Path "$providerConfPath\\hostProviders.json") {
         }
     ]
 }
-'@ > "$providerConfPath\\hostProviders.json"
+'@  | Set-Content "$providerConfPath\\hostProviders.json"
 
 @"
 {
@@ -123,7 +123,7 @@ if (Test-Path -Path "$providerConfPath\\hostProviders.json") {
         }
     }
 }
-"@ > "$azureccProviderConfPath\\azureccprov_config.json"
+"@ | Set-Content "$azureccProviderConfPath\\azureccprov_config.json"
 
 @'
 {
@@ -140,7 +140,7 @@ if (Test-Path -Path "$providerConfPath\\hostProviders.json") {
         }
     } ]
 }
-'@ > "$azureccProviderConfPath\\azureccprov_templates.json"
+'@ | Set-Content "$azureccProviderConfPath\\azureccprov_templates.json"
 
 }
 
@@ -167,7 +167,7 @@ if (Test-Path -Path "$providerPluginsConfPath\\hostProviderPlugins.json") {
         }
     ]
 }
-'@ > "$providerPluginsConfPath\\hostProviderPlugins.json"
+'@ | Set-Content "$providerPluginsConfPath\\hostProviderPlugins.json"
 }
 
 
@@ -215,7 +215,7 @@ if (Test-Path -Path "$requestorConfPath\\hostRequestors.json") {
         }
     ]
 }
-'@ > "$requestorConfPath\\hostRequestors.json"
+'@ | Set-Content "$requestorConfPath\\hostRequestors.json"
     }
 
     Write-Log INFO "Replacing azureinst provider with azurecc provider"
