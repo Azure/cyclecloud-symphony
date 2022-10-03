@@ -137,6 +137,31 @@ burst into Azure.
 
 Please contact azure support for help with this configuration.
 
+### Installing Symphony and azurecc HostFactory in Windows manually
+
+	1. Spin up a single windows VM in Cyclecloud
+	2. Copy the Symphony install directory to the vm
+	3. Update the SymManagement-7.3.1.iss file to change the master host to the hostname of the single VM. Run SymInstallManagement-7.3.1.bat file in windows cmd
+	OR
+    3.   Use the symphony application GUI, select Primary Host, simplified mode and enable ssl.
+    4.   After install is complete run install.ps1 from cyclecloud-symphony\hostfactory directory.
+ Install python 2 and make sure to add it in the path and its above python3 as SymA requester requires python2.
+You can spin a symphony headless cluster which can be used for autoscaling by requester.  You need to specify the name in config azurecc_prov.json, you would also need to specify other details in files which can be found using below command:
+Jetpack config cyclecoud.config
+ Open up a symphony console
+	1. In this step set the entitlement file 
+	egoconfig setentitlement .\sym_adv_entitlement.dat
+	Further use below commands to logon and then start and stop the hostfactory plugin.
+	2. egosh ego start
+	3. egosh user logon -u Admin -x Admin
+	egosh service list
+	egosh service stop HostFactory
+	egosh service start HostFactory
+To test the service you can see the logs and you can use following command
+ symping
+Example: symping -m 10000 -r 1000
+
+
 
 
 # Contributing
