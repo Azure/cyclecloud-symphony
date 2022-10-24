@@ -9,7 +9,7 @@ import pprint
 import sys
 import uuid
 from builtins import str
-
+from hpc.autoscale.node.nodemanager import new_node_manager
 
 from symphony import RequestStates, MachineStates, MachineResults, SymphonyRestClient
 import cluster
@@ -27,7 +27,8 @@ PLACEHOLDER_TEMPLATE = {"templateId": "exceptionPlaceholder",
                         "attributes": {
                             "mem": ["Numeric", 1024],
                             "ncpus": ["Numeric", 1],
-                            "ncores": ["Numeric", 1]
+                            "ncores": ["Numeric", 1],
+                            "type" : [ "String", "X86_64" ]
                             }
                         }
 
@@ -81,21 +82,19 @@ class CycleCloudProvider:
         at_least_one_available_bucket = False
         for nodearray_root in nodearrays:
             nodearray = nodearray_root.get("nodearray")
-            
             # legacy, ignore any dynamically created arrays.
             if nodearray.get("Dynamic"):
                 continue
             
             autoscale_enabled = nodearray.get("Configuration", {}).get("autoscaling", {}).get("enabled", False)
+            
             if not autoscale_enabled:
                 continue
-            
+            logger.debug(nodearray_root.get("buckets"))
             for bucket in nodearray_root.get("buckets"):
                 machine_type = bucket["virtualMachine"]
-                
                 # Symphony hates special characters
                 nodearray_name = nodearray_root["name"]
-                
                 max_count = self._max_count(nodearray_name, nodearray, machine_type.get("vcpuCount"), bucket)
                 at_least_one_available_bucket = at_least_one_available_bucket or max_count > 0
         return not at_least_one_available_bucket
@@ -142,9 +141,7 @@ class CycleCloudProvider:
             
             # returns Cloud.Node records joined on MachineType - the array node only
             response = self.cluster.status()
-
             nodearrays = response["nodearrays"]
-            
             if "nodeArrays" in nodearrays:
                 logger.error("Invalid CycleCloud version. Please upgrade your CycleCloud instance.")
                 raise InvalidCycleCloudVersionError("Invalid CycleCloud version. Please upgrade your CycleCloud instance.")
@@ -185,7 +182,6 @@ class CycleCloudProvider:
                     currently_available_templates.add(template_id)
                     
                     max_count = self._max_count(nodearray_name, nodearray, machine_type.get("vcpuCount"), bucket)
-
                     at_least_one_available_bucket = at_least_one_available_bucket or max_count > 0
                     memory = machine_type.get("memory") * 1024
                     is_low_prio = nodearray.get("Interruptible", False)
@@ -194,7 +190,6 @@ class CycleCloudProvider:
                         ngpus = int(nodearray.get("Configuration", {}).get("symphony", {}).get("ngpus", 0))
                     except ValueError:
                         logger.exception("Ignoring symphony.ngpus for nodearray %s" % nodearray_name)
-                    
 
                     # Symphony
                     # - uses nram rather than mem
@@ -461,12 +456,15 @@ class CycleCloudProvider:
                 request_set["placementGroupId"] = template["attributes"].get("placementgroup")[1]
                                     
             add_nodes_response = self.cluster.add_nodes({'requestId': request_id,
-                                                         'sets': [request_set]})
+                                                        'sets': [request_set]})
             logger.info("Create nodes response: %s", add_nodes_response)
-            nodes_response = self.cluster.nodes_by_operation_id(operation_id=add_nodes_response["operationId"])
             
             with self.creation_json as requests_store:
-                requests_store[request_id]["allNodes"] = [x["NodeId"] for x in nodes_response["nodes"]]
+                 requests_store[request_id]["allNodes"] = [x.delayed_node_id.node_id for x in add_nodes_response.nodes]
+            #nodes_response = self.cluster.nodes_by_operation_id(operation_id=add_nodes_response["operationId"])
+            
+            # with self.creation_json as requests_store:
+            #     requests_store[request_id]["allNodes"] = [x["NodeId"] for x in nodes_response["nodes"]]
 
             if template["attributes"].get("placementgroup"):
                 logger.info("Requested %s instances of machine type %s in placement group %s for nodearray %s.", machine_count, machinetype_name, _get("placementgroup"), _get("nodearray"))
@@ -617,17 +615,20 @@ class CycleCloudProvider:
         
         nodes_by_request_id = {}
         exceptions = []
+        logger.debug(request_ids)
         # go one by one in case one of the request_ids does not exist in CycleCloud
         for request_id in request_ids:
             try:
-                nodes_by_request_id.update(self.cluster.nodes(request_ids=[request_id]))                
+                nodes_by_request_id.update(self.cluster.nodes(request_ids=[request_id]))   
+                logger.debug("Node list by request id %s",nodes_by_request_id)             
             except Exception as e:
                 if "No operation found for request id" in str(e):
                     nodes_by_request_id[request_id] = {"nodes": []}
+                    logger.debug(nodes_by_request_id[request_id])
                 else:
                     exceptions.append(e)
                     logger.exception("Azure CycleCloud experienced an error and the node creation request failed for request_id %s. %s", request_id, e)
-
+            
         if not nodes_by_request_id:
             error_messages = " | ".join(list(set([str(e) for e in exceptions])))
             return json_writer({"status": RequestStates.complete_with_error,
@@ -662,14 +663,17 @@ class CycleCloudProvider:
                 report_failure_states = ["Unavailable"]
                 terminate_states = ["Failed"]
             
-            for node in requested_nodes["nodes"]:
+            for node in requested_nodes:
                 # for new nodes, completion is Ready. For "released" nodes, as long as
                 # the node has begun terminated etc, we can just say success.
                 # node_status = node.get("State")
-                node_status = node.get("Status")
-
-                node_target_state = node.get("TargetState", "Started")
-                all_nodes.append(node["NodeId"])
+                logger.debug("Node in request_nodes %s",node)
+                if type(node) is str:
+                    continue
+                node_status = node.state
+                logger.debug(node_status)
+                node_target_state = node.target_state
+                all_nodes.append(node.delayed_node_id.node_id)
                 
                 machine_status = MachineStates.active
                 
@@ -695,22 +699,22 @@ class CycleCloudProvider:
                     machine_status = MachineStates.building
                     request_status = RequestStates.running
 
-                    hostname = node.get("Hostname")
+                    hostname = node.hostname
                     if not hostname:
                         try:
-                            hostname = self.hostnamer.hostname(node.get("PrivateIp"))
+                            hostname = self.hostnamer.hostname(node.private_ip)
                         except Exception:                            
-                            logger.warning("_create_status: No hostname set and could not convert ip %s to hostname for \"%s\" VM.", node.get("PrivateIp"), node_status)
+                            logger.warning("_create_status: No hostname set and could not convert ip %s to hostname for \"%s\" VM.", node.private_ip, node_status)
 
                     try:
                         logger.warning("Warning: Cluster status check terminating failed node %s", node)
                         # import traceback
                         #logger.warning("Traceback:\n%s", '\n'.join([line  for line in traceback.format_stack()]))
-                        self.cluster.terminate([{"machineId": node.get("NodeId"), "name": hostname}])
+                        self.cluster.terminate([{"machineId": node.delayed_node_id.node_id, "name": hostname}])
                     except Exception:
-                        logger.exception("Could not terminate node with id %s" % node.get("NodeId"))
+                        logger.exception("Could not terminate node with id %s" % node.delayed_node_id.node_id)
         
-                elif not node.get("InstanceId"):
+                elif not node.instance_id:
                     requesting_count = requesting_count + 1
                     request_status = RequestStates.running
                     machine_result = MachineResults.executing
@@ -719,21 +723,21 @@ class CycleCloudProvider:
                 elif node_status in ["Ready", "Started"]:
                     machine_result = MachineResults.succeed
                     machine_status = MachineStates.active
-                    private_ip_address = node.get("PrivateIp")
+                    private_ip_address = node.private_ip
                     if not private_ip_address:
                         logger.warning("No ip address found for ready node %s", node.get("Name"))
                         machine_result = MachineResults.executing
                         machine_status = MachineStates.building
                         request_status = RequestStates.running
                     else:
-                        hostname = node.get("Hostname")
+                        hostname = node.hostname
                         if not hostname:
                             try:
-                                hostname = self.hostnamer.hostname(node.get("PrivateIp"))
+                                hostname = self.hostnamer.hostname(node.private_ip)
                             except Exception:                                
-                                logger.warning("_create_status: No hostname set and could not convert ip %s to hostname for \"%s\" VM.", node.get("PrivateIp"), node)
+                                logger.warning("_create_status: No hostname set and could not convert ip %s to hostname for \"%s\" VM.", node.private_ip, node)
                         else:
-                            completed_nodes.append({"hostname": hostname, "nodeid": node["NodeId"]})
+                            completed_nodes.append({"hostname": hostname, "nodeid": node.delayed_node_id.node_id})
                 else:
                     machine_result = MachineResults.executing
                     machine_status = MachineStates.building
@@ -744,13 +748,15 @@ class CycleCloudProvider:
                     "name": hostname or "",
                     "status": machine_status,
                     "result": machine_result,
-                    "machineId": node.get("NodeId") or "",
+                    "machineId": node.delayed_node_id.node_id or "",
                     # launchTime is manditory in Symphony
                     # maybe we can add something so we don"t have to expose this
                     # node["PhaseMap"]["Cloud.AwaitBootup"]["StartTime"]["$date"]
-                    "launchtime": node.get("LaunchTime") or int(time.time()),
+                    "launchtime": int(time.time()),
+                   # "launchtime": node.get("LaunchTime") or int(time.time()),
                     "privateIpAddress": private_ip_address or "",
-                    "message": node.get("StatusMessage") or ""
+                    "message": ""
+                    #"message": node.get("StatusMessage") or ""
                 }
                 
                 machines.append(machine)
@@ -976,7 +982,15 @@ class CycleCloudProvider:
             message = "CycleCloud is terminating the VM(s)"
 
             try:
-                self.cluster.terminate(input_json["machines"])
+                response = self.cluster.status()
+                nodearrays = response.get("nodearrays")
+                for nodearray_root in nodearrays:
+                    nodearray=nodearray_root.get("nodearray")
+                    logger.debug("Shutdown Policy %s",nodearray.get("ShutdownPolicy"))
+                    if nodearray.get("ShutdownPolicy")=="Deallocate":
+                       self.cluster.deallocate(input_json["machines"])
+                    else:
+                       self.cluster.terminate(input_json["machines"])
                 with self.terminate_json as terminations:
                     terminations[request_id]["terminated"] = True
             except Exception:

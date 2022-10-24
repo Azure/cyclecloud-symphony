@@ -194,7 +194,7 @@ if (Test-Path -Path "$requestorConfPath\\hostRequestors.json") {
             "confPath": "${HF_CONFDIR}\\requestors\\symAinst\\",
             "workPath": "${HF_WORKDIR}\\requestors\\symAinst\\",
             "logPath": "${HF_LOGDIR}\\",
-            "providers": ["awsinst","azureinst","ibmcloudinst"],
+            "providers": ["azurecc"],
             "requestMode": "POLL",
             "resourceRequestParameters": {
                 "hostSelectionPolicy": "rank",
@@ -244,7 +244,7 @@ function Install-Python-Packages {
     Write-Log INFO "Installing Python virtualenv at $venv_path"
     python -m venv $venv_path
     . $venv_path\Scripts\Activate.ps1 
-    Get-ChildItem ..\packages\ -Filter *.whl | 
+    Get-ChildItem ..\packages\ | 
       ForEach-Object{
          pip install $_.FullName
       }
