@@ -48,7 +48,7 @@ class Cluster:
 
         request_id_start = f"{request['requestId']}-start"
         request_id_create = f"{request['requestId']}-create"
-        bootpup_resp=self.node_mgr.bootup(
+        bootpup_resp = self.node_mgr.bootup(
             request_id_start=request_id_start, request_id_create=request_id_create
         )
         self.logger.debug("node bootup %s",bootpup_resp)
@@ -69,28 +69,23 @@ class Cluster:
     def nodes(self, request_ids):
         responses = {}
         for request_id in request_ids:
-          request_id_start = f"{request_id}-start"
-          request_id_create = f"{request_id}-create"
-          try:
-            nodes_started = self.node_mgr.get_nodes_by_request_id(request_id_start)
-            try:
-               nodes_created = self.node_mgr.get_nodes_by_request_id(request_id_create)
-               nodes = nodes_started+nodes_created
-               self.logger.debug("Nodes started and created %s",nodes)
-               responses[request_id]=nodes
-            except Exception as e:
-               if "No operation found for request id" in str(e):
-                  self.logger.debug("No new nodes have been created")
-               self.logger.debug("Nodes started %s",nodes_started)
-               responses[request_id]=nodes_started
-          except Exception as e:
-            if "No operation found for request id" in str(e):
-                self.logger.debug("Initially created vm")
-                nodes_created = self.node_mgr.get_nodes_by_request_id(request_id_create)
-                self.logger.debug("Nodes created %s",nodes_created)
-                responses[request_id]=nodes_created
-            else:
-                raise RuntimeError("Could not find request id %s",request_id)
+            def _get_nodes_by_request_id(req_id, action):
+                try:
+                    affected_nodes = self.node_mgr.get_nodes_by_request_id(req_id)
+                    self.logger.debug(f"Nodes %s %s", action, affected_nodes)
+                    return affected_nodes
+                except Exception as e:
+                    if "No operation found for request id" in str(e):
+                        self.logger.debug("No new nodes have been %s", action)
+                    return None
+            # : Optional[str]
+            request_id_start = f"{request_id}-start"
+            request_id_create = f"{request_id}-create"
+            nodes_started = _get_nodes_by_request_id(request_id_start, "started")
+            nodes_created = _get_nodes_by_request_id(request_id_create, "created")
+            if nodes_created is None and nodes_started is None:
+                raise RuntimeError("Could not find request id %s", request_id)
+            responses[request_id] = (nodes_started or []) + (nodes_created or [])
         self.logger.debug(responses)
         return responses
     
@@ -122,11 +117,10 @@ class Cluster:
         #         if "No instances were found matching your query" in str(e):
         #            return
         #         raise
-    def deallocate(self,machines):
+    def shutdown_nodes(self,machines):
         machine_ids = [machine["machineId"] for machine in machines]
         for machine_id in machine_ids:
-         self.logger.debug("machine id %s",machine_id)
-         self.node_mgr.deallocate_nodes([x for x in self.node_mgr.get_nodes() if x.delayed_node_id.node_id==machine_id]);
+            self.node_mgr.shutdown_nodes([x for x in self.node_mgr.get_nodes() if x.delayed_node_id.node_id==machine_id])
 
     def _session(self):
         config = {"verify_certificates": False,

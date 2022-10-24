@@ -615,7 +615,6 @@ class CycleCloudProvider:
         
         nodes_by_request_id = {}
         exceptions = []
-        logger.debug(request_ids)
         # go one by one in case one of the request_ids does not exist in CycleCloud
         for request_id in request_ids:
             try:
@@ -667,11 +666,9 @@ class CycleCloudProvider:
                 # for new nodes, completion is Ready. For "released" nodes, as long as
                 # the node has begun terminated etc, we can just say success.
                 # node_status = node.get("State")
-                logger.debug("Node in request_nodes %s",node)
-                if type(node) is str:
+                if isinstance(node, str):
                     continue
                 node_status = node.state
-                logger.debug(node_status)
                 node_target_state = node.target_state
                 all_nodes.append(node.delayed_node_id.node_id)
                 
@@ -975,15 +972,7 @@ class CycleCloudProvider:
             message = "CycleCloud is terminating the VM(s)"
 
             try:
-                response = self.cluster.status()
-                nodearrays = response.get("nodearrays")
-                for nodearray_root in nodearrays:
-                    nodearray=nodearray_root.get("nodearray")
-                    logger.debug("Shutdown Policy %s",nodearray.get("ShutdownPolicy"))
-                    if nodearray.get("ShutdownPolicy")=="Deallocate":
-                       self.cluster.deallocate(input_json["machines"])
-                    else:
-                       self.cluster.terminate(input_json["machines"])
+                self.cluster.shutdown_nodes(input_json["machines"])
                 with self.terminate_json as terminations:
                     terminations[request_id]["terminated"] = True
             except Exception:
