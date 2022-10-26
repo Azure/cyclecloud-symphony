@@ -707,7 +707,7 @@ class CycleCloudProvider:
                         logger.warning("Warning: Cluster status check terminating failed node %s", node)
                         # import traceback
                         #logger.warning("Traceback:\n%s", '\n'.join([line  for line in traceback.format_stack()]))
-                        self.cluster.terminate([{"machineId": node.delayed_node_id.node_id, "name": hostname}])
+                        self.cluster.shutdown_nodes([{"machineId": node.delayed_node_id.node_id, "name": hostname}])
                     except Exception:
                         logger.exception("Could not terminate node with id %s" % node.delayed_node_id.node_id)
         
@@ -810,7 +810,7 @@ class CycleCloudProvider:
                 
                 if machines_to_terminate:
                     logger.warning("Re-attempting termination of nodes %s", machines_to_terminate)
-                    self.cluster.terminate(machines_to_terminate)
+                    self.cluster.shutdown_nodes(machines_to_terminate)
                     
                 for termination_id in termination_ids:
                     if termination_id in terminate_requests:
@@ -902,7 +902,7 @@ class CycleCloudProvider:
                 
                 if machines_to_terminate:
                     logger.info("Attempting termination of nodes %s", machines_to_terminate)
-                    self.cluster.terminate(machines_to_terminate)
+                    self.cluster.shutdown_nodes(machines_to_terminate)
                     
                 for termination_id in terminate_requests:
                     termination = terminate_requests[termination_id]
