@@ -33,49 +33,62 @@ end
   
 
 # Get the current Master and Management node list
-mgmt_nodes = []
-master_nodes = Symphony::Helpers.wait_for_master(30) do
-  mgmt_nodes = cluster.search(:clusterUID => node['cyclecloud']['cluster']['id']).select { |n|
-    if not n['symphony'].nil?
-      Chef::Log.info("#{n['cyclecloud']['instance']['ipv4']} mgmt: #{n['symphony']['is_management'] == true}  master: #{n['symphony']['is_master'] == true}")
-    end
-    if not n['symphony'].nil? and n['symphony']['is_management'] == true
-      mgmt_nodes << n
-    end
-    # Return the master node
-    if not n['symphony'].nil? and n['symphony']['is_master'] == true
-      n
-    end
+mgmt_hosts = []
+if node['symphony']['master_host'].nil?
+  mgmt_nodes = []
+  master_nodes = Symphony::Helpers.wait_for_master(30) do
+    mgmt_nodes = cluster.search(:clusterUID => node['cyclecloud']['cluster']['id']).select { |n|
+      if not n['symphony'].nil?
+        Chef::Log.info("#{n['cyclecloud']['instance']['ipv4']} mgmt: #{n['symphony']['is_management'] == true}  master: #{n['symphony']['is_master'] == true}")
+      end
+      if not n['symphony'].nil? and n['symphony']['is_management'] == true
+        mgmt_nodes << n
+      end
+      # Return the master node
+      if not n['symphony'].nil? and n['symphony']['is_master'] == true
+        n
+      end
+    }
+  end
+
+  master_node = master_nodes[0]
+  master_host = master_node['cyclecloud']['instance']['hostname']
+  mgmt_hosts = mgmt_nodes.map { |n|
+    n['cyclecloud']['instance']['hostname']
   }
+  mgmt_hosts = mgmt_hosts.sort {|a,b| a[1] <=> b[1]}
+  Chef::Log.info("Found master: #{master_host} and Management Nodes: #{mgmt_hosts}.")
+  
+else
+
+  master_host = node['symphony']['master_host']
+  mgmt_hosts = node['symphony']['management_hosts']
+  if !mgmt_hosts.kind_of?(Array)
+    mgmt_hosts = mgmt_hosts.split(",")
+  end
+  mgmt_hosts = mgmt_hosts.sort {|a,b| a[1] <=> b[1]}
+  Chef::Log.info("Using configured master: #{master_host} and Management Nodes: #{mgmt_hosts}.")
+  
 end
 
-master_node = master_nodes[0]
-mgmt_nodes = mgmt_nodes.sort {|a,b| a[1] <=> b[1]}
-Chef::Log.info("Found master: #{master_node['cyclecloud']['instance']['ipv4']} and #{mgmt_nodes.length} Management Nodes.")
-
-mgmt_hosts = mgmt_nodes.map { |n|
-  n['cyclecloud']['instance']['hostname']
-}
 mgmt_hosts_shortnames = mgmt_hosts.map { |fqdn|
   fqdn.split(".", 2)[0]
 }
 
-Chef::Log.info("Management Nodes: #{mgmt_hosts_shortnames}  ( #{mgmt_hosts} )")
+Chef::Log.info("Management Node short names: #{mgmt_hosts_shortnames}  ( #{mgmt_hosts} )")
 
 # TODO: Do we need to be able to configure a separate DB Host?
-derby_db_node=master_node
+derby_db_node=master_host
   
-file '/etc/symphony_mgmt_nodes' do
+file '/etc/symphony_mgmt_hosts' do
   content mgmt_hosts.join('\n')
   mode '0644'
   owner 'root'
   group 'root'
 end
-
-
-
+  
 file '/etc/symphony_master_node' do
-  content master_node['cyclecloud']['instance']['hostname']
+  content master_host
   mode '0644'
   owner 'root'
   group 'root'
@@ -177,7 +190,7 @@ file "/etc/profile.d/symphony.sh" do
 
   . /etc/profile.d/jdk.sh
 
-  export MASTER_ADDRESS=#{master_node['cyclecloud']['instance']['hostname']}
+  export MASTER_ADDRESS=#{master_host}
   export CLUSTERADMIN=#{node['symphony']['admin']['user']}
   export CLUSTERNAME=#{node['cyclecloud']['cluster']['name']}
   export SIMPLIFIEDWEM=#{node['symphony']['simplifiedwem']}
@@ -186,7 +199,7 @@ file "/etc/profile.d/symphony.sh" do
   export SHARED_FS_INSTALL=#{node['symphony']['shared_fs_install'] ? 'Y' : 'N'}
 
   # Use the default derby db
-  export DERBY_DB_HOST=#{derby_db_node['cyclecloud']['instance']['hostname']}
+  export DERBY_DB_HOST=#{derby_db_node}
 
   # Accept license terms for silent install
   export IBM_SPECTRUM_SYMPHONY_LICENSE_ACCEPT=Y
@@ -219,7 +232,7 @@ template "/etc/ego.conf" do
   owner "egoadmin"
 
   # master_list should be a comma-separated string here
-  variables(:master_list => master_node['cyclecloud']['instance']['hostname'])  
+  variables(:master_list => master_host)  
 end
 
 
@@ -258,8 +271,8 @@ if node['symphony']['shared_fs_install'] == false or node['symphony']['is_master
     not_if "grep -q 'Forcing EGO binary type' #{node['symphony']['ego_confdir']}/profile.ego"
   end
 
-  bash "Ensure EGO MASTER list (#{master_node['cyclecloud']['instance']['hostname']})..." do
-    code "sed -i '/^EGO_MASTER_LIST=/c\EGO_MASTER_LIST=#{master_node['cyclecloud']['instance']['hostname']}' #{node['symphony']['ego_confdir']}/ego.conf"
+  bash "Ensure EGO MASTER list (#{master_host})..." do
+    code "sed -i '/^EGO_MASTER_LIST=/c\EGO_MASTER_LIST=#{master_host}' #{node['symphony']['ego_confdir']}/ego.conf"
   end
 
   template "#{node['symphony']['ego_confdir']}/ego.cluster.#{node['cyclecloud']['cluster']['name']}" do  
