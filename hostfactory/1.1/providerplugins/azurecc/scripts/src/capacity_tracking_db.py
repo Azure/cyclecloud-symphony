@@ -59,7 +59,7 @@ class CapacityTrackingDb:
     def _capacity_key(self, nodearray_name, machine_type):
         return "%s_%s" % (nodearray_name, machine_type)
 
-    def _apply_capacity_limit(self, nodearray_name, machine_type, max_count = 0):
+    def set_capacity_limit(self, nodearray_name, machine_type, max_count = 0):
         with self.capacity_db as db:
             now = calendar.timegm(self.clock())
             key = self._capacity_key(nodearray_name, machine_type)
@@ -93,23 +93,11 @@ class CapacityTrackingDb:
         num_created = len(request_status["machines"])
         request_envelope = self.get_request(request_id)
         if request_envelope:
-            for req in request_envelope.get('sets', []):
-                num_requested = 0
-                if req:
-                    num_requested = req['count'] if 'count' in req else 1
-                if num_created < num_requested:
-                    nodearray_name = req['nodearray']
-                    machine_type = req['definition']['machineType']
-                    self.logger.warning("Out-of-capacity condition detected for machine_type %s in nodearray %s", machine_type, nodearray_name)
-                    self._apply_capacity_limit(nodearray_name, machine_type)
-                    limits_changed = True
-
             self.remove_request(request_id)
 
-        limits_changed |= self._release_expired_limits()
-        return limits_changed
+        self._release_expired_limits()
     
-    def apply_capacity_limit(self, nodearray_name, machine_type, max_count):
+    def get_capacity_limit(self, nodearray_name, machine_type, max_count):
         current_max_count = max_count
         key = self._capacity_key(nodearray_name, machine_type)
 
