@@ -254,11 +254,12 @@ if node['symphony']['shared_fs_install'] == false or node['symphony']['is_master
     set -x
     . /etc/profile.d/symphony.sh
     set -e
-
+    env
     chmod a+x #{node['jetpack']['downloads']}/#{node['symphony']['pkg']['linux']}
     #{node['jetpack']['downloads']}/#{node['symphony']['pkg']['linux']} --quiet
+    touch /etc/sym-installed
     EOH
-    creates "#{node['symphony']['ego_confdir']}/profile.ego"
+    creates "/etc/sym-installed"
   end
 
   ruby_block "force EGO binary type for unrecognized linux variants" do
@@ -305,5 +306,3 @@ bash "Link ego.conf to local drive" do
   EOH
   not_if "test -h #{node['symphony']['ego_confdir']}/ego.conf"
 end
-
-

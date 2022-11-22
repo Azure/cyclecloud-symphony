@@ -54,7 +54,6 @@ class CycleCloudProvider:
         self.node_request_timeouts = float(self.config.get("cyclecloud.machine_request_retirement", 120) * 60)
         self.fine = False
         self.capacity_tracker = CapacityTrackingDb(self.config, self.cluster.cluster_name, self.clock)
-        self.spot_maxnumber_increment_per_sku = int(self.config.get("symphony.spot_maxnumber_increment_per_sku", 100))
 
     def _escape_id(self, name):
         return name.lower().replace("_", "")
@@ -82,19 +81,21 @@ class CycleCloudProvider:
         at_least_one_available_bucket = False
         for nodearray_root in nodearrays:
             nodearray = nodearray_root.get("nodearray")
+            
             # legacy, ignore any dynamically created arrays.
             if nodearray.get("Dynamic"):
                 continue
             
             autoscale_enabled = nodearray.get("Configuration", {}).get("autoscaling", {}).get("enabled", False)
-            
             if not autoscale_enabled:
                 continue
             logger.debug(nodearray_root.get("buckets"))
             for bucket in nodearray_root.get("buckets"):
                 machine_type = bucket["virtualMachine"]
+                
                 # Symphony hates special characters
                 nodearray_name = nodearray_root["name"]
+                
                 max_count = self._max_count(nodearray_name, nodearray, machine_type.get("vcpuCount"), bucket)
                 at_least_one_available_bucket = at_least_one_available_bucket or max_count > 0
         return not at_least_one_available_bucket
@@ -141,7 +142,9 @@ class CycleCloudProvider:
             
             # returns Cloud.Node records joined on MachineType - the array node only
             response = self.cluster.status()
+
             nodearrays = response["nodearrays"]
+            
             if "nodeArrays" in nodearrays:
                 logger.error("Invalid CycleCloud version. Please upgrade your CycleCloud instance.")
                 raise InvalidCycleCloudVersionError("Invalid CycleCloud version. Please upgrade your CycleCloud instance.")
@@ -182,6 +185,7 @@ class CycleCloudProvider:
                     currently_available_templates.add(template_id)
                     
                     max_count = self._max_count(nodearray_name, nodearray, machine_type.get("vcpuCount"), bucket)
+
                     at_least_one_available_bucket = at_least_one_available_bucket or max_count > 0
                     memory = machine_type.get("memory") * 1024
                     is_low_prio = nodearray.get("Interruptible", False)
@@ -190,6 +194,7 @@ class CycleCloudProvider:
                         ngpus = int(nodearray.get("Configuration", {}).get("symphony", {}).get("ngpus", 0))
                     except ValueError:
                         logger.exception("Ignoring symphony.ngpus for nodearray %s" % nodearray_name)
+
 
                     # Symphony
                     # - uses nram rather than mem
@@ -379,15 +384,17 @@ class CycleCloudProvider:
 
         # We handle unexpected Capacity failures (Spot)  by zeroing out capacity for a timed duration
         machine_type_name = bucket["definition"]["machineType"]
-        max_count = self.capacity_tracker.apply_capacity_limit(nodearray_name, machine_type_name, max_count)
+        max_count = self.capacity_tracker.get_capacity_limit(nodearray_name, machine_type_name, max_count)
         
+        # Below code is commented out as a customer faced an issue where autoscaling was being limited
+        # by spot_increment_per_sku. 
         # For Spot instances, quota and limits are not great indicators of capacity, so artificially limit 
         # requests to single machine types to spread the load and find available skus for large workloads
-        is_low_prio = nodearray.get("Interruptible", False)
-        if is_low_prio:
-            # Allow up to N _additional_ VMs (need to keep increasing this or symphony will stop considering the sku)
-            active_count = bucket["activeCount"]
-            max_count = min(max_count, active_count+self.spot_maxnumber_increment_per_sku)
+        # is_low_prio = nodearray.get("Interruptible", False)
+        # if is_low_prio:
+        #     # Allow up to N _additional_ VMs (need to keep increasing this or symphony will stop considering the sku)
+        #     active_count = bucket["activeCount"]
+        #     max_count = min(max_count, active_count+self.spot_maxnumber_increment_per_sku)
 
         return int(max_count)
     
@@ -410,7 +417,8 @@ class CycleCloudProvider:
             requests_store[request_id] = {"requestTime": calendar.timegm(self.clock()),
                                           "completedNodes": [],
                                           "allNodes": None,
-                                          "completed": False}
+                                          "completed": False,
+                                          "lastNumNodes": input_json["template"]["machineCount"]}
         
         try:
             template_store = self.templates_json.read()
@@ -762,6 +770,26 @@ class CycleCloudProvider:
                 if request_id not in requests_store:
                     logger.warning("Unknown request_id %s. Creating a new entry and resetting requestTime", request_id)
                     requests_store[request_id] = {"requestTime": calendar.timegm(self.clock())}
+                #set default
+                actual_machine_cnt = len(all_nodes)
+                if not requests_store[request_id].get("lastNumNodes") :
+                    requests_store[request_id]["lastNumNodes"] = actual_machine_cnt
+                if actual_machine_cnt < requests_store[request_id]["lastNumNodes"]:
+                    request_envelope = self.capacity_tracker.get_request(request_id)
+                    if not request_envelope:
+                        logger.warning("Out-of-capacity detected")
+                        logger.warning("No request envelope found for request id %s", request_id)
+                    else:
+                        reqs = request_envelope.get('sets', [])
+                        if not reqs:
+                            continue
+                        assert len(reqs) == 1
+                        req = reqs[0]
+                        nodearray_name = req['nodearray']
+                        machine_type = req['definition']['machineType']
+                        logger.warning("Out-of-capacity condition detected for machine_type %s in nodearray %s", machine_type, nodearray_name)
+                        self.capacity_tracker.set_capacity_limit(nodearray_name=nodearray_name, machine_type=machine_type)
+                        requests_store[request_id]["lastNumNodes"] = actual_machine_cnt
 
                 requests_store[request_id]["completedNodes"] = completed_nodes
                 if requests_store[request_id].get("allNodes") is None:
@@ -1036,12 +1064,10 @@ class CycleCloudProvider:
             assert "status" in delete_response
 
         # Update capacity tracking
-        capacity_limits_changed = False
         if 'requests' in create_response:
             for cr in create_response['requests']:
                 if cr['status'] in [ RequestStates.complete ]:
-                    capacity_limits_changed = self.capacity_tracker.request_completed(cr) or capacity_limits_changed
-
+                    self.capacity_tracker.request_completed(cr)
 
         create_status = create_response.get("status", RequestStates.complete)
         delete_status = delete_response.get("status", RequestStates.complete)
@@ -1058,9 +1084,6 @@ class CycleCloudProvider:
         
         # if the Capacity limits have changed, templates will be updated at the end of this call.
         # -> HostFactory rarely  (if ever) calls getAvailableTemplates after startup
-        
-        if capacity_limits_changed:
-            logger.info("Capacity limits have changed. Updating templates.")
 
         response = {"status": combined_status,
                     "requests": create_response.get("requests", []) + delete_response.get("requests", [])

@@ -89,7 +89,7 @@ class TestHostFactory(unittest.TestCase):
         self.assertIn(key, capacity_db)
 
         # Now verify that capacity is limited
-        max_count = db.apply_capacity_limit("execute", "A4", 100)
+        max_count = db.get_capacity_limit("execute", "A4", 100)
         self.assertEqual(0, max_count)
 
         # Finally advance clock just over 5 min to expire the limit - default expiry is 300 sec
