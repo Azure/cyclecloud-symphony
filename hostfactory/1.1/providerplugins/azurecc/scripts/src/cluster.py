@@ -76,7 +76,9 @@ class Cluster:
         if not operation_id:
             raise RuntimeError("You must specify operation id!")
         return self.get("/clusters/%s/nodes?operation=%s" % (self.cluster_name, operation_id))
-
+    
+    def get_node_id(self,node):
+        return node.delayed_node_id.node_id
     def shutdown_nodes(self,machines):
         machine_ids = [machine["machineId"] for machine in machines]
         for machine_id in machine_ids:

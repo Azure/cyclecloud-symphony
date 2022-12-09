@@ -50,7 +50,7 @@ class CycleCloudProvider:
         self.exit_code = 0
         self.clock = clock
         self.termination_timeout = float(self.config.get("cyclecloud.termination_request_retirement", 120) * 60)
-        self.creation_request_ttl = int(self.config.get("symphony.creation_request_ttl", 40 * 60))
+        self.creation_request_ttl = int(self.config.get("symphony.creation_request_ttl", 5 * 60))
         self.node_request_timeouts = float(self.config.get("cyclecloud.machine_request_retirement", 120) * 60)
         self.fine = False
         self.capacity_tracker = CapacityTrackingDb(self.config, self.cluster.cluster_name, self.clock)
@@ -421,6 +421,10 @@ class CycleCloudProvider:
                                           "lastNumNodes": input_json["template"]["machineCount"]}
         
         try:
+            #throw an exception no machines created. (Test)
+            
+            
+            
             template_store = self.templates_json.read()
         
             # same as nodearrays - Cloud.Node joined with MachineType
@@ -467,8 +471,10 @@ class CycleCloudProvider:
                                                         'sets': [request_set]})
             logger.info("Create nodes response: %s", add_nodes_response)
             
+            #throw an exception there will be nodes (test 2)
+            raise RuntimeError("fake create failed requestid %s",request_id)
             with self.creation_json as requests_store:
-                 requests_store[request_id]["allNodes"] = [x.delayed_node_id.node_id for x in add_nodes_response.nodes]
+                 requests_store[request_id]["allNodes"] = [self.cluster.get_node_id(x) for x in add_nodes_response.nodes]
             #nodes_response = self.cluster.nodes_by_operation_id(operation_id=add_nodes_response["operationId"])
             
             # with self.creation_json as requests_store:
@@ -674,11 +680,11 @@ class CycleCloudProvider:
                 # for new nodes, completion is Ready. For "released" nodes, as long as
                 # the node has begun terminated etc, we can just say success.
                 # node_status = node.get("State")
-                if isinstance(node, str):
-                    continue
+                # if isinstance(node, str):
+                #     continue
                 node_status = node.state
                 node_target_state = node.target_state
-                all_nodes.append(node.delayed_node_id.node_id)
+                all_nodes.append(self.cluster.get_node_id(node))
                 
                 machine_status = MachineStates.active
                 
@@ -715,9 +721,9 @@ class CycleCloudProvider:
                         logger.warning("Warning: Cluster status check terminating failed node %s", node)
                         # import traceback
                         #logger.warning("Traceback:\n%s", '\n'.join([line  for line in traceback.format_stack()]))
-                        self.cluster.shutdown_nodes([{"machineId": node.delayed_node_id.node_id, "name": hostname}])
+                        self.cluster.shutdown_nodes([{"machineId": self.cluster.get_node_id(node), "name": hostname}])
                     except Exception:
-                        logger.exception("Could not terminate node with id %s" % node.delayed_node_id.node_id)
+                        logger.exception("Could not terminate node with id %s" % self.cluster.get_node_id(node))
         
                 elif not node.instance_id:
                     requesting_count = requesting_count + 1
@@ -742,7 +748,7 @@ class CycleCloudProvider:
                             except Exception:                                
                                 logger.warning("_create_status: No hostname set and could not convert ip %s to hostname for \"%s\" VM.", node.private_ip, node)
                         else:
-                            completed_nodes.append({"hostname": hostname, "nodeid": node.delayed_node_id.node_id})
+                            completed_nodes.append({"hostname": hostname, "nodeid": self.cluster.get_node_id(node)})
                 else:
                     machine_result = MachineResults.executing
                     machine_status = MachineStates.building
@@ -753,7 +759,7 @@ class CycleCloudProvider:
                     "name": hostname or "",
                     "status": machine_status,
                     "result": machine_result,
-                    "machineId": node.delayed_node_id.node_id or "",
+                    "machineId": self.cluster.get_node_id(node) or "",
                     # launchTime is manditory in Symphony
                     # maybe we can add something so we don"t have to expose this
                     # node["PhaseMap"]["Cloud.AwaitBootup"]["StartTime"]["$date"]
@@ -1125,16 +1131,25 @@ class CycleCloudProvider:
             for request_id, request in requests_store.items():
                 if request.get("completed"):
                     continue
-
-                if request.get("allNodes") is None:
-                    logger.warning("Yet to find any NodeIds for RequestId %s", request_id)
-                    continue
-
+                
                 created_timestamp = request["requestTime"]
                 now = calendar.timegm(self.clock())
                 delta = now - created_timestamp
 
                 if delta > self.creation_request_ttl:
+                    if request.get("allNodes") is None:
+                        logger.warning("Yet to find any NodeIds for RequestId %s", request_id)
+                        try:
+                            nodes_by_request_id = {}
+                            nodes_by_request_id.update(self.cluster.nodes(request_ids=[request_id]))   
+                            logger.debug("Node list by request id %s",nodes_by_request_id)             
+                        except Exception as e:
+                            if "No operation found for request id" in str(e):
+                                nodes_by_request_id[request_id] = {"nodes": []}
+                                logger.debug(nodes_by_request_id[request_id])
+                            else:
+                                logger.exception("Azure CycleCloud experienced an error and the node creation request failed for request_id %s. %s", request_id, e)
+                                request["allNodes"] = []
                     completed_node_ids = [x["nodeid"] for x in request["completedNodes"]]
                     failed_to_start = set(request["allNodes"]) - set(completed_node_ids)
                     if failed_to_start:
