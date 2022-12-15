@@ -6,6 +6,7 @@ import shutil
 import sys
 import tarfile
 import tempfile
+import zipfile
 from argparse import Namespace
 from subprocess import check_call
 from typing import Dict, List, Optional
@@ -83,8 +84,8 @@ def execute() -> None:
     if not os.path.exists("dist"):
         os.makedirs("dist")
 
-    tf_path = "dist/cyclecloud-symphony-pkg-{}.tar.gz".format(version)
-    tf = tarfile.TarFile.gzopen(tf_path, "w")
+    zf = zipfile.ZipFile("dist/cyclecloud-symphony-pkg-{}.zip".format(version), "w", zipfile.ZIP_DEFLATED)
+
 
     build_dir = tempfile.mkdtemp("cyclecloud-symphony")
 
@@ -97,23 +98,23 @@ def execute() -> None:
 
     def _add(name: str, path: Optional[str] = None, mode: Optional[int] = None) -> None:
         path = path or name
-        tarinfo = tarfile.TarInfo("cyclecloud-symphony/" + name)
-        tarinfo.size = os.path.getsize(path)
-        tarinfo.mtime = int(os.path.getmtime(path))
-        if mode:
-            tarinfo.mode = mode
+        print(f"Adding : {name} from {path}")
+        zf.write(path, name)
 
-        with open(path, "rb") as fr:
-            tf.addfile(tarinfo, fr)
+
+
 
     def _add_directory(name: str, path: Optional[str] = None) -> None:
-        path = path or name
-        tf.add(path, arcname=os.path.join("cyclecloud-symphony", path), recursive=True)
+       with zf as zip_ref:
+          for folder_name, subfolders, filenames in os.walk(name):
+              for filename in filenames:
+                 file_path = os.path.join(folder_name, filename)
+                 zip_ref.write(file_path)
+
 
     packages = []
     for dep in cycle_libs:
         dep_path = os.path.abspath(os.path.join("libs", dep))
-        _add("packages/" + dep, dep_path)
         packages.append(dep_path)
 
     check_call(["pip", "download"] + packages, cwd=build_dir)
@@ -142,13 +143,13 @@ def execute() -> None:
         path = os.path.join(build_dir, fil)
         _add("packages/" + fil, path)
 
-    _unix2dos("hostfactory")
+    _unix2dos("hostfactory", patterns=['**/*.ps1', '**/*.bat'])
     _add("hostfactory/install.ps1", mode=os.stat("hostfactory/install.ps1")[0])
     _add_directory("hostfactory/1.1")
 
 
-    print("Created package: ", tf_path)
-    print("\n".join(f for f in tf.getnames()))
+    print("Created package: ", zf.filename)
+    print("\n".join(f for f in zf.namelist()))
 
 if __name__ == "__main__":
     execute()

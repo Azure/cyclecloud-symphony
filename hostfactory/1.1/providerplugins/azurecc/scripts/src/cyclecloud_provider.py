@@ -50,7 +50,7 @@ class CycleCloudProvider:
         self.exit_code = 0
         self.clock = clock
         self.termination_timeout = float(self.config.get("cyclecloud.termination_request_retirement", 120) * 60)
-        self.creation_request_ttl = int(self.config.get("symphony.creation_request_ttl", 5 * 60))
+        self.creation_request_ttl = int(self.config.get("symphony.creation_request_ttl", 40 * 60))
         self.node_request_timeouts = float(self.config.get("cyclecloud.machine_request_retirement", 120) * 60)
         self.fine = False
         self.capacity_tracker = CapacityTrackingDb(self.config, self.cluster.cluster_name, self.clock)
@@ -420,11 +420,7 @@ class CycleCloudProvider:
                                           "completed": False,
                                           "lastNumNodes": input_json["template"]["machineCount"]}
         
-        try:
-            #throw an exception no machines created. (Test)
-            
-            
-            
+        try:            
             template_store = self.templates_json.read()
         
             # same as nodearrays - Cloud.Node joined with MachineType
@@ -471,14 +467,8 @@ class CycleCloudProvider:
                                                         'sets': [request_set]})
             logger.info("Create nodes response: %s", add_nodes_response)
             
-            #throw an exception there will be nodes (test 2)
-            raise RuntimeError("fake create failed requestid %s",request_id)
             with self.creation_json as requests_store:
                  requests_store[request_id]["allNodes"] = [self.cluster.get_node_id(x) for x in add_nodes_response.nodes]
-            #nodes_response = self.cluster.nodes_by_operation_id(operation_id=add_nodes_response["operationId"])
-            
-            # with self.creation_json as requests_store:
-            #     requests_store[request_id]["allNodes"] = [x["NodeId"] for x in nodes_response["nodes"]]
 
             if template["attributes"].get("placementgroup"):
                 logger.info("Requested %s instances of machine type %s in placement group %s for nodearray %s.", machine_count, machinetype_name, _get("placementgroup"), _get("nodearray"))
