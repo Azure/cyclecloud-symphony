@@ -33,8 +33,8 @@ class Cluster:
         selector = {"node.nodearray": request['sets'][0]['nodearray']}
         if sku:
            selector["node.vm_size"] = sku
-
-        r = self.node_mgr.allocate(selector, node_count=request['sets'][0]['count'])
+        selector_list = [selector]
+        r = self.node_mgr.allocate(constraints=selector_list, node_count=request['sets'][0]['count'], allow_existing=False)
         self.logger.debug("Request id in add nodes %s",request['requestId'])
 
         request_id_start = f"{request['requestId']}-start"
@@ -44,7 +44,9 @@ class Cluster:
         )
         self.logger.debug("node bootup %s",bootpup_resp)
         self.logger.debug("node bootup requestids %s",bootpup_resp.request_ids)
-        return (r)
+        if bootpup_resp.nodes is None or []:
+            return False
+        return (bootpup_resp)
     
     def all_nodes(self):
         return self.get("/clusters/%s/nodes" % self.cluster_name)
