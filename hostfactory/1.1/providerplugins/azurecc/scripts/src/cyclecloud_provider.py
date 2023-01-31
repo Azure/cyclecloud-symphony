@@ -465,6 +465,10 @@ class CycleCloudProvider:
                                     
             add_nodes_response = self.cluster.add_nodes({'requestId': request_id,
                                                         'sets': [request_set]})
+            
+            if not add_nodes_response:
+                raise ValueError("No nodes were created")
+            
             logger.info("Create nodes response: %s", add_nodes_response)
             
             with self.creation_json as requests_store:
@@ -992,6 +996,11 @@ class CycleCloudProvider:
                 terminations[request_id] = {"id": request_id, "machines": machines, "requestTime": calendar.timegm(self.clock())}
             
             request_id_persisted = True
+            
+            #NM
+            # only be true if shutdown method is terminate.
+            #aggressively_complete_termination = self.config.get("symphony.aggressively_complete_termination", False)
+            #request_status = RequestStates.complete if aggressively_complete_termination else RequestStates.running
             request_status = RequestStates.complete
             message = "CycleCloud is terminating the VM(s)"
 

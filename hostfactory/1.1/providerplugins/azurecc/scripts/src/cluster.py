@@ -81,10 +81,11 @@ class Cluster:
     
     def get_node_id(self,node):
         return node.delayed_node_id.node_id
-    def shutdown_nodes(self,machines):
+
+    def shutdown_nodes(self, machines):
         machine_ids = [machine["machineId"] for machine in machines]
-        for machine_id in machine_ids:
-            self.node_mgr.shutdown_nodes([x for x in self.node_mgr.get_nodes() if x.delayed_node_id.node_id == machine_id])
+        nodes_to_shutdown = [x for x in self.node_mgr.get_nodes() if x.delayed_node_id.node_id in machine_ids]
+        self.node_mgr.shutdown_nodes(nodes_to_shutdown)
 
     def _session(self):
         config = {"verify_certificates": False,
