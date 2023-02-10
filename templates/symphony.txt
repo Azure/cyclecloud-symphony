@@ -19,6 +19,9 @@ Autoscale = $Autoscale
     
         [[[configuration]]]
         run_list = recipe[cuser]
+        # Disable ip-XXXXXXXX hostname generation
+        cyclecloud.hosts.standalone_dns.enabled = ${NodeNameIsHostname==false}
+        cyclecloud.hosts.simple_vpc_dns.enabled = ${NodeNameIsHostname==false}
 
         [[[network-interface eth0]]]
         AssociatePublicIpAddress = false
@@ -52,6 +55,9 @@ Autoscale = $Autoscale
     MaxCoreCount = 64
 
         [[[configuration]]]
+        symphony.node_prefix = ${ifThenElse(NodeNamePrefix=="Cluster Prefix", StrJoin("-", toLower(ClusterName), ""), NodeNamePrefix)}
+        symphony.node_domain_suffix = $ZCSDomain
+        symphony.use_nodename_as_hostname = $NodeNameIsHostname
         cyclecloud.discoverable = true
 	
         [[[configuration symphony]]]
@@ -65,6 +71,9 @@ Autoscale = $Autoscale
     Priority = 10
     
         [[[configuration]]]
+        symphony.node_prefix = ${ifThenElse(NodeNamePrefix=="Cluster Prefix", StrJoin("-", toLower(ClusterName), ""), NodeNamePrefix)}
+        symphony.node_domain_suffix = $ZCSDomain
+        symphony.use_nodename_as_hostname = $NodeNameIsHostname
         autoscaling.enabled = true
     
         [[[cluster-init symphony:execute:2.0.0]]]
@@ -81,6 +90,9 @@ Autoscale = $Autoscale
     MaxCoreCount = 128
 
         [[[configuration]]]
+        symphony.node_prefix = ${ifThenElse(NodeNamePrefix=="Cluster Prefix", StrJoin("-", toLower(ClusterName), ""), NodeNamePrefix)}
+        symphony.node_domain_suffix = $ZCSDomain
+        symphony.use_nodename_as_hostname = $NodeNameIsHostname
         cyclecloud.cluster.autoscale.stop_enabled = false
     
         [[[cluster-init symphony:execute:2.0.0]]]
@@ -192,6 +204,29 @@ Order = 20
     [[parameters Software]]
     Description = "Specify the scheduling software, and base OS installed on all nodes, and optionally the cluster-init and chef versions from your Locker."
     Order = 10
+
+        [[[parameter NodeNameIsHostname]]]
+        Label = Name As Hostname
+        Description = Should the hostname match the nodename for execute nodes?
+        ParameterType = Boolean
+        DefaultValue = true
+        
+        [[[parameter ZCSDomain]]]
+        Label = Name of Domain
+        Description = Domain name of the node
+        ParameterType = String
+        DefaultValue = true
+ 
+        [[[parameter NodeNamePrefix]]]
+        Label = Node Prefix
+        Description = Prefix for generated node names, i.e. "prefix-" generates prefix-nodearray-1. Use 'Cluster Prefix' to get $ClusterName-nodearray-1
+        ParameterType = StringList
+        Config.Plugin = pico.form.Dropdown
+        Config.FreeForm = true
+        DefaultValue = "Cluster Prefix"
+        Config.Entries := {[Value=""], [Value="Cluster Prefix"]}
+        Conditions.Hidden := NodeNameIsHostname != true
+
 
         [[[parameter ImageName]]]
         Label = Base OS
