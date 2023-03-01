@@ -89,7 +89,7 @@ class CycleCloudProvider:
             autoscale_enabled = nodearray.get("Configuration", {}).get("autoscaling", {}).get("enabled", False)
             if not autoscale_enabled:
                 continue
-            logger.debug(nodearray_root.get("buckets"))
+            
             for bucket in nodearray_root.get("buckets"):
                 machine_type = bucket["virtualMachine"]
                 
@@ -367,17 +367,17 @@ class CycleCloudProvider:
         max_count = bucket.get("maxCount")
         
         if max_count is not None:
-            logger.debug("Using maxCount %s for %s", max_count, bucket)
             max_count = max(-1, max_count)
+            logger.debug("Using maxCount %s for %s", max_count, bucket)
         else:
             max_core_count = bucket.get("maxCoreCount")
             if max_core_count is None:
                 if nodearray.get("maxCoreCount") is None:
                     logger.error("Need to define either maxCount or maxCoreCount! %s", pprint.pformat(bucket))
                     return -1
-                logger.debug("Using maxCoreCount")
+               
                 max_core_count = nodearray.get("maxCoreCount")
-            
+                logger.debug("Using maxCoreCount %s",max_core_count)
             max_core_count = max(-1, max_core_count)
         
             max_count = max_core_count / machine_cores
@@ -385,7 +385,7 @@ class CycleCloudProvider:
         # We handle unexpected Capacity failures (Spot)  by zeroing out capacity for a timed duration
         machine_type_name = bucket["definition"]["machineType"]
         max_count = self.capacity_tracker.get_capacity_limit(nodearray_name, machine_type_name, max_count)
-        
+        logger.debug("Using maxCount %s", max_count)
         # Below code is commented out as a customer faced an issue where autoscaling was being limited
         # by spot_increment_per_sku. 
         # For Spot instances, quota and limits are not great indicators of capacity, so artificially limit 
@@ -464,7 +464,7 @@ class CycleCloudProvider:
                 request_set["placementGroupId"] = template["attributes"].get("placementgroup")[1]
                                     
             add_nodes_response = self.cluster.add_nodes({'requestId': request_id,
-                                                        'sets': [request_set]})
+                                                        'sets': [request_set]}, template.get("maxNumber"))
             
             if not add_nodes_response:
                 raise ValueError("No nodes were created")
@@ -775,6 +775,7 @@ class CycleCloudProvider:
                 if not requests_store[request_id].get("lastNumNodes") :
                     requests_store[request_id]["lastNumNodes"] = actual_machine_cnt
                 if actual_machine_cnt < requests_store[request_id]["lastNumNodes"]:
+                    logger.debug("Actual machine count %s is less than previous machines %s", actual_machine_cnt, requests_store[request_id]["lastNumNodes"])
                     request_envelope = self.capacity_tracker.get_request(request_id)
                     if not request_envelope:
                         logger.warning("Out-of-capacity detected")

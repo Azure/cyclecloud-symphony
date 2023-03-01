@@ -26,20 +26,37 @@ class Cluster:
         self.node_mgr = new_node_manager(CC_CONFIG)
     
     def status(self):
-        return self.get("/clusters/%s/status" % self.cluster_name)
+        status_json = self.get("/clusters/%s/status" % self.cluster_name)
+        #log the buckets, maxcorecount in nodearray
+        nodearrays = status_json["nodearrays"]
+        for nodearray_root in nodearrays:
+            nodearray = nodearray_root.get("nodearray")
+            if nodearray_root.get("name") == 'execute':
+                self.logger.debug("maxCount %s maxCoreCount %s  of nodearray", nodearray_root.get("maxCount"), nodearray_root.get("maxCoreCount"))
+                self.logger.debug("MaxCoreCount in nodearray execute %s", nodearray.get("MaxCoreCount"))
+                self.logger.debug("Buckets of nodearray execute")
+                self.logger.debug(json.dumps(nodearray_root.get("buckets")))
+        return status_json
 
-    def add_nodes(self,request):
+    def add_nodes(self, request, max_count):
         sku = request['sets'][0]['definition']['machineType']
         selector = {"node.nodearray": request['sets'][0]['nodearray']}
         if sku:
            selector["node.vm_size"] = sku
         selector_list = [selector]
-        r = self.node_mgr.allocate(constraints=selector_list, node_count=request['sets'][0]['count'], allow_existing=False)
+        
+        curr_node_count = len(self.node_mgr.get_nodes())
+        alloc_result = self.node_mgr.allocate(constraints=selector_list, node_count=request['sets'][0]['count'], allow_existing=False)
         self.logger.debug("Request id in add nodes %s",request['requestId'])
-
+        if (curr_node_count + len(alloc_result.nodes)) > max_count:
+            allowed_count = max_count - curr_node_count
+            exceeded_count = max_count - (curr_node_count + len(alloc_result.nodes))
+            self.logger.warning("Max count is exceeded by %s Limiting the allowed additional nodes to %s", exceeded_count, allowed_count)
+            alloc_result = self.node_mgr.allocate(constraints=selector_list, node_count=allowed_count, allow_existing=False)
+            
         request_id_start = f"{request['requestId']}-start"
         request_id_create = f"{request['requestId']}-create"
-        bootpup_resp = self.node_mgr.bootup(
+        bootpup_resp = self.node_mgr.bootup(nodes=alloc_result.nodes,
             request_id_start=request_id_start, request_id_create=request_id_create
         )
         self.logger.debug("node bootup %s",bootpup_resp)
@@ -49,6 +66,18 @@ class Cluster:
         return (bootpup_resp)
     
     def all_nodes(self):
+        all_nodes_json = self.get("/clusters/%s/nodes" % self.cluster_name)
+        count_status = {}
+        nodes = all_nodes_json['nodes']
+        for node in nodes:
+            node_status = node.get("Status")
+            if  node_status in count_status:
+                count_status[node_status] = count_status[node_status] + 1
+            else:
+                count_status[node_status] = 1
+        self.logger.debug("Count of status in all nodes")
+        self.logger.debug(count_status)
+        # count by status
         return self.get("/clusters/%s/nodes" % self.cluster_name)
  
     def nodes(self, request_ids):
