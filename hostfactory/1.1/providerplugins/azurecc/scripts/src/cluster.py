@@ -46,14 +46,15 @@ class Cluster:
         selector_list = [selector]
         
         curr_node_count = len(self.node_mgr.get_nodes())
-        alloc_result = self.node_mgr.allocate(constraints=selector_list, node_count=request['sets'][0]['count'], allow_existing=False)
-        self.logger.debug("Request id in add nodes %s",request['requestId'])
-        if (curr_node_count + len(alloc_result.nodes)) > max_count:
-            allowed_count = max_count - curr_node_count
-            exceeded_count = max_count - (curr_node_count + len(alloc_result.nodes))
+        allowed_count = max_count - curr_node_count
+        request_count = request['sets'][0]['count']
+        
+        if request_count > max_count:   
+            exceeded_count = max_count - request_count
             self.logger.warning("Max count is exceeded by %s Limiting the allowed additional nodes to %s", exceeded_count, allowed_count)
-            alloc_result = self.node_mgr.allocate(constraints=selector_list, node_count=allowed_count, allow_existing=False)
-            
+            request_count = allowed_count
+        alloc_result = self.node_mgr.allocate(constraints=selector_list, node_count=allowed_count, allow_existing=False)
+        self.logger.debug("Request id in add nodes %s",request['requestId'])    
         request_id_start = f"{request['requestId']}-start"
         request_id_create = f"{request['requestId']}-create"
         bootpup_resp = self.node_mgr.bootup(nodes=alloc_result.nodes,
