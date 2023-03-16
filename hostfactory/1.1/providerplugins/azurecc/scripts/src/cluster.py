@@ -44,19 +44,27 @@ class Cluster:
         if sku:
            selector["node.vm_size"] = sku
         selector_list = [selector]
+        alloc_result = self.node_mgr.allocate(constraints=selector_list, node_count=request['sets'][0]['count'], allow_existing=False)
+        filtered_nodes = [n for n in alloc_result.nodes if int(n.name.split("-")[-1]) <= max_count]
+        exceeded_nodes = list(set(alloc_result.nodes) - set(filtered_nodes))
+        if len(exceeded_nodes) > 0:
+            self.logger.warning("In the allocation result %s nodes exceeded %s", len(exceeded_nodes), str(exceeded_nodes))
+            for node in self.node_mgr.get_nodes():
+                self.logger.debug("Node name %s Node state %s Node targetstate %s", node.name, node.state, node.target_state)
+        # This was one method to fix it but its still causing the bug in customer environment.
+        # curr_node_count = len(self.node_mgr.get_nodes())
+        # for node in self.node_mgr.get_nodes():
+        #     if node.state == "Deallocated":
+        #         curr_node_count-=1
+        # allowed_count = max_count - curr_node_count
+        # request_count = request['sets'][0]['count']
+        # self.logger.debug("Allowed count in add nodes %s max count %s curr_node_count %s", allowed_count, max_count, curr_node_count)
+        # if request_count > allowed_count:   
+        #     exceeded_count = max_count - request_count
+        #     self.logger.warning("Max count is exceeded by %s Limiting the allowed additional nodes to %s", exceeded_count, allowed_count)
+        #     request_count = allowed_count
+        #alloc_result = self.node_mgr.allocate(constraints=selector_list, node_count=request_count, allow_existing=False)
         
-        curr_node_count = len(self.node_mgr.get_nodes())
-        for node in self.node_mgr.get_nodes():
-            if node.state == "Deallocated":
-                curr_node_count-=1
-        allowed_count = max_count - curr_node_count
-        request_count = request['sets'][0]['count']
-        self.logger.debug("Allowed count in add nodes %s max count %s curr_node_count %s", allowed_count, max_count, curr_node_count)
-        if request_count > max_count:   
-            exceeded_count = max_count - request_count
-            self.logger.warning("Max count is exceeded by %s Limiting the allowed additional nodes to %s", exceeded_count, allowed_count)
-            request_count = allowed_count
-        alloc_result = self.node_mgr.allocate(constraints=selector_list, node_count=request_count, allow_existing=False)
         self.logger.debug("Request id in add nodes %s",request['requestId'])    
         request_id_start = f"{request['requestId']}-start"
         request_id_create = f"{request['requestId']}-create"
