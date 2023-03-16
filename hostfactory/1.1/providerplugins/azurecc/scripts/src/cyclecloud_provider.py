@@ -955,7 +955,8 @@ class CycleCloudProvider:
         request_id_persisted = False
         try:
             iter = 0
-            while iter < 10 and request_id_persisted != True:
+            while iter < 18 and request_id_persisted != True:
+                iter += 1
                 try:
                     with self.terminate_json as terminations:
                         machines = {}
@@ -969,7 +970,7 @@ class CycleCloudProvider:
                     request_id_persisted = True
                 except:
                     logger.exception("Could not open terminate.json")
-                    time.sleep(60)
+                    time.sleep(10)
         
             request_status = RequestStates.complete
             message = "CycleCloud is terminating the VM(s)"
@@ -988,9 +989,7 @@ class CycleCloudProvider:
 
             # NOTE: we will still respond with a failure here, but at least we attempted the termination
             if not request_id_persisted:
-                return json_writer({"status": RequestStates.complete_with_error, 
-                                    "requestId": request_id, 
-                                    "message": "Could not write to terminate.json!"})
+                return sys.exit(1)
             
             return json_writer({"message": message,
                                 "requestId": request_id,

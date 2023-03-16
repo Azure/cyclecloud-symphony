@@ -217,6 +217,10 @@ def failureresponse(response):
                 with_message = deepcopy(response)
                 with_message["message"] = str(e)
                 return args[0].json_writer(with_message)
+            except SystemExit as se:
+                # NOTE: see terminate_machines for more info
+                logger.exception("System Exit occured intentionally write 0 json so symphony recovers")
+                raise
             except:  # nopep8 ignore the bare except
                 logger.exception("Caught unknown exception...")
                 logger.debug(traceback.format_exc())

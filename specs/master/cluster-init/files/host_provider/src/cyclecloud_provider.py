@@ -954,17 +954,23 @@ class CycleCloudProvider:
         request_id = "delete-%s" % str(uuid.uuid4())
         request_id_persisted = False
         try:
-            with self.terminate_json as terminations:
-                machines = {}
-                for machine in input_json["machines"]:
-                    if "machineId" not in machine:
-                        # cluster api can handle invalid machine ids
-                        machine["machineId"] = machine["name"]
-                    machines[machine["machineId"]] = machine["name"]
-                    
-                terminations[request_id] = {"id": request_id, "machines": machines, "requestTime": calendar.timegm(self.clock())}
-            
-            request_id_persisted = True
+            iter = 0
+            while iter < 18 and request_id_persisted != True:
+                iter += 1
+                try:
+                    with self.terminate_json as terminations:
+                        machines = {}
+                        for machine in input_json["machines"]:
+                            if "machineId" not in machine:
+                                # cluster api can handle invalid machine ids
+                                machine["machineId"] = machine["name"]
+                            machines[machine["machineId"]] = machine["name"]
+                            
+                        terminations[request_id] = {"id": request_id, "machines": machines, "requestTime": calendar.timegm(self.clock())}
+                    request_id_persisted = True
+                except:
+                    logger.exception("Could not open terminate.json")
+                    time.sleep(10)
             request_status = RequestStates.complete
             message = "CycleCloud is terminating the VM(s)"
 
@@ -979,6 +985,10 @@ class CycleCloudProvider:
                 logger.exception("Could not terminate %s", machines.keys())
             
             logger.info("Terminating %d machine(s): %s", len(machines), machines.keys())
+
+            # NOTE: we will still respond with a failure here, but at least we attempted the termination
+            if not request_id_persisted:
+                return sys.exit(1)
             
             return json_writer({"message": message,
                                 "requestId": request_id,
