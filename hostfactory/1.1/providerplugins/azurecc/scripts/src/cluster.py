@@ -68,7 +68,7 @@ class Cluster:
         self.logger.debug("Request id in add nodes %s",request['requestId'])    
         request_id_start = f"{request['requestId']}-start"
         request_id_create = f"{request['requestId']}-create"
-        bootpup_resp = self.node_mgr.bootup(nodes=alloc_result.nodes,
+        bootpup_resp = self.node_mgr.bootup(nodes=filtered_nodes,
             request_id_start=request_id_start, request_id_create=request_id_create
         )
         self.logger.debug("node bootup %s",bootpup_resp)
