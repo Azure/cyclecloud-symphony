@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import sys
 import traceback
+import time
 from builtins import str
 
 import os
@@ -120,18 +121,21 @@ class JsonStore:
         self.lock_count += 1
         if self.lock_count > 1:
             return True
-        
-        try:
-            self.lockfp = open(self.lockpath, 'w')
-            if os.name == 'nt':
-                self.logger.warning("Skip locking on windows.  TODO: replace fcntl for windows")
-            else:
-                import fcntl
-                fcntl.lockf(self.lockfp, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            return True
-        except IOError:
-            self.logger.exception("Could not acquire lock - %s" % self.lockpath)
-            return False
+        iter = 0
+        while iter < 18:
+            iter+=1
+            try:
+                self.lockfp = open(self.lockpath, 'w')
+                if os.name == 'nt':
+                    self.logger.warning("Skip locking on windows.  TODO: replace fcntl for windows")
+                else:
+                    import fcntl
+                    fcntl.lockf(self.lockfp, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                return True
+            except IOError:
+                self.logger.exception("Could not acquire lock - %s" % self.lockpath)
+                time.sleep(10)
+        return False
             
     def _unlock(self):
         self.lock_count -= 1

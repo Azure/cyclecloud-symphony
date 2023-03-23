@@ -311,11 +311,14 @@ class CycleCloudProvider:
         
     # If we return an empty list or templates with 0 hosts, it removes us forever and ever more, so _always_
     # return at least one machine.
-    @failureresponse({"templates": [PLACEHOLDER_TEMPLATE], "status": RequestStates.complete_with_error})
+    #@failureresponse({"templates": [PLACEHOLDER_TEMPLATE], "status": RequestStates.complete_with_error})
     def templates(self):
-        symphony_templates = self._update_templates()
-        return self.json_writer({"templates": symphony_templates, "message": "Get available templates success."}, debug_output=False)
-    
+        try:
+            symphony_templates = self._update_templates()
+            return self.json_writer({"templates": symphony_templates, "message": "Get available templates success."}, debug_output=False)
+        except:
+            logger.exception("Could not get template_json")
+            sys.exit(1)        
     def generate_userdata(self, template):
         ret = {}
         
@@ -409,14 +412,16 @@ class CycleCloudProvider:
          'requestId': 'req-123'}
         """
         request_id = str(uuid.uuid4())
-
-        # save the request so we can time it out
-        with self.creation_json as requests_store:
-            requests_store[request_id] = {"requestTime": calendar.timegm(self.clock()),
-                                          "completedNodes": [],
-                                          "allNodes": None,
-                                          "completed": False}
-        
+        try:
+            # save the request so we can time it out
+            with self.creation_json as requests_store:
+                requests_store[request_id] = {"requestTime": calendar.timegm(self.clock()),
+                                            "completedNodes": [],
+                                            "allNodes": None,
+                                            "completed": False}
+        except:
+            logger.exception("Could not open creation_json")
+            sys.exit(1)    
         try:
             template_store = self.templates_json.read()
         
@@ -954,23 +959,19 @@ class CycleCloudProvider:
         request_id = "delete-%s" % str(uuid.uuid4())
         request_id_persisted = False
         try:
-            iter = 0
-            while iter < 18 and request_id_persisted != True:
-                iter += 1
-                try:
-                    with self.terminate_json as terminations:
-                        machines = {}
-                        for machine in input_json["machines"]:
-                            if "machineId" not in machine:
-                                # cluster api can handle invalid machine ids
-                                machine["machineId"] = machine["name"]
-                            machines[machine["machineId"]] = machine["name"]
-                            
-                        terminations[request_id] = {"id": request_id, "machines": machines, "requestTime": calendar.timegm(self.clock())}
-                    request_id_persisted = True
-                except:
-                    logger.exception("Could not open terminate.json")
-                    time.sleep(10)
+            try:
+                with self.terminate_json as terminations:
+                    machines = {}
+                    for machine in input_json["machines"]:
+                        if "machineId" not in machine:
+                            # cluster api can handle invalid machine ids
+                            machine["machineId"] = machine["name"]
+                        machines[machine["machineId"]] = machine["name"]
+                        
+                    terminations[request_id] = {"id": request_id, "machines": machines, "requestTime": calendar.timegm(self.clock())}
+                request_id_persisted = True
+            except:
+                logger.exception("Could not open terminate.json")
             request_status = RequestStates.complete
             message = "CycleCloud is terminating the VM(s)"
 
