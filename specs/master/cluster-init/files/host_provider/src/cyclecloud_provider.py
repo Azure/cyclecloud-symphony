@@ -311,12 +311,13 @@ class CycleCloudProvider:
         
     # If we return an empty list or templates with 0 hosts, it removes us forever and ever more, so _always_
     # return at least one machine.
-    #@failureresponse({"templates": [PLACEHOLDER_TEMPLATE], "status": RequestStates.complete_with_error})
+    # BUGFIX: exiting non-zero code will make symphony retry.
     def templates(self):
         try:
             symphony_templates = self._update_templates()
             return self.json_writer({"templates": symphony_templates, "message": "Get available templates success."}, debug_output=False)
         except:
+            logger.warning("Exiting Non-zero so that symphony will retry")
             logger.exception("Could not get template_json")
             sys.exit(1)        
     def generate_userdata(self, template):
@@ -972,6 +973,7 @@ class CycleCloudProvider:
                 request_id_persisted = True
             except:
                 logger.exception("Could not open terminate.json")
+            #NOTE: Here we will not exit immediately but exit after an attempted shutdown
             request_status = RequestStates.complete
             message = "CycleCloud is terminating the VM(s)"
 
