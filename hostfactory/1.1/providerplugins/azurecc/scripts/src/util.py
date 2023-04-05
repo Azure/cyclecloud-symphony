@@ -4,6 +4,7 @@ import json
 import logging
 import logging.config
 from logging.handlers import RotatingFileHandler
+from concurrent_log_handler import ConcurrentRotatingFileHandler
 import os
 import shutil
 import subprocess
@@ -46,7 +47,7 @@ def init_logging(loglevel=logging.INFO, logfile=None):
                     # The values below are popped from this dictionary and
                     # used to create the handler, set the handler's level and
                     # its formatter.
-                    '()': RotatingFileHandler,
+                    '()': ConcurrentRotatingFileHandler,
                     'level': logging.INFO,
                     'formatter': 'default',
                     # The values below are passed to the handler creator callable
@@ -90,7 +91,7 @@ def init_logging(loglevel=logging.INFO, logfile=None):
     logger.setLevel(logging.DEBUG)
     
     tenMB = 10 * 1024 * 1024
-    logfile_handler = RotatingFileHandler(logfile_path, mode='a',maxBytes=tenMB, backupCount=5)
+    logfile_handler = ConcurrentRotatingFileHandler(logfile_path, mode='a',maxBytes=tenMB, backupCount=5)
     logfile_handler.setLevel(loglevel)
     logfile_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
     
