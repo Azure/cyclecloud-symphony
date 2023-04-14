@@ -11,7 +11,7 @@ from argparse import Namespace
 from subprocess import check_call
 from typing import Dict, List, Optional
 
-SCALELIB_VERSION = "0.2.14"
+SCALELIB_VERSION = "1.0.0"
 CYCLECLOUD_API_VERSION = "8.1.0"
 CONCURRENT_HANDLER_VERSION = "0.9.21"
 
@@ -139,14 +139,19 @@ def execute() -> None:
             assert False
 
     for fil in os.listdir(build_dir):
-        if fil.startswith("certifi-20"):
-            print("WARNING: Ignoring duplicate certifi {}".format(fil))
+        if "pyyaml" in fil.lower():
             continue
+        if "itsdanger" in fil.lower():
+            continue
+        if "zipp" in fil.lower():
+            continue
+        
         path = os.path.join(build_dir, fil)
         _add("packages/" + fil, path)
 
     _unix2dos("hostfactory", patterns=['**/*.ps1', '**/*.bat'])
     _add("hostfactory/install.ps1", mode=os.stat("hostfactory/install.ps1")[0])
+    _add("hostfactory/install.sh", mode=os.stat("hostfactory/install.sh")[0])
     _add_directory("hostfactory/1.1")
 
 
