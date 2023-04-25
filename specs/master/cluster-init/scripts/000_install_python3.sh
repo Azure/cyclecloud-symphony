@@ -9,10 +9,16 @@ export PATH=$(echo $PATH | sed -e 's/\/opt\/cycle\/jetpack\/system\/embedded\/bi
 which python3 > /dev/null;
 if [ $? != 0 ]; then
     if [[ "$(cat /etc/os-release)" == *"Ubuntu"* ]]; then
-      apt install -y python3 
+      apt-get install -y python3 python3-pip
     elif [[ "$(cat /etc/os-release)" == *"CentOS"* ]]; then
       yum install -y python3
     else
       echo "Unknown distribution"
+    fi
+fi
+which pip > /dev/null;
+if [ $? != 0 ]; then
+    if [[ "$(cat /etc/os-release)" == *"Ubuntu"* ]]; then
+      apt install -y python3-pip
     fi
 fi

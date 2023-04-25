@@ -43,7 +43,7 @@ function Generate-Provider-Config {
             \"name\": \"azurecc\",
             \"enabled\": 1,
             \"plugin\": \"azurecc\",
-            \"confPath\": \"${HF_CONFDIR}/providers/azurecc\",
+            \"confPath\": \"${HF_CONFDIR}/providers/azurecc/conf\",
             \"workPath\": \"${HF_WORKDIR}/providers/azurecc\",
             \"logPath\": \"${HF_LOGDIR}/\"
         }
@@ -91,8 +91,9 @@ function Generate-Provider-Config {
     then
       mkdir -p  $azureccProviderConfPath
     fi
-    echo "$azureccprov_template_json" > "$azureccProviderConfPath/azureccprov_template.json"
-
+    echo "$azureccprov_template_json" > "$azureccProviderConfPath/azureccprov_templates.json"
+    #as this will be updated by HF we need to change user to egoadmin
+    chown egoadmin:egoadmin $azureccProviderConfPath/azureccprov_templates.json
 }
 
 function Generate-Provider-Plugins-Config

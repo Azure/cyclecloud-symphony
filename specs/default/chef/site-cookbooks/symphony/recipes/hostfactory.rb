@@ -139,13 +139,22 @@ hostfactory_confdir="#{node['symphony']['hostfactory']['confdir']}"
 jetpack_download "symphony/#{node['symphony']['pkg_plugin']}" do
     project "symphony"
 end 
+bash "Unzip symphony project..." do
+  code <<-EOH
+  cd #{node['jetpack']['downloads']}
+  unzip #{node['symphony']['pkg_plugin']} -d /tmp
+  chown -R egoadmin:egoadmin /tmp/hostfactory
+  EOH
+  user "root"
+  group "root"
+end
 bash 'Installing HostFactory...' do
   code <<-EOH
   cd #{node['jetpack']['downloads']}
-  unzip #{node['symphony']['pkg_plugin']}
-  cd hostfactory
+  unzip #{node['symphony']['pkg_plugin']} -d /tmp
+  cd /tmp/hostfactory
   chmod +x install.sh
-  . install.sh
+  ./install.sh
   EOH
   user "root"
   group "root"
