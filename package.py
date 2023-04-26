@@ -81,7 +81,7 @@ def execute() -> None:
     with open('hostfactory/1.1/providerplugins/azurecc/scripts/src/version.py', 'r') as f:
         for line in f:
             if line.startswith('__version__'):
-               version = line.split('=')[1].strip().strip("'")
+               version = line.split('=')[1].strip().strip('"')
                break
             else:
             # If the version variable is not found, handle the error appropriately
