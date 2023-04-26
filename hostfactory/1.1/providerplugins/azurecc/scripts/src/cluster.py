@@ -25,15 +25,15 @@ class Cluster:
         CC_CONFIG["cluster_name"] = self.cluster_name
         self.node_mgr = new_node_manager(CC_CONFIG)
     
-    def status(self, debug_execute=False):
+    def status(self):
         status_json = self.get("/clusters/%s/status" % self.cluster_name)
-        #log the buckets, maxcorecount in nodearray
         nodearrays = status_json["nodearrays"]
+        #log the buckets of nodearray
+        debug_nas = self.provider_config.get("debug_nodearrays") or []
         for nodearray_root in nodearrays:
-            nodearray = nodearray_root.get("nodearray")
-            if debug_execute and nodearray_root.get("name") == 'execute':
-                self.logger.debug("Buckets of nodearray execute")
-                self.logger.debug(json.dumps(nodearray))
+            if debug_nas and nodearray_root.get("name") in debug_nas:
+                self.logger.debug("Buckets of nodearray execute %s", nodearray_root.get("name"))
+                self.logger.debug(json.dumps(nodearray_root))
         return status_json
 
     def add_nodes(self, request, max_count):
