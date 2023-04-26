@@ -76,10 +76,18 @@ def execute() -> None:
     parser = configparser.ConfigParser()
     ini_path = os.path.abspath("project.ini")
 
-    with open(ini_path) as fr:
-        parser.read_file(fr)
+    #with open(ini_path) as fr:
+    #    parser.read_file(fr)
+    with open('hostfactory/1.1/providerplugins/azurecc/scripts/src/version.py', 'r') as f:
+        for line in f:
+            if line.startswith('__version__'):
+               version = line.split('=')[1].strip().strip("'")
+               break
+            else:
+            # If the version variable is not found, handle the error appropriately
+               version = "1.0.0"
 
-    version = parser.get("project", "version")
+    #version = parser.get("project", "version")
     if not version:
         raise RuntimeError("Missing [project] -> version in {}".format(ini_path))
 
