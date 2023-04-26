@@ -4,10 +4,7 @@ on:
     # Sequence of patterns matched against refs/tags
     tags:
     - 'v*' # Push events to matching v*, i.e. v1.0, v20.15.10
-    # Set your workflow to run on push events to all feature branches
-    branches:
-    - feature/*
-
+    
 name: Test Upload Release Asset
 
 jobs:
@@ -27,7 +24,7 @@ jobs:
           source $GITHUB_WORKSPACE/.venv/bin/activate && python package.py;
       - name: Get the version
         id: get_version
-        run: echo ::set-output name=VERSION::${GITHUB_REF#refs/tags/}      
+        run: echo {VERSION}=${{ github.ref }} >> $GITHUB_OUTPUT      
       - name: Create Release
         id: create_release
         uses: ncipollo/release-action@v1
