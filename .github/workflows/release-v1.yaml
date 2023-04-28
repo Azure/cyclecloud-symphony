@@ -1,4 +1,5 @@
 # Based on example from https://github.com/actions/upload-release-asset
+# This is to maintain cluster-init version in CC without Scalelib.
 on:
   push:
     # Sequence of patterns matched against refs/tags
@@ -21,7 +22,7 @@ jobs:
           sudo apt-get install -y python3 python3-pip || apt-get install -y python3 python3-pip;
           pip3 install virtualenv;
           python3 -m virtualenv $GITHUB_WORKSPACE/.venv/;
-          source $GITHUB_WORKSPACE/.venv/bin/activate && python package.py && python package_cc.py;
+          source $GITHUB_WORKSPACE/.venv/bin/activate && python package_cc.py;
       - name: Get the version of CC plugin
         id: get_version_cc
         run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT  
@@ -33,6 +34,6 @@ jobs:
         with:
           tag_name: ${{ steps.get_version_cc.outputs.version }}
           name: Release ${{ steps.get_version_cc.outputs.version }}
-          draft: true
+          draft: false
           prerelease: true
           files: dist/cyclecloud-symphony-pkg-${{ steps.get_version_cc.outputs.version }}.tar.gz
