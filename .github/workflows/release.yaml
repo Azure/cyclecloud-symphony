@@ -59,3 +59,14 @@ jobs:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
           files: dist/cyclecloud-symphony-pkg-${{ steps.get_version.outputs.version }}.zip
           name: cyclecloud-symphony-pkg-${{ steps.get_version.outputs.version }}.zip
+      - name: Upload Release Asset CC
+        id: upload-release-asset-cc 
+        uses: softprops/action-gh-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          draft: true
+          prerelease: true
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          files: dist/cyclecloud-symphony-pkg-${{ steps.get_version_cc.outputs.version }}.tar.gz
+          name: cyclecloud-symphony-pkg-${{ steps.get_version_cc.outputs.version }}.tar.gz
