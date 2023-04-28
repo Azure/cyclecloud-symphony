@@ -47,7 +47,7 @@ jobs:
       #     files: dist/cyclecloud-symphony-pkg-${{ steps.get_version_cc.outputs.version }}.tar.gz
       #     name: cyclecloud-symphony-pkg-${{ steps.get_version_cc.outputs.version }}.tar.gz
       - name: Upload Release Asset
-        if: ${{ steps.release.outputs.releases_created }}
+        if: ${{ steps.create_release_cc.outputs.releases_created }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
