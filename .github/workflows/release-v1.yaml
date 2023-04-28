@@ -28,11 +28,10 @@ jobs:
       - name: Create and Upload Release Asset CC
         id: upload-release-asset-cc 
         uses: softprops/action-gh-release@v1
-        if: ${{startsWith(github.ref, 'refs/tags/') }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag: ${{ steps.get_version_cc.outputs.version }}
+          tag_name: ${{ steps.get_version_cc.outputs.version }}
           name: Release ${{ steps.get_version_cc.outputs.version }}
           draft: true
           prerelease: true
