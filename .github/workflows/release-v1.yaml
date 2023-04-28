@@ -25,7 +25,6 @@ jobs:
       - name: Get the version of CC plugin
         id: get_version_cc
         run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
-        # run: echo "VERSION=$(python -c 'import sys; sys.path.append("specs/master/cluster-init/files/host_provider/src"); from version import __version__; print(__version__)')" >> $GITHUB_OUTPUT    
       - name: Create Release for CC plugin
         id: create_release_cc
         uses: ncipollo/release-action@v1
@@ -39,11 +38,11 @@ jobs:
       - name: Upload Release Asset CC
         id: upload-release-asset-cc 
         uses: softprops/action-gh-release@v1
+        if: ${{startsWith(github.ref, 'refs/tags/') }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           draft: true
           prerelease: true
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
           files: dist/cyclecloud-symphony-pkg-${{ steps.get_version_cc.outputs.version }}.tar.gz
           name: cyclecloud-symphony-pkg-${{ steps.get_version_cc.outputs.version }}.tar.gz
