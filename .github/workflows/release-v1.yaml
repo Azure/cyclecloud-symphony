@@ -1,0 +1,49 @@
+# Based on example from https://github.com/actions/upload-release-asset
+on:
+  push:
+    # Sequence of patterns matched against refs/tags
+    tags:
+    - '1*' # Push events to matching v*, i.e. v1.0, v20.15.10
+    
+name: Test Upload Release Asset
+
+jobs:
+  build:
+    name: Upload Release Asset
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      - name: Build pkg
+        run:
+          sudo apt update || apt update;
+          sudo apt install -y dos2unix;
+          sudo apt-get install -y python3 python3-pip || apt-get install -y python3 python3-pip;
+          pip3 install virtualenv;
+          python3 -m virtualenv $GITHUB_WORKSPACE/.venv/;
+          source $GITHUB_WORKSPACE/.venv/bin/activate && python package.py && python package_cc.py;
+      - name: Get the version of CC plugin
+        id: get_version_cc
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+        # run: echo "VERSION=$(python -c 'import sys; sys.path.append("specs/master/cluster-init/files/host_provider/src"); from version import __version__; print(__version__)')" >> $GITHUB_OUTPUT    
+      - name: Create Release for CC plugin
+        id: create_release_cc
+        uses: ncipollo/release-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag: ${{ steps.get_version_cc.outputs.version }}
+          name: Release ${{ steps.get_version_cc.outputs.version }}
+          draft: true
+          prerelease: true      
+      - name: Upload Release Asset CC
+        id: upload-release-asset-cc 
+        uses: softprops/action-gh-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          draft: true
+          prerelease: true
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          files: dist/cyclecloud-symphony-pkg-${{ steps.get_version_cc.outputs.version }}.tar.gz
+          name: cyclecloud-symphony-pkg-${{ steps.get_version_cc.outputs.version }}.tar.gz

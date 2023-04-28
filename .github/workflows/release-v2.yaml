@@ -3,7 +3,7 @@ on:
   push:
     # Sequence of patterns matched against refs/tags
     tags:
-    - '*' # Push events to matching v*, i.e. v1.0, v20.15.10
+    - '2*' # Push events to matching v*, i.e. v1.0, v20.15.10
     
 name: Test Upload Release Asset
 
@@ -21,13 +21,10 @@ jobs:
           sudo apt-get install -y python3 python3-pip || apt-get install -y python3 python3-pip;
           pip3 install virtualenv;
           python3 -m virtualenv $GITHUB_WORKSPACE/.venv/;
-          source $GITHUB_WORKSPACE/.venv/bin/activate && python package.py && python package_cc.py;
+          source $GITHUB_WORKSPACE/.venv/bin/activate && python package.py;
       - name: Get the version
         id: get_version
         run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT 
-      - name: Get the version of CC plugin
-        id: get_version_cc
-        run: echo "VERSION=$(python -c 'import sys; sys.path.append("specs/master/cluster-init/files/host_provider/src"); from version import __version__; print(__version__)')" >> $GITHUB_OUTPUT    
       - name: Create Release
         id: create_release
         uses: ncipollo/release-action@v1
@@ -37,17 +34,7 @@ jobs:
           tag: ${{ steps.get_version.outputs.version }}
           name: Release ${{ steps.get_version.outputs.version }}
           draft: true
-          prerelease: true
-      - name: Create Release for CC plugin
-        id: create_release_cc
-        uses: ncipollo/release-action@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag: ${{ steps.get_version_cc.outputs.version }}
-          name: Release ${{ steps.get_version_cc.outputs.version }}
-          draft: true
-          prerelease: true      
+          prerelease: true     
       - name: Upload Release Asset
         id: upload-release-asset 
         uses: softprops/action-gh-release@v1
@@ -59,14 +46,3 @@ jobs:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
           files: dist/cyclecloud-symphony-pkg-${{ steps.get_version.outputs.version }}.zip
           name: cyclecloud-symphony-pkg-${{ steps.get_version.outputs.version }}.zip
-      - name: Upload Release Asset CC
-        id: upload-release-asset-cc 
-        uses: softprops/action-gh-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          draft: true
-          prerelease: true
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          files: dist/cyclecloud-symphony-pkg-${{ steps.get_version_cc.outputs.version }}.tar.gz
-          name: cyclecloud-symphony-pkg-${{ steps.get_version_cc.outputs.version }}.tar.gz
