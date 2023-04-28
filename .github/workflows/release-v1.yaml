@@ -24,33 +24,16 @@ jobs:
           source $GITHUB_WORKSPACE/.venv/bin/activate && python package.py && python package_cc.py;
       - name: Get the version of CC plugin
         id: get_version_cc
-        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
-      - name: Create Release for CC plugin
-        id: create_release_cc
-        uses: ncipollo/release-action@v1
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT  
+      - name: Create and Upload Release Asset CC
+        id: upload-release-asset-cc 
+        uses: softprops/action-gh-release@v1
+        if: ${{startsWith(github.ref, 'refs/tags/') }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag: ${{ steps.get_version_cc.outputs.version }}
           name: Release ${{ steps.get_version_cc.outputs.version }}
           draft: true
-          prerelease: true      
-      # - name: Upload Release Asset CC
-      #   id: upload-release-asset-cc 
-      #   uses: softprops/action-gh-release@v1
-      #   if: ${{startsWith(github.ref, 'refs/tags/') }}
-      #   env:
-      #     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      #   with:
-      #     draft: true
-      #     prerelease: true
-      #     files: dist/cyclecloud-symphony-pkg-${{ steps.get_version_cc.outputs.version }}.tar.gz
-      #     name: cyclecloud-symphony-pkg-${{ steps.get_version_cc.outputs.version }}.tar.gz
-      - name: Upload Release Asset
-        if: ${{ steps.create_release_cc.outputs.releases_created }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          for f in $(find dist -name '-1.*.tar.gz'); do
-            gh release upload ${{ steps.release.outputs.tag_name }} $f
-          done
+          prerelease: true
+          files: dist/cyclecloud-symphony-pkg-${{ steps.get_version_cc.outputs.version }}.tar.gz
