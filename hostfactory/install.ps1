@@ -101,7 +101,7 @@ if (Test-Path -Path "$providerConfPath\\hostProviders.json") {
             "name": "azurecc",
             "enabled": 1,
             "plugin": "azurecc",
-            "confPath": "${HF_CONFDIR}\\providers\\azurecc\\conf",
+            "confPath": "${HF_CONFDIR}\\providers\\azurecc",
             "workPath": "${HF_WORKDIR}\\providers\\azurecc",
             "logPath": "${HF_LOGDIR}\\"
         }
