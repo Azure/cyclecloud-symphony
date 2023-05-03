@@ -415,6 +415,7 @@ class CycleCloudProvider:
          'requestId': 'req-123'}
         """
         request_id = str(uuid.uuid4())
+
         try:
             # save the request so we can time it out
             with self.creation_json as requests_store:
@@ -426,6 +427,7 @@ class CycleCloudProvider:
         except:
             logger.exception("Could not open creation_json")
             sys.exit(1)   
+
         try:            
             template_store = self.templates_json.read()
         
@@ -790,6 +792,7 @@ class CycleCloudProvider:
                         reqs = request_envelope.get('sets', [])
                         if not reqs:
                             logger.warning("No request set found for request id %s", request_id)
+
                             continue
                         assert len(reqs) == 1
                         req = reqs[0]
@@ -1008,6 +1011,10 @@ class CycleCloudProvider:
                 logger.exception("Could not open terminate.json")
             #NOTE: Here we will not exit immediately but exit after an attempted shutdown
                     
+                terminations[request_id] = {"id": request_id, "machines": machines, "requestTime": calendar.timegm(self.clock())}
+            
+            request_id_persisted = True
+            
             request_status = RequestStates.complete
             message = "CycleCloud is terminating the VM(s)"
 

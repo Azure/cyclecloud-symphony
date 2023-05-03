@@ -27,6 +27,7 @@ class Cluster:
     
     def status(self):
         status_json = self.get("/clusters/%s/status" % self.cluster_name)
+
         nodearrays = status_json["nodearrays"]
         #log the buckets of nodearray
         debug_nas = self.provider_config.get("debug_nodearrays") or []
@@ -53,6 +54,7 @@ class Cluster:
         self.logger.debug("Request id in add nodes %s",request['requestId'])    
         request_id_start = f"{request['requestId']}-start"
         request_id_create = f"{request['requestId']}-create"
+
         bootup_resp = []
         if len(filtered_nodes) > 0:
             bootup_resp = self.node_mgr.bootup(nodes=filtered_nodes,
@@ -98,6 +100,7 @@ class Cluster:
             nodes_created = _get_nodes_by_request_id(request_id_create, "created")
             if nodes_created is None and nodes_started is None:
                 raise RuntimeError("Could not find request id %s", request_id)
+
             responses[request_id] = []
             if nodes_started: responses[request_id].extend( nodes_started )
             if nodes_created: responses[request_id].extend( nodes_created )
