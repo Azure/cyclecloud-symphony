@@ -216,8 +216,8 @@ class CycleCloudProvider:
                             "ncores": ["Numeric", "%d" % machine_type.get("vcpuCount")],
                             "ngpus": ["Numeric", ngpus],                            
                             "azurecchost": ["Boolean", "1"],
-                            'rank': ['Numeric', '0'],
-                            'priceInfo': ['String', 'price:0.1,billingTimeUnitType:prorated_hour,billingTimeUnitNumber:1,billingRoundoffType:unit'],                               'type': ['String', 'X86_64'],
+                            "rank": ["Numeric", "0"],
+                            "priceInfo": ["String", "price:0.1,billingTimeUnitType:prorated_hour,billingTimeUnitNumber:1,billingRoundoffType:unit"],
                             "type": ["String", "X86_64"],
                             "machinetypefull": ["String", machine_type_name],
                             "machinetype": ["String", machine_type_name],
@@ -309,13 +309,17 @@ class CycleCloudProvider:
 
         return symphony_templates
         
-    # If we return an empty list or templates with 0 hosts, it removes us forever and ever more, so _always_
+        # If we return an empty list or templates with 0 hosts, it removes us forever and ever more, so _always_
     # return at least one machine.
-    @failureresponse({"templates": [PLACEHOLDER_TEMPLATE], "status": RequestStates.complete_with_error})
+    # BUGFIX: exiting non-zero code will make symphony retry.
     def templates(self):
-        symphony_templates = self._update_templates()
-        return self.json_writer({"templates": symphony_templates, "message": "Get available templates success."}, debug_output=False)
-    
+        try:
+            symphony_templates = self._update_templates()
+            return self.json_writer({"templates": symphony_templates, "message": "Get available templates success."}, debug_output=False)
+        except:
+            logger.warning("Exiting Non-zero so that symphony will retry")
+            logger.exception("Could not get template_json")
+            sys.exit(1)       
     def generate_userdata(self, template):
         ret = {}
         
@@ -412,14 +416,18 @@ class CycleCloudProvider:
         """
         request_id = str(uuid.uuid4())
 
-        # save the request so we can time it out
-        with self.creation_json as requests_store:
-            requests_store[request_id] = {"requestTime": calendar.timegm(self.clock()),
-                                          "completedNodes": [],
-                                          "allNodes": None,
-                                          "completed": False,
-                                          "lastNumNodes": input_json["template"]["machineCount"]}
-        
+        try:
+            # save the request so we can time it out
+            with self.creation_json as requests_store:
+                requests_store[request_id] = {"requestTime": calendar.timegm(self.clock()),
+                                            "completedNodes": [],
+                                            "allNodes": None,
+                                            "completed": False,
+                                            "lastNumNodes": input_json["template"]["machineCount"]}
+        except:
+            logger.exception("Could not open creation_json")
+            sys.exit(1)   
+
         try:            
             template_store = self.templates_json.read()
         
@@ -783,6 +791,8 @@ class CycleCloudProvider:
                     else:
                         reqs = request_envelope.get('sets', [])
                         if not reqs:
+                            logger.warning("No request set found for request id %s", request_id)
+
                             continue
                         assert len(reqs) == 1
                         req = reqs[0]
@@ -985,23 +995,26 @@ class CycleCloudProvider:
         logger.info("Terminate_machines request for : %s", input_json)         
         request_id = "delete-%s" % str(uuid.uuid4())
         request_id_persisted = False
-        try:
-            with self.terminate_json as terminations:
-                machines = {}
-                for machine in input_json["machines"]:
-                    if "machineId" not in machine:
-                        # cluster api can handle invalid machine ids
-                        machine["machineId"] = machine["name"]
-                    machines[machine["machineId"]] = machine["name"]
+        try:    
+            try:
+                with self.terminate_json as terminations:
+                    machines = {}
+                    for machine in input_json["machines"]:
+                        if "machineId" not in machine:
+                            # cluster api can handle invalid machine ids
+                            machine["machineId"] = machine["name"]
+                        machines[machine["machineId"]] = machine["name"]
+                        
+                    terminations[request_id] = {"id": request_id, "machines": machines, "requestTime": calendar.timegm(self.clock())}
+                request_id_persisted = True
+            except:
+                logger.exception("Could not open terminate.json")
+            #NOTE: Here we will not exit immediately but exit after an attempted shutdown
                     
                 terminations[request_id] = {"id": request_id, "machines": machines, "requestTime": calendar.timegm(self.clock())}
             
             request_id_persisted = True
             
-            #NM
-            # only be true if shutdown method is terminate.
-            #aggressively_complete_termination = self.config.get("symphony.aggressively_complete_termination", False)
-            #request_status = RequestStates.complete if aggressively_complete_termination else RequestStates.running
             request_status = RequestStates.complete
             message = "CycleCloud is terminating the VM(s)"
 
@@ -1016,6 +1029,10 @@ class CycleCloudProvider:
                 logger.exception("Could not terminate %s", machines.keys())
             
             logger.info("Terminating %d machine(s): %s", len(machines), machines.keys())
+
+            # NOTE: we will still respond with a failure here, but at least we attempted the termination
+            if not request_id_persisted:
+                return sys.exit(1)
             
             return json_writer({"message": message,
                                 "requestId": request_id,
@@ -1129,8 +1146,8 @@ class CycleCloudProvider:
                     if request.get("allNodes") is None:
                         logger.warning("Yet to find any NodeIds for RequestId %s", request_id)
                         try:
-                            nodes_by_request_id = {}
-                            nodes_by_request_id.update(self.cluster.nodes(request_ids=[request_id]))   
+                            nodes_by_request_id = self.cluster.nodes(request_ids=[request_id])
+                            request["allNodes"] = nodes_by_request_id
                             logger.debug("Node list by request id %s",nodes_by_request_id)             
                         except Exception as e:
                             if "No operation found for request id" in str(e):

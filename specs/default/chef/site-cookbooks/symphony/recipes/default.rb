@@ -96,11 +96,11 @@ end
 
 
 # Install dependencies
-%w{ net-tools which gettext }.each do |pkg|
+%w{ net-tools gettext unzip python}.each do |pkg|
   package pkg
 end
 if node['platform_family'] == "debian"
-  %w{ lib32z1, rpm }.each do |pkg|
+  %w{ rpm }.each do |pkg|
     package pkg
   end
 end

@@ -27,15 +27,14 @@ class Cluster:
     
     def status(self):
         status_json = self.get("/clusters/%s/status" % self.cluster_name)
-        #log the buckets, maxcorecount in nodearray
+
         nodearrays = status_json["nodearrays"]
+        #log the buckets of nodearray
+        debug_nas = self.provider_config.get("debug_nodearrays") or []
         for nodearray_root in nodearrays:
-            nodearray = nodearray_root.get("nodearray")
-            if nodearray_root.get("name") == 'execute':
-                self.logger.debug("maxCount %s maxCoreCount %s  of nodearray", nodearray_root.get("maxCount"), nodearray_root.get("maxCoreCount"))
-                self.logger.debug("MaxCoreCount in nodearray execute %s", nodearray.get("MaxCoreCount"))
-                self.logger.debug("Buckets of nodearray execute")
-                self.logger.debug(json.dumps(nodearray_root.get("buckets")))
+            if debug_nas and nodearray_root.get("name") in debug_nas:
+                self.logger.debug("Buckets of nodearray execute %s", nodearray_root.get("name"))
+                self.logger.debug(json.dumps(nodearray_root))
         return status_json
 
     def add_nodes(self, request, max_count):
@@ -51,31 +50,21 @@ class Cluster:
             self.logger.warning("In the allocation result %s nodes exceeded %s", len(exceeded_nodes), str(exceeded_nodes))
             for node in self.node_mgr.get_nodes():
                 self.logger.debug("Node name %s Node state %s Node targetstate %s", node.name, node.state, node.target_state)
-        # This was one method to fix it but its still causing the bug in customer environment.
-        # curr_node_count = len(self.node_mgr.get_nodes())
-        # for node in self.node_mgr.get_nodes():
-        #     if node.state == "Deallocated":
-        #         curr_node_count-=1
-        # allowed_count = max_count - curr_node_count
-        # request_count = request['sets'][0]['count']
-        # self.logger.debug("Allowed count in add nodes %s max count %s curr_node_count %s", allowed_count, max_count, curr_node_count)
-        # if request_count > allowed_count:   
-        #     exceeded_count = max_count - request_count
-        #     self.logger.warning("Max count is exceeded by %s Limiting the allowed additional nodes to %s", exceeded_count, allowed_count)
-        #     request_count = allowed_count
-        #alloc_result = self.node_mgr.allocate(constraints=selector_list, node_count=request_count, allow_existing=False)
         
         self.logger.debug("Request id in add nodes %s",request['requestId'])    
         request_id_start = f"{request['requestId']}-start"
         request_id_create = f"{request['requestId']}-create"
-        bootpup_resp = self.node_mgr.bootup(nodes=filtered_nodes,
+
+        bootup_resp = []
+        if len(filtered_nodes) > 0:
+            bootup_resp = self.node_mgr.bootup(nodes=filtered_nodes,
             request_id_start=request_id_start, request_id_create=request_id_create
-        )
-        self.logger.debug("node bootup %s",bootpup_resp)
-        self.logger.debug("node bootup requestids %s",bootpup_resp.request_ids)
-        if bootpup_resp.nodes is None or []:
+            )
+        if (bootup_resp is None or []) or (bootup_resp.nodes is None or []):
             return False
-        return (bootpup_resp)
+        self.logger.debug("node bootup %s",bootup_resp)
+        self.logger.debug("node bootup requestids %s",bootup_resp.request_ids)
+        return (bootup_resp)
     
     def all_nodes(self):
         all_nodes_json = self.get("/clusters/%s/nodes" % self.cluster_name)
@@ -90,7 +79,7 @@ class Cluster:
         self.logger.debug("Count of status in all nodes")
         self.logger.debug(count_status)
         # count by status
-        return self.get("/clusters/%s/nodes" % self.cluster_name)
+        return all_nodes_json
  
     def nodes(self, request_ids):
         responses = {}
@@ -111,8 +100,11 @@ class Cluster:
             nodes_created = _get_nodes_by_request_id(request_id_create, "created")
             if nodes_created is None and nodes_started is None:
                 raise RuntimeError("Could not find request id %s", request_id)
-            responses[request_id] = (nodes_started or []) + (nodes_created or [])
-        self.logger.debug(responses)
+
+            responses[request_id] = []
+            if nodes_started: responses[request_id].extend( nodes_started )
+            if nodes_created: responses[request_id].extend( nodes_created )
+            self.logger.debug(responses)
         return responses
     
     def nodes_by_operation_id(self, operation_id):

@@ -75,7 +75,7 @@ if (-not $HF_VERSION)
 
 $pluginSrcPath = "$HF_TOP\\$HF_VERSION\\providerplugins\\azurecc"
 $providerConfPath = "$HF_TOP\\conf\\providers"
-$azureccProviderConfPath = "$HF_TOP\\conf\\providers\\azurecc"
+$azureccProviderConfPath = "$HF_TOP\\conf\\providers\\azurecc\\conf"
 $providerPluginsConfPath = "$HF_TOP\\conf\\providerplugins"
 $requestorConfPath = "$HF_TOP\\conf\\requestors"
 
