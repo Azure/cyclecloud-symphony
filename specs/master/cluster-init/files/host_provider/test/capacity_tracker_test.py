@@ -90,7 +90,7 @@ class TestHostFactory(unittest.TestCase):
         self.assertIn(key, capacity_db)
 
         # Now verify that capacity is limited
-        self.assertFalse(db.is_paused("execute", "A4"))
+        self.assertTrue(db.is_paused("execute", "A4"))
 
         # Finally advance clock just over 5 min to expire the limit - default expiry is 300 sec
         db.clock.now = (1970, 1, 1, 0, 5, 10)
