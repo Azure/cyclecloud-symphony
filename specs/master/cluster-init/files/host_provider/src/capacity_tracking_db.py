@@ -59,13 +59,13 @@ class CapacityTrackingDb:
     def _capacity_key(self, nodearray_name, machine_type):
         return "%s_%s" % (nodearray_name, machine_type)
 
-    def set_capacity_limit(self, nodearray_name, machine_type, max_count = 0):
+    def pause_capacity(self, nodearray_name, machine_type):
         with self.capacity_db as db:
             now = calendar.timegm(self.clock())
             key = self._capacity_key(nodearray_name, machine_type)
             db[key] = { 'nodearray': nodearray_name,
                         'machine_type': machine_type,
-                        'max_count': max_count,
+                        'max_count': 0,              # we used to provide max_count set to 0 so left for backwards compatibility
                         'start_time': now }
 
 
@@ -97,14 +97,13 @@ class CapacityTrackingDb:
 
         self._release_expired_limits()
     
-    def get_capacity_limit(self, nodearray_name, machine_type, max_count):
-        current_max_count = max_count
+    def is_paused(self, nodearray_name, machine_type): 
         key = self._capacity_key(nodearray_name, machine_type)
-
+        ret = False
         limited_buckets = self.capacity_db.read()
         if key in limited_buckets:            
-            current_max_count = limited_buckets[key]['max_count']
-            self.logger.info("Limiting reported maxNumber to %s for machine_type %s in nodearray %s", current_max_count, machine_type, nodearray_name)
+            ret = True
+            self.logger.info("Limiting reported priority for machine_type %s in nodearray %s to 0", machine_type, nodearray_name)
 
         self._release_expired_limits()
-        return current_max_count
+        return ret
