@@ -476,9 +476,12 @@ class CycleCloudProvider:
                             'nodearray': nodearray }
             if template["attributes"].get("placementgroup"):
                 request_set["placementGroupId"] = template["attributes"].get("placementgroup")[1]
-                                    
-            add_nodes_response = self.cluster.add_nodes({'requestId': request_id,
+            
+            # We are grabbing the lock to serialize this call.
+            with self.creation_json as requests_store:                    
+                add_nodes_response = self.cluster.add_nodes({'requestId': request_id,
                                                          'sets': [request_set]})
+                
             logger.info("Create nodes response: %s", add_nodes_response)
             nodes_response = self.cluster.nodes_by_operation_id(operation_id=add_nodes_response["operationId"])
             
