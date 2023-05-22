@@ -31,13 +31,29 @@ class TestCluster(unittest.TestCase):
             status={"nodearrays":[{ "name" : "execute", "buckets": [{"definition": {
                 "machineType": "Standard_D2_v2"
             },"availableCount":0}]} ]}
+            self.assertRaises(RuntimeError, cluster.limit_request_by_available_count, status, req, logging) 
+               
+        def run_test_nodearray_removed(request_count):
+            req = make_new_request(request_count)
+            status={"nodearrays":[{ "name" : "execute2", "buckets": [{"definition": {
+                "machineType": "Standard_D2_v2"
+            },"availableCount":100}]} ]}
+            self.assertRaises(RuntimeError, cluster.limit_request_by_available_count, status, req, logging) 
+
+        def run_test_machine_type_removed(request_count):
+            req = make_new_request(request_count)
+            status={"nodearrays":[{ "name" : "execute", "buckets": [{"definition": {
+                "machineType": "Standard_D1_v2"
+            },"availableCount":100}]} ]}
             self.assertRaises(RuntimeError, cluster.limit_request_by_available_count, status, req, logging)    
-                   
+                              
         run_test(1, 1)
         run_test(99, 99)
         run_test(100, 100)
         run_test(101, 100)   
         run_test_zero_available(10)
+        run_test_nodearray_removed(10)
+        run_test_machine_type_removed(10)
         
 if __name__ == "__main__":
     unittest.main()
