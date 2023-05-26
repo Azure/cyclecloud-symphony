@@ -94,8 +94,10 @@ class SymphonyRestClient:
         return self.token
 
     def update_hostfactory_templates(self, templates):
+        self.logger.debug("BEGIN UPDATE TEMPLATES")
         hfcsrftoken = self._login()
         params = {'hfcsrftoken': hfcsrftoken}
         url = self.webserviceUrl + '/provider/azurecc/templates'
         r = requests.put(url, auth=(self.username, self.password), params=params, json=templates, verify=False)
+        self.logger.debug("END UPDATE TEMPLATES")
         self._raise_on_error(r)

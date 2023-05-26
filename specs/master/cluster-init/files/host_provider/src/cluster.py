@@ -3,7 +3,7 @@ import json
 import logging
 from urllib.parse import urlencode
 from builtins import str
-
+from copy import deepcopy
 
 try:
     import cyclecli
@@ -20,9 +20,41 @@ class Cluster:
     
     def status(self):
         return self.get("/clusters/%s/status" % self.cluster_name)
+    
+    def limit_request_by_available_count(self, status, request, logger):
+        disable_active_count_fix = bool(self.provider_config.get("symphony.disable_active_count_fix", False))
+        if disable_active_count_fix:
+            return request
+        request_copy = deepcopy(request)
+        request_set = request_copy['sets'][0]
+        machine_type = request_set["definition"]["machineType"]
+        nodearray_name = request_set['nodearray']
+        filtered = [x for x in status["nodearrays"] if x["name"] == nodearray_name]
+        if len(filtered) < 1:
+            raise RuntimeError(f"Nodearray {nodearray_name} does not exist or has been removed")
+        nodearray = filtered[0]
 
+        filtered_buckets = [x for x in nodearray["buckets"] if x["definition"]["machineType"] == machine_type]
+        if len(filtered_buckets) < 1:
+            raise RuntimeError(f"VM Size {machine_type} does not exist or has been removed from nodearray {nodearray_name}")
+
+        bucket = filtered_buckets[0]
+        if bucket["availableCount"] == 0: 
+            raise RuntimeError(f"No availablity for {nodearray_name}/{machine_type}")
+        
+        if bucket["availableCount"] < request_set["count"]:
+            logger.warning(f"Requesting available count {bucket['availableCount']} vs requested. {request_set['count']}")
+            logger.warning(f"This could trigger a pause capacity for nodearray {nodearray_name} VM Size {machine_type}")
+            request_set["count"] = bucket["availableCount"]
+        return request_copy
+        
+    
     def add_nodes(self, request):
-        response_raw = self.post("/clusters/%s/nodes/create" % self.cluster_name, json=request)
+        #TODO: Remove request_copy once Max count is correctly enforced in CC.
+        status_resp = self.status()
+        request_copy = self.limit_request_by_available_count(status=status_resp, request=request, logger=self.logger)
+        
+        response_raw = self.post("/clusters/%s/nodes/create" % self.cluster_name, json=request_copy)
         try:
             return json.loads(response_raw)
         except:

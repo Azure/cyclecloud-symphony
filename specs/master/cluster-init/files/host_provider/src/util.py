@@ -2,6 +2,7 @@ import collections
 from copy import deepcopy
 import json
 import logging
+import logging.config
 from logging.handlers import RotatingFileHandler
 import os
 import shutil
@@ -42,10 +43,22 @@ def init_logging(loglevel=logging.INFO, logfile=None):
                 },
             },
             'handlers': {
+                'file': {
+                    # The values below are popped from this dictionary and
+                    # used to create the handler, set the handler's level and
+                    # its formatter.
+                    '()': RotatingFileHandler,
+                    'level': logging.INFO,
+                    'formatter': 'default',
+                    # The values below are passed to the handler creator callable
+                    # as keyword arguments.
+                    # 'owner': ['root', 'cyclecloud'],
+                    'filename': logfile_path,
+                },
             },
             'root': {
                 'handlers': ['file'],
-                'level': loglevel.upper(),
+                'level': logging.getLevelName(loglevel),
             },
         }
 
@@ -168,16 +181,24 @@ class JsonStore:
             
         return self.data
     
+    def write(self, data):
+        self._lock()
+        self._write(data)
+        self._unlock()
+    
+    def _write(self, data):
+        with open(self.path + ".tmp", "w") as fw:
+            indent = 2 if self.formatted else None
+            json.dump(data, fw, indent=indent, sort_keys=True)
+        shutil.move(self.path + ".tmp", self.path)
+                  
     def __enter__(self):
         if not self._lock():
             raise RuntimeError("Could not get lock %s" % self.lockpath)
-        return self._read(do_lock=False)
-            
+        return self._read(do_lock=False)         
+    
     def __exit__(self, *args):
-        with open(self.path + ".tmp", "w") as fw:
-            indent = 2 if self.formatted else None
-            json.dump(self.data, fw, indent=indent, sort_keys=True)
-        shutil.move(self.path + ".tmp", self.path)
+        self._write(self.data)
         self._unlock()
         
 

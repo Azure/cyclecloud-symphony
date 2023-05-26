@@ -90,18 +90,20 @@ class CycleCloudProvider:
                 continue
             
             for bucket in nodearray_root.get("buckets"):
-                machine_type = bucket["virtualMachine"]
-                
+                machine_type =  bucket["definition"]["machineType"]
+                virtual_machine = bucket["virtualMachine"]
                 # Symphony hates special characters
                 nodearray_name = nodearray_root["name"]
-                
-                max_count = self._max_count(nodearray_name, nodearray, machine_type.get("vcpuCount"), bucket)
+                max_count = self._max_count(nodearray_name, nodearray, virtual_machine.get("vcpuCount"), bucket)
+                is_paused = self.capacity_tracker.is_paused(nodearray_name, machine_type)
+                if is_paused:
+                    max_count = 0
                 at_least_one_available_bucket = at_least_one_available_bucket or max_count > 0
         return not at_least_one_available_bucket
      
     # Regenerate templates (and potentially reconfig HostFactory) without output, so 
     #  this method is safe to call from other API calls
-    def _update_templates(self):
+    def _update_templates(self, do_REST=False):
         """
         input (ignored):
         []
@@ -132,176 +134,183 @@ class CycleCloudProvider:
                 'priority': 0,
                 'templateId': 'execute1'}]}
         """
-        prior_templates = self.templates_json.read()
-        prior_templates_str = json.dumps(prior_templates, indent=2)
-        
         at_least_one_available_bucket = False
+        templates_store = self.templates_json.read()
         
-        with self.templates_json as templates_store:
-            
-            # returns Cloud.Node records joined on MachineType - the array node only
-            response = self.cluster.status()
+        prior_templates_str = json.dumps(templates_store, indent=2, sort_keys=True)  
+        # returns Cloud.Node records joined on MachineType - the array node only
+        response = self.cluster.status()
 
-            nodearrays = response["nodearrays"]
+        nodearrays = response["nodearrays"]
+        
+        if "nodeArrays" in nodearrays:
+            logger.error("Invalid CycleCloud version. Please upgrade your CycleCloud instance.")
+            raise InvalidCycleCloudVersionError("Invalid CycleCloud version. Please upgrade your CycleCloud instance.")
+        
+        if self.fine:
+            logger.debug("nodearrays response\n%s", json.dumps(nodearrays, indent=2))
+        
+        # We cannot report to Symphony that we have 0 capacity on all VMs. If we detect this we
+        # simply reset any temporary capacity constraints.
+        if self._check_for_zero_capacity(nodearrays):
+            logger.warning("All buckets have 0 capacity. Resetting capacity tracker.")
+            self.capacity_tracker.reset()
+        
+        currently_available_templates = set()
+        
+        default_priority = len(nodearrays) * 10
+        
+        for nodearray_root in nodearrays:
+            nodearray = nodearray_root.get("nodearray")
             
-            if "nodeArrays" in nodearrays:
-                logger.error("Invalid CycleCloud version. Please upgrade your CycleCloud instance.")
-                raise InvalidCycleCloudVersionError("Invalid CycleCloud version. Please upgrade your CycleCloud instance.")
+            # legacy, ignore any dynamically created arrays.
+            if nodearray.get("Dynamic"):
+                continue
             
-            if self.fine:
-                logger.debug("nodearrays response\n%s", json.dumps(nodearrays, indent=2))
+            autoscale_enabled = nodearray.get("Configuration", {}).get("autoscaling", {}).get("enabled", False)
+            if not autoscale_enabled:
+                continue
             
-            # We cannot report to Symphony that we have 0 capacity on all VMs. If we detect this we
-            # simply reset any temporary capacity constraints.
-            if self._check_for_zero_capacity(nodearrays):
-                logger.warning("All buckets have 0 capacity. Resetting capacity tracker.")
-                self.capacity_tracker.reset()
-            
-            currently_available_templates = set()
-            
-            default_priority = len(nodearrays) * 10
-            
-            for nodearray_root in nodearrays:
-                nodearray = nodearray_root.get("nodearray")
+            for b_index, bucket in enumerate(nodearray_root.get("buckets")):
+                machine_type_name = bucket["definition"]["machineType"]
+                machine_type_short = machine_type_name.lower().replace("standard_", "").replace("basic_", "").replace("_", "")
+                machine_type = bucket["virtualMachine"]
                 
-                # legacy, ignore any dynamically created arrays.
-                if nodearray.get("Dynamic"):
-                    continue
-                
-                autoscale_enabled = nodearray.get("Configuration", {}).get("autoscaling", {}).get("enabled", False)
-                if not autoscale_enabled:
-                    continue
-                
-                for bucket in nodearray_root.get("buckets"):
-                    machine_type_name = bucket["definition"]["machineType"]
-                    machine_type_short = machine_type_name.lower().replace("standard_", "").replace("basic_", "").replace("_", "")
-                    machine_type = bucket["virtualMachine"]
-                    
-                    # Symphony hates special characters
-                    nodearray_name = nodearray_root["name"]
-                    template_id = "%s%s" % (nodearray_name, machine_type_name)
-                    template_id = self._escape_id(template_id)
+                # Symphony hates special characters
+                nodearray_name = nodearray_root["name"]
+                template_id = "%s%s" % (nodearray_name, machine_type_name)
+                template_id = self._escape_id(template_id)
+                if bucket.get("valid", True):
                     currently_available_templates.add(template_id)
-                    
-                    max_count = self._max_count(nodearray_name, nodearray, machine_type.get("vcpuCount"), bucket)
+                
+                max_count = self._max_count(nodearray_name, nodearray, machine_type.get("vcpuCount"), bucket)
 
-                    at_least_one_available_bucket = at_least_one_available_bucket or max_count > 0
-                    memory = machine_type.get("memory") * 1024
-                    is_low_prio = nodearray.get("Interruptible", False)
-                    ngpus = 0
-                    try:
-                        ngpus = int(nodearray.get("Configuration", {}).get("symphony", {}).get("ngpus", 0))
-                    except ValueError:
-                        logger.exception("Ignoring symphony.ngpus for nodearray %s" % nodearray_name)
-                    
+                at_least_one_available_bucket = at_least_one_available_bucket or max_count > 0
+                memory = machine_type.get("memory") * 1024
+                is_low_prio = nodearray.get("Interruptible", False)
+                ngpus = 0
+                try:
+                    ngpus = int(nodearray.get("Configuration", {}).get("symphony", {}).get("ngpus", 0))
+                except ValueError:
+                    logger.exception("Ignoring symphony.ngpus for nodearray %s" % nodearray_name)
+                
 
-                    # Symphony
-                    # - uses nram rather than mem
-                    # - uses strings for numerics         
-                    record = {
-                        "maxNumber": max_count,
-                        "templateId": template_id,
-                        "priority": nodearray.get("Priority", default_priority),
-                        "attributes": {
-                            "zone": ["String", nodearray.get("Region")],
-                            "mem": ["Numeric", "%d" % memory],
-                            "nram": ["Numeric", "%d" % memory],
-                            # NOTE:
-                            #  ncpus == num_sockets == ncores / cores_per_socket
-                            #  Since we don't generally know the num_sockets,
-                            #      just set ncpus = 1 for all skus (1 giant CPU with N cores)
-                            #"ncpus": ["Numeric", "%d" % machine_type.get("???physical_socket_count???")],
-                            "ncpus": ["Numeric", "1"],  
-                            "ncores": ["Numeric", "%d" % machine_type.get("vcpuCount")],
-                            "ngpus": ["Numeric", ngpus],                            
-                            "azurecchost": ["Boolean", "1"],
-                            'rank': ['Numeric', '0'],
-                            'priceInfo': ['String', 'price:0.1,billingTimeUnitType:prorated_hour,billingTimeUnitNumber:1,billingRoundoffType:unit'],                               'type': ['String', 'X86_64'],
-                            "type": ["String", "X86_64"],
-                            "machinetypefull": ["String", machine_type_name],
-                            "machinetype": ["String", machine_type_name],
-                            "nodearray": ["String", nodearray_name],
-                            "azureccmpi": ["Boolean", "0"],
-                            "azurecclowprio": ["Boolean", "1" if is_low_prio else "0"]
-                        }
+                # Symphony
+                # - uses nram rather than mem
+                # - uses strings for numerics         
+                record = {
+                    "maxNumber": max_count,
+                    "templateId": template_id,
+                    "priority": nodearray.get("Priority", default_priority) * 1000 - b_index,
+                    "attributes": {
+                        "zone": ["String", nodearray.get("Region")],
+                        "mem": ["Numeric", "%d" % memory],
+                        "nram": ["Numeric", "%d" % memory],
+                        # NOTE:
+                        #  ncpus == num_sockets == ncores / cores_per_socket
+                        #  Since we don't generally know the num_sockets,
+                        #      just set ncpus = 1 for all skus (1 giant CPU with N cores)
+                        #"ncpus": ["Numeric", "%d" % machine_type.get("???physical_socket_count???")],
+                        "ncpus": ["Numeric", "1"],  
+                        "ncores": ["Numeric", "%d" % machine_type.get("vcpuCount")],
+                        "ngpus": ["Numeric", ngpus],                            
+                        "azurecchost": ["Boolean", "1"],
+                        'rank': ['Numeric', '0'],
+                        'priceInfo': ['String', 'price:0.1,billingTimeUnitType:prorated_hour,billingTimeUnitNumber:1,billingRoundoffType:unit'],                               'type': ['String', 'X86_64'],
+                        "type": ["String", "X86_64"],
+                        "machinetypefull": ["String", machine_type_name],
+                        "machinetype": ["String", machine_type_name],
+                        "nodearray": ["String", nodearray_name],
+                        "azureccmpi": ["Boolean", "0"],
+                        "azurecclowprio": ["Boolean", "1" if is_low_prio else "0"]
                     }
-                    
-                    # deepcopy so we can pop attributes
-                    
-                    for override_sub_key in ["default", nodearray_name]:
-                        overrides = deepcopy(self.config.get("templates.%s" % override_sub_key, {}))
-                        attribute_overrides = overrides.pop("attributes", {})
-                        record.update(overrides)
-                        record["attributes"].update(attribute_overrides)
-                    
-                    attributes = self.generate_userdata(record)
-                    
-                    custom_env = self._parse_UserData(record.pop("UserData", "") or "")
-                    record["UserData"] = {"symphony": {}}
-                    
-                    if custom_env:
-                        record["UserData"]["symphony"] = {"custom_env": custom_env,
-                                                     "custom_env_names": " ".join(sorted(custom_env))}
-                    
-                    record["UserData"]["symphony"]["attributes"] = attributes
-                    record["UserData"]["symphony"]["attribute_names"] = " ".join(sorted(attributes))
+                }
+                
+                # deepcopy so we can pop attributes
+                
+                for override_sub_key in ["default", nodearray_name]:
+                    overrides = deepcopy(self.config.get("templates.%s" % override_sub_key, {}))
+                    attribute_overrides = overrides.pop("attributes", {})
+                    record.update(overrides)
+                    record["attributes"].update(attribute_overrides)
+                
+                attributes = self.generate_userdata(record)
+                
+                custom_env = self._parse_UserData(record.pop("UserData", "") or "")
+                record["UserData"] = {"symphony": {}}
+                
+                if custom_env:
+                    record["UserData"]["symphony"] = {"custom_env": custom_env,
+                                                    "custom_env_names": " ".join(sorted(custom_env))}
+                
+                record["UserData"]["symphony"]["attributes"] = attributes
+                record["UserData"]["symphony"]["attribute_names"] = " ".join(sorted(attributes))
 
-                    record["pgrpName"] = None
+                record["pgrpName"] = None
+                
+                is_paused_capacity = self.capacity_tracker.is_paused(nodearray_name, machine_type_name)
+
+                if is_paused_capacity:
+                    record["priority"] = 0
                     
-                    templates_store[template_id] = record
+                templates_store[template_id] = record
+                
+                for n, placement_group in enumerate(_placement_groups(self.config)):
+                    template_id = record["templateId"] + placement_group
+                    # placement groups can't be the same across templates. Might as well make them the same as the templateid
+                    namespaced_placement_group = template_id
+                    if is_low_prio:
+                        # not going to create mpi templates for interruptible nodearrays.
+                        # if the person updated the template, set maxNumber to 0 on any existing ones
+                        if template_id in templates_store:
+                            templates_store[template_id]["maxNumber"] = 0
+                            continue
+                        else:
+                            break
                     
-                    for n, placement_group in enumerate(_placement_groups(self.config)):
-                        template_id = record["templateId"] + placement_group
-                        # placement groups can't be the same across templates. Might as well make them the same as the templateid
-                        namespaced_placement_group = template_id
-                        if is_low_prio:
-                            # not going to create mpi templates for interruptible nodearrays.
-                            # if the person updated the template, set maxNumber to 0 on any existing ones
-                            if template_id in templates_store:
-                                templates_store[template_id]["maxNumber"] = 0
-                                continue
-                            else:
-                                break
-                        
-                        record_mpi = deepcopy(record)
-                        record_mpi["attributes"]["placementgroup"] = ["String", namespaced_placement_group]
-                        record_mpi["UserData"]["symphony"]["attributes"]["placementgroup"] = namespaced_placement_group
-                        record_mpi["attributes"]["azureccmpi"] = ["Boolean", "1"]
-                        record_mpi["UserData"]["symphony"]["attributes"]["azureccmpi"] = True
-                        # regenerate names, as we have added placementgroup
-                        record_mpi["UserData"]["symphony"]["attribute_names"] = " ".join(sorted(record_mpi["attributes"]))
-                        record_mpi["priority"] = record_mpi["priority"] - n - 1
-                        record_mpi["templateId"] = template_id
-                        record_mpi["maxNumber"] = min(record["maxNumber"], nodearray.get("Azure", {}).get("MaxScalesetSize", 40))
-                        templates_store[record_mpi["templateId"]] = record_mpi
-                        currently_available_templates.add(record_mpi["templateId"])
-                    default_priority = default_priority - 10
-            
-            # for templates that are no longer available, advertise them but set maxNumber = 0
-            for symphony_template in templates_store.values():
-                if symphony_template["templateId"] not in currently_available_templates:
-                    if self.fine:
-                        logger.debug("Ignoring old template %s vs %s", symphony_template["templateId"], currently_available_templates)
-                    symphony_template["maxNumber"] = 0
-           
-        new_templates = self.templates_json.read()
+                    record_mpi = deepcopy(record)
+                    record_mpi["attributes"]["placementgroup"] = ["String", namespaced_placement_group]
+                    record_mpi["UserData"]["symphony"]["attributes"]["placementgroup"] = namespaced_placement_group
+                    record_mpi["attributes"]["azureccmpi"] = ["Boolean", "1"]
+                    record_mpi["UserData"]["symphony"]["attributes"]["azureccmpi"] = True
+                    # regenerate names, as we have added placementgroup
+                    record_mpi["UserData"]["symphony"]["attribute_names"] = " ".join(sorted(record_mpi["attributes"]))
+                    record_mpi["priority"] = record_mpi["priority"] - n - 1
+                    record_mpi["templateId"] = template_id
+                    record_mpi["maxNumber"] = min(record["maxNumber"], nodearray.get("Azure", {}).get("MaxScalesetSize", 40))
+                    templates_store[record_mpi["templateId"]] = record_mpi
+                    currently_available_templates.add(record_mpi["templateId"])
+                default_priority = default_priority - 10
         
-        new_templates_str = json.dumps(new_templates, indent=2)
-        symphony_templates = list(new_templates.values())
+        # for templates that are no longer available, advertise them but set maxNumber = 0
+        for symphony_template in templates_store.values():
+            if symphony_template["templateId"] not in currently_available_templates:
+                if self.fine:
+                    logger.debug("Ignoring old template %s vs %s", symphony_template["templateId"], currently_available_templates)
+                symphony_template["maxNumber"] = 0
+                symphony_template["priority"] = 0
+                
+        new_templates_str = json.dumps(templates_store, indent=2, sort_keys=True)
+        symphony_templates = list(templates_store.values())
         symphony_templates = sorted(symphony_templates, key=lambda x: -x["priority"])
-        
-        if new_templates_str != prior_templates_str and len(prior_templates) > 0:
+        #if new_templates_str != prior_templates_str and len(prior_templates) > 0: this probably was here to avoid a deadlock, but here we are avoiding with do_REST
+        if new_templates_str != prior_templates_str:
             generator = difflib.context_diff(prior_templates_str.splitlines(), new_templates_str.splitlines())
             difference = "\n".join([str(x) for x in generator])
             new_template_order = ", ".join(["%s:%s" % (x.get("templateId", "?"), x.get("maxNumber", "?")) for x in symphony_templates])
             logger.warning("Templates have changed - new template priority order: %s", new_template_order)
             logger.warning("Diff:\n%s", str(difference))
-            try:
-                rest_client = SymphonyRestClient(self.config, logger)            
-                rest_client.update_hostfactory_templates({"templates": symphony_templates, "message": "Get available templates success."})
-            except:
-                logger.exception("Ignoring failure to update cluster templates via Symphony REST API. (Is REST service running?)")
-
+            persist_templates = not do_REST #we always persist if not doing REST call, otherwise only persist on succesful REST call
+            if do_REST:
+                try:
+                    rest_client = SymphonyRestClient(self.config, logger)  
+                    rest_client.update_hostfactory_templates({"templates": symphony_templates, "message": "Get available templates success."})
+                    persist_templates = True
+                except:
+                    logger.exception("Ignoring failure to update cluster templates via Symphony REST API. (Is REST service running?)")
+            if persist_templates:        
+                self.templates_json.write(templates_store)
+               
         # Note: we aren't going to store this, so it will naturally appear as an error during allocation.
         if not at_least_one_available_bucket:
             symphony_templates.insert(0, PLACEHOLDER_TEMPLATE)
@@ -387,7 +396,7 @@ class CycleCloudProvider:
 
         # We handle unexpected Capacity failures (Spot)  by zeroing out capacity for a timed duration
         machine_type_name = bucket["definition"]["machineType"]
-        max_count = self.capacity_tracker.get_capacity_limit(nodearray_name, machine_type_name, max_count)
+        
         
         # Below code is commented out as a customer faced an issue where autoscaling was being limited
         # by spot_increment_per_sku. 
@@ -467,9 +476,12 @@ class CycleCloudProvider:
                             'nodearray': nodearray }
             if template["attributes"].get("placementgroup"):
                 request_set["placementGroupId"] = template["attributes"].get("placementgroup")[1]
-                                    
-            add_nodes_response = self.cluster.add_nodes({'requestId': request_id,
+            
+            # We are grabbing the lock to serialize this call.
+            with self.creation_json as requests_store:                    
+                add_nodes_response = self.cluster.add_nodes({'requestId': request_id,
                                                          'sets': [request_set]})
+                
             logger.info("Create nodes response: %s", add_nodes_response)
             nodes_response = self.cluster.nodes_by_operation_id(operation_id=add_nodes_response["operationId"])
             
@@ -774,8 +786,8 @@ class CycleCloudProvider:
                 if actual_machine_cnt < requests_store[request_id]["lastNumNodes"]:
                     request_envelope = self.capacity_tracker.get_request(request_id)
                     if not request_envelope:
-                        logger.warning("Out-of-capacity detected")
-                        logger.warning("No request envelope found for request id %s", request_id)
+                        logger.warning("No request envelope maybe all buckets have hit capacity issue")
+                        logger.debug("No request envelope found for request id %s", request_id)
                     else:
                         reqs = request_envelope.get('sets', [])
                         if not reqs:
@@ -785,7 +797,7 @@ class CycleCloudProvider:
                         nodearray_name = req['nodearray']
                         machine_type = req['definition']['machineType']
                         logger.warning("Out-of-capacity condition detected for machine_type %s in nodearray %s", machine_type, nodearray_name)
-                        self.capacity_tracker.set_capacity_limit(nodearray_name=nodearray_name, machine_type=machine_type)
+                        self.capacity_tracker.pause_capacity(nodearray_name=nodearray_name, machine_type=machine_type)
                         requests_store[request_id]["lastNumNodes"] = actual_machine_cnt
                         
                 requests_store[request_id]["completedNodes"] = completed_nodes
@@ -1114,7 +1126,7 @@ class CycleCloudProvider:
         with self.creation_json as requests_store:
             to_shutdown = []
             to_mark_complete = []
-
+            
             for request_id, request in requests_store.items():
                 if request.get("completed"):
                     continue
@@ -1152,7 +1164,7 @@ class CycleCloudProvider:
 
     def periodic_cleanup(self):
         try:
-            self._update_templates()
+            self._update_templates(do_REST=True)
         except Exception:
             logger.exception("Could not update templates")
 
