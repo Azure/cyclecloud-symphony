@@ -100,7 +100,7 @@ class CycleCloudProvider:
                     max_count = 0
                 at_least_one_available_bucket = at_least_one_available_bucket or max_count > 0
         return not at_least_one_available_bucket
-     
+    
     # Regenerate templates (and potentially reconfig HostFactory) without output, so 
     #  this method is safe to call from other API calls
     def _update_templates(self, do_REST=False):
@@ -158,8 +158,6 @@ class CycleCloudProvider:
         
         currently_available_templates = set()
         
-        default_priority = len(nodearrays) * 10
-        
         for nodearray_root in nodearrays:
             nodearray = nodearray_root.get("nodearray")
             
@@ -194,14 +192,14 @@ class CycleCloudProvider:
                 except ValueError:
                     logger.exception("Ignoring symphony.ngpus for nodearray %s" % nodearray_name)
                 
-
+                base_priority = bucket_priority(nodearrays, nodearray_root, b_index)
                 # Symphony
                 # - uses nram rather than mem
                 # - uses strings for numerics         
                 record = {
                     "maxNumber": max_count,
                     "templateId": template_id,
-                    "priority": nodearray.get("Priority", default_priority) * 1000 - b_index,
+                    "priority": base_priority,
                     "attributes": {
                         "zone": ["String", nodearray.get("Region")],
                         "mem": ["Numeric", "%d" % memory],
@@ -280,7 +278,6 @@ class CycleCloudProvider:
                     record_mpi["maxNumber"] = min(record["maxNumber"], nodearray.get("Azure", {}).get("MaxScalesetSize", 40))
                     templates_store[record_mpi["templateId"]] = record_mpi
                     currently_available_templates.add(record_mpi["templateId"])
-                default_priority = default_priority - 10
         
         # for templates that are no longer available, advertise them but set maxNumber = 0
         for symphony_template in templates_store.values():
@@ -1190,6 +1187,29 @@ class CycleCloudProvider:
         except Exception:
             logger.exception("Could not cleanup old requests")
 
+
+def bucket_priority(nodearrays, bucket_nodearray, b_index):
+    prio = bucket_nodearray.get("Priority")
+    if isinstance(prio, str):
+        try:
+            prio = int(float(prio))
+        except Exception:
+            prio = None
+    if isinstance(prio, float):
+        prio = int(prio)
+    if isinstance(prio, int):
+        if prio < 0:
+            prio = None
+    if prio is not None and not isinstance(prio, int):
+        prio = None    
+    if prio is None:
+        nodearray_names = [x["name"] for x in reversed(nodearrays)]
+        prio = (nodearray_names.index(bucket_nodearray["name"]) + 1) * 10
+    if prio > 0:
+        return prio * 1000 - b_index
+    assert prio == 0
+    return prio    
+        
 
 def _placement_groups(config):
     try:
