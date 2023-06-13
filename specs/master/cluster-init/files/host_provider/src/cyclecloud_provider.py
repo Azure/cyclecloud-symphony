@@ -478,9 +478,13 @@ class CycleCloudProvider:
                 request_set["placementGroupId"] = template["attributes"].get("placementgroup")[1]
             
             # We are grabbing the lock to serialize this call.
-            with self.creation_json as requests_store:                    
-                add_nodes_response = self.cluster.add_nodes({'requestId': request_id,
-                                                         'sets': [request_set]})
+            try:
+                with self.creation_json as requests_store:                   
+                        add_nodes_response = self.cluster.add_nodes({'requestId': request_id,
+                                                            'sets': [request_set]})
+            finally:
+                request_set['requestId'] = request_id
+                self.capacity_tracker.add_request(request_set)
                 
             logger.info("Create nodes response: %s", add_nodes_response)
             nodes_response = self.cluster.nodes_by_operation_id(operation_id=add_nodes_response["operationId"])
@@ -493,8 +497,6 @@ class CycleCloudProvider:
             else:
                 logger.info("Requested %s instances of machine type %s in nodearray %s.", machine_count, machinetype_name, _get("nodearray"))
             
-            request_set['requestId'] = request_id
-            self.capacity_tracker.add_request(request_set)
             return self.json_writer({"requestId": request_id, "status": RequestStates.running,
                                      "message": "Request instances success from Azure CycleCloud."})
         except UserError as e:
