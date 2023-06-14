@@ -1207,7 +1207,7 @@ def bucket_priority(nodearrays, bucket_nodearray, b_index):
         prio = (nodearray_names.index(bucket_nodearray["name"]) + 1) * 10
     if prio > 0:
         return prio * 1000 - b_index
-    assert prio == 0
+    assert prio == 0, f'Unexpected prio {prio} - should ALWAYS be >= 0.'
     return prio    
         
 
