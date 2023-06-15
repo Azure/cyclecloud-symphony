@@ -695,7 +695,7 @@ class CycleCloudProvider:
                 hostname = None
                 private_ip_address = None
                  
-                if node_target_state != "Started":
+                if node_target_state != "Started" and node_target_state != "Terminated":
                     unknown_state_count = unknown_state_count + 1
                     continue
                 
@@ -779,6 +779,7 @@ class CycleCloudProvider:
                     logger.warning("Unknown request_id %s. Creating a new entry and resetting requestTime", request_id)
                     requests_store[request_id] = {"requestTime": calendar.timegm(self.clock())}
                 #set default
+                
                 actual_machine_cnt = len(all_nodes)
                 if not requests_store[request_id].get("lastNumNodes") :
                     requests_store[request_id]["lastNumNodes"] = actual_machine_cnt
