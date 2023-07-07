@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import sys
 import traceback
+import time
 from builtins import str
 
 import os
@@ -180,16 +181,24 @@ class JsonStore:
             
         return self.data
     
+    def write(self, data):
+        self._lock()
+        self._write(data)
+        self._unlock()
+    
+    def _write(self, data):
+        with open(self.path + ".tmp", "w") as fw:
+            indent = 2 if self.formatted else None
+            json.dump(data, fw, indent=indent, sort_keys=True)
+        shutil.move(self.path + ".tmp", self.path)
+                  
     def __enter__(self):
         if not self._lock():
             raise RuntimeError("Could not get lock %s" % self.lockpath)
-        return self._read(do_lock=False)
-            
+        return self._read(do_lock=False)         
+    
     def __exit__(self, *args):
-        with open(self.path + ".tmp", "w") as fw:
-            indent = 2 if self.formatted else None
-            json.dump(self.data, fw, indent=indent, sort_keys=True)
-        shutil.move(self.path + ".tmp", self.path)
+        self._write(self.data)
         self._unlock()
         
 
