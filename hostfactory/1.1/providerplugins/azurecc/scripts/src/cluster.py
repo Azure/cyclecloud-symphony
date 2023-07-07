@@ -36,7 +36,17 @@ class Cluster:
                 self.logger.debug("Buckets of nodearray execute %s", nodearray_root.get("name"))
                 self.logger.debug(json.dumps(nodearray_root))
         return status_json
-
+    
+    def get_buckets(self):
+        buckets = self.node_mgr.get_buckets()
+        status_json = self.status()
+        nodearrays = status_json["nodearrays"]
+        for nodearray_root in nodearrays:
+            for bucket in buckets:
+                if nodearray_root.get("name") == bucket.nodearray:
+                    bucket.priority = nodearray_root.get("Priority")
+        return buckets
+    
     def add_nodes(self, request, max_count):
         sku = request['sets'][0]['definition']['machineType']
         selector = {"node.nodearray": request['sets'][0]['nodearray']}
