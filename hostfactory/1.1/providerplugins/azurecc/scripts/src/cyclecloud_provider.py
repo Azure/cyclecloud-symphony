@@ -1169,19 +1169,7 @@ def _bucket_priority(nodearrays, bucket_nodearray, b_index):
     if prio > 0:
         return prio * 1000 - b_index
     assert prio == 0, f'Unexpected prio {prio} - should ALWAYS be >= 0.'
-    return prio    
-        
-
-def _placement_groups(config):
-    try:
-        num_placement_groups = min(26 * 26, int(config.get("symphony.num_placement_groups", 0)))
-    except ValueError:
-        raise ValueError("Expected a positive integer for symphony.num_placement_groups, got %s" % config.get("symphony.num_placement_groups"))
-    if num_placement_groups <= 0:
-        return []
-    else:
-        return ["pg%s" % x for x in range(num_placement_groups)]
-
+    return prio   
 
 def simple_json_writer(data, debug_output=True):  # pragma: no cover
     data_str = json.dumps(data)
