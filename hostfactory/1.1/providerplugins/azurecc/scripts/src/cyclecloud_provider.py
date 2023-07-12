@@ -89,31 +89,6 @@ class CycleCloudProvider:
             at_least_one_available_bucket = at_least_one_available_bucket or max_count > 0  
         return not at_least_one_available_bucket
      
-    def _check_for_zero_capacity(self, nodearrays):
-        at_least_one_available_bucket = False
-        for nodearray_root in nodearrays:
-            nodearray = nodearray_root.get("nodearray")
-            
-            # legacy, ignore any dynamically created arrays.
-            if nodearray.get("Dynamic"):
-                continue
-            
-            autoscale_enabled = nodearray.get("Configuration", {}).get("autoscaling", {}).get("enabled", False)
-            if not autoscale_enabled:
-                continue
-            
-            for bucket in nodearray_root.get("buckets"):
-                machine_type =  bucket["definition"]["machineType"]
-                virtual_machine = bucket["virtualMachine"]
-                # Symphony hates special characters
-                nodearray_name = nodearray_root["name"]
-                max_count = self._max_count(nodearray_name, nodearray, virtual_machine.get("vcpuCount"), bucket)
-                is_paused = self.capacity_tracker.is_paused(nodearray_name, machine_type)
-                if is_paused:
-                    max_count = 0
-                at_least_one_available_bucket = at_least_one_available_bucket or max_count > 0
-        return not at_least_one_available_bucket
-     
     # Regenerate templates (and potentially reconfig HostFactory) without output, so 
     #  this method is safe to call from other API calls
     def _update_templates(self, do_REST=False):
@@ -151,18 +126,8 @@ class CycleCloudProvider:
         templates_store = self.templates_json.read()
         
         prior_templates_str = json.dumps(templates_store, indent=2, sort_keys=True)  
-        # returns Cloud.Node records joined on MachineType - the array node only
-        #response = self.cluster.status()
-        buckets = self.cluster.get_buckets()
 
-        #nodearrays = response["nodearrays"]
-        
-        #if "nodeArrays" in nodearrays:
-        #    logger.error("Invalid CycleCloud version. Please upgrade your CycleCloud instance.")
-        #    raise InvalidCycleCloudVersionError("Invalid CycleCloud version. Please upgrade your CycleCloud instance.")
-        
-        #if self.fine:
-        #    logger.debug("nodearrays response\n%s", json.dumps(nodearrays, indent=2))
+        buckets = self.cluster.get_buckets()
         
         # We cannot report to Symphony that we have 0 capacity on all VMs. If we detect this we
         # simply reset any temporary capacity constraints.
@@ -171,21 +136,9 @@ class CycleCloudProvider:
             self.capacity_tracker.reset()
         
         currently_available_templates = set()
-        
-            #nodearray = nodearray_root.get("nodearray")
             
-            # legacy, ignore any dynamically created arrays.
-            #if nodearray.get("Dynamic"):
-             #   continue
-            
-            #autoscale_enabled = nodearray.get("Configuration", {}).get("autoscaling", {}).get("enabled", False)
-            #if not autoscale_enabled:
-             #   continue
-            
-        for b_index, bucket in enumerate(buckets):
-            # machine_type_name = bucket["definition"]["machineType"]
-            # machine_type_short = machine_type_name.lower().replace("standard_", "").replace("basic_", "").replace("_", "")
-            # machine_type = bucket["virtualMachine"]
+        for bucket in buckets:
+
             
             autoscale_enabled = bucket.software_configuration.get("autoscaling", {}).get("enabled", False)
             if not autoscale_enabled:
@@ -195,7 +148,6 @@ class CycleCloudProvider:
             template_id = self._escape_id(template_id)
             currently_available_templates.add(template_id)
             
-            #max_count = self._max_count_scalelib(bucket)  # TODO RDH
             max_count = bucket.max_count
             is_low_prio = bucket.spot
             at_least_one_available_bucket = at_least_one_available_bucket or max_count > 0
@@ -207,14 +159,7 @@ class CycleCloudProvider:
             except ValueError:
                 logger.exception("Ignoring symphony.ngpus for nodearray %s" % bucket.nodearray)
             
-            response = self.cluster.status()
-
-            nodearrays = response["nodearrays"]
-        
-            if "nodeArrays" in nodearrays:
-                logger.error("Invalid CycleCloud version. Please upgrade your CycleCloud instance.")
-                raise InvalidCycleCloudVersionError("Invalid CycleCloud version. Please upgrade your CycleCloud instance.")
-            base_priority = bucket_priority(nodearrays, bucket, b_index)
+            base_priority = bucket_priority(buckets, bucket)
             # Symphony
             # - uses nram rather than mem
             # - uses strings for numerics         
@@ -274,32 +219,6 @@ class CycleCloudProvider:
                 record["priority"] = 0
                 
             templates_store[template_id] = record
-            
-            # for n, placement_group in enumerate(_placement_groups(self.config)):
-            #     template_id = record["templateId"] + placement_group
-            #     # placement groups can't be the same across templates. Might as well make them the same as the templateid
-            #     namespaced_placement_group = template_id
-            #     if is_low_prio:
-            #         # not going to create mpi templates for interruptible nodearrays.
-            #         # if the person updated the template, set maxNumber to 0 on any existing ones
-            #         if template_id in templates_store:
-            #             templates_store[template_id]["maxNumber"] = 0
-            #             continue
-            #         else:
-            #             break
-                
-            #     record_mpi = deepcopy(record)
-            #     record_mpi["attributes"]["placementgroup"] = ["String", namespaced_placement_group]
-            #     record_mpi["UserData"]["symphony"]["attributes"]["placementgroup"] = namespaced_placement_group
-            #     record_mpi["attributes"]["azureccmpi"] = ["Boolean", "1"]
-            #     record_mpi["UserData"]["symphony"]["attributes"]["azureccmpi"] = True
-            #     # regenerate names, as we have added placementgroup
-            #     record_mpi["UserData"]["symphony"]["attribute_names"] = " ".join(sorted(record_mpi["attributes"]))
-            #     record_mpi["priority"] = record_mpi["priority"] - n - 1
-            #     record_mpi["templateId"] = template_id
-            #     record_mpi["maxNumber"] = min(record["maxNumber"], nodearray.get("Azure", {}).get("MaxScalesetSize", 40))
-            #     templates_store[record_mpi["templateId"]] = record_mpi
-            #     currently_available_templates.add(record_mpi["templateId"])
         
         # for templates that are no longer available, advertise them but set maxNumber = 0
         for symphony_template in templates_store.values():
@@ -1224,8 +1143,14 @@ class CycleCloudProvider:
         except Exception:
             logger.exception("Could not cleanup old requests")
 
+def bucket_priority(buckets, bucket_nodearray):
+    nodearrays = list(dict.fromkeys(bucket.nodearray for bucket in buckets))
+    filter_bucket_nodearray = [bucket for bucket in buckets if bucket.nodearray == bucket_nodearray.nodearray]
+    b_index = next((i for i, bucket in enumerate(filter_bucket_nodearray) if bucket.bucket_id == bucket_nodearray.bucket_id), None)
+    reveresed_nodearrays = nodearrays[::-1]
+    return _bucket_priority(reveresed_nodearrays, bucket_nodearray, b_index)
 
-def bucket_priority(nodearrays, bucket_nodearray, b_index):
+def _bucket_priority(nodearrays, bucket_nodearray, b_index):
     prio = bucket_nodearray.priority
     if isinstance(prio, str):
         try:
@@ -1240,8 +1165,7 @@ def bucket_priority(nodearrays, bucket_nodearray, b_index):
     if prio is not None and not isinstance(prio, int):
         prio = None    
     if prio is None:
-        nodearray_names = [x["name"] for x in reversed(nodearrays)]
-        prio = (nodearray_names.index(bucket_nodearray.nodearray) + 1) * 10
+        prio = (nodearrays.index(bucket_nodearray.nodearray) + 1) * 10
     if prio > 0:
         return prio * 1000 - b_index
     assert prio == 0, f'Unexpected prio {prio} - should ALWAYS be >= 0.'
