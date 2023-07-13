@@ -731,7 +731,7 @@ class CycleCloudProvider:
                 if actual_machine_cnt < requests_store[request_id]["lastNumNodes"]:
                     request_envelope = self.capacity_tracker.get_request(request_id)
                     if not request_envelope:
-                        logger.warning("No request envelope maybe all buckets have hit capacity issue")
+                        logger.warning("No request envelope found - maybe all buckets have hit capacity issue ?")
                         logger.debug("No request envelope found for request id %s", request_id)
                     else:
                         reqs = request_envelope.get('sets', [])
