@@ -196,11 +196,11 @@ class CycleCloudProvider:
                 # Symphony
                 # - uses nram rather than mem
                 # - uses strings for numerics  
-                disable_virtual_cpu_count = bool(self.config.get("symphony.disable_virtual_cpu_count", False))
-                if disable_virtual_cpu_count:
-                    ncpus = machine_type.get("pcpuCount")
+                ncpus_use_vcpus = bool(self.config.get("symphony.ncpus_use_vcpus", True))
+                if ncpus_use_vcpus:
+                    ncpus = machine_type.get("vcpuCount")
                 else:
-                    ncpus = machine_type.get("vcpuCount")       
+                    ncpus = machine_type.get("pcpuCount")       
                 record = {
                     "maxNumber": max_count,
                     "templateId": template_id,
