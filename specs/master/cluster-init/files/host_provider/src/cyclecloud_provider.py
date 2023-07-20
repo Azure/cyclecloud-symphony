@@ -195,7 +195,12 @@ class CycleCloudProvider:
                 base_priority = bucket_priority(nodearrays, nodearray_root, b_index)
                 # Symphony
                 # - uses nram rather than mem
-                # - uses strings for numerics         
+                # - uses strings for numerics  
+                ncpus_use_vcpus = bool(self.config.get("symphony.ncpus_use_vcpus", True))
+                if ncpus_use_vcpus:
+                    ncpus = machine_type.get("vcpuCount")
+                else:
+                    ncpus = machine_type.get("pcpuCount")       
                 record = {
                     "maxNumber": max_count,
                     "templateId": template_id,
@@ -209,7 +214,7 @@ class CycleCloudProvider:
                         #  Since we don't generally know the num_sockets,
                         #      just set ncpus = 1 for all skus (1 giant CPU with N cores)
                         #"ncpus": ["Numeric", "%d" % machine_type.get("???physical_socket_count???")],
-                        "ncpus": ["Numeric", "1"],  
+                        "ncpus": ["Numeric", "%d" % ncpus],  
                         "ncores": ["Numeric", "%d" % machine_type.get("vcpuCount")],
                         "ngpus": ["Numeric", ngpus],                            
                         "azurecchost": ["Boolean", "1"],
