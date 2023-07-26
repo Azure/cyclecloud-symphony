@@ -635,7 +635,6 @@ class CycleCloudProvider:
 
         """
         json_writer = json_writer or self.json_writer
-        request_status = RequestStates.complete
         
         request_ids = [r["requestId"] for r in input_json["requests"]]
         
@@ -666,6 +665,7 @@ class CycleCloudProvider:
         requesting_count = 0
         
         for request_id, requested_nodes in nodes_by_request_id.items():
+            request_status = RequestStates.complete
             if not requested_nodes:
                 # nothing to do.
                 logger.warning("No nodes found for request id %s.", request_id)
