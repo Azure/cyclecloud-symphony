@@ -699,8 +699,11 @@ class CycleCloudProvider:
                 
                 hostname = None
                 private_ip_address = None
-                 
-                if node_target_state != "Started" and node_target_state != "Terminated":
+                if node_target_state and node_target_state != "Started":
+                    logger.debug("Node %s target state is not started it is %s", node.get("Name"), node_target_state)
+                    continue 
+                
+                if not node_target_state:
                     unknown_state_count = unknown_state_count + 1
                     continue
                 
