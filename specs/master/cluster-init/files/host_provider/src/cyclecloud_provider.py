@@ -48,8 +48,8 @@ class CycleCloudProvider:
         self.creation_json = creation_requests
         self.exit_code = 0
         self.clock = clock
-        self.termination_timeout = float(self.config.get("cyclecloud.termination_request_retirement", 120) * 60)
-        self.creation_request_ttl = int(self.config.get("symphony.creation_request_ttl", 40 * 60))
+        self.termination_timeout = float(self.config.get("cyclecloud.termination_request_retirement", 5) * 60)
+        self.creation_request_ttl = int(self.config.get("symphony.creation_request_ttl", 2 * 60))
         self.node_request_timeouts = float(self.config.get("cyclecloud.machine_request_retirement", 120) * 60)
         self.fine = False
         self.capacity_tracker = CapacityTrackingDb(self.config, self.cluster.cluster_name, self.clock)
@@ -425,6 +425,7 @@ class CycleCloudProvider:
          'requestId': 'req-123'}
         """
         request_id = str(uuid.uuid4())
+        logger.info("Creating requestId %s", request_id)
         try:
             # save the request so we can time it out
             with self.creation_json as requests_store:
@@ -787,7 +788,7 @@ class CycleCloudProvider:
                     logger.warning("Unknown request_id %s. Creating a new entry and resetting requestTime", request_id)
                     requests_store[request_id] = {"requestTime": calendar.timegm(self.clock())}
                 #set default
-                
+                requests_store[request_id]["lastUpdateTime"] = calendar.timegm(self.clock())
                 actual_machine_cnt = len(all_nodes)
                 if not requests_store[request_id].get("lastNumNodes") :
                     requests_store[request_id]["lastNumNodes"] = actual_machine_cnt
@@ -963,6 +964,8 @@ class CycleCloudProvider:
                 request = requests[req_id]
                 request_time = request.get("requestTime", -1)
                 
+                if request.get("lastUpdateTime"):
+                    request_time = request["lastUpdateTime"]
                 if request_time < 0:
                     logger.info("Request has no requestTime")
                     request["requestTime"] = request_time = now
@@ -974,7 +977,7 @@ class CycleCloudProvider:
                     if not request.get(completed_key):
                         logger.info("Request has expired but has not completed, ignoring expiration: %s", request)
                         continue
-                    logger.debug("Found retired request %s", request)
+                    logger.info("Found retired request %s", req_id)
                     requests.pop(req_id)
                 
             except Exception:
@@ -1130,7 +1133,7 @@ class CycleCloudProvider:
 
             except Exception:
                 logger.exception("Could not request status of creation quests.")
-
+        
         with self.creation_json as requests_store:
             to_shutdown = []
             to_mark_complete = []
@@ -1168,6 +1171,7 @@ class CycleCloudProvider:
                 self.json_writer = original_writer
 
             for request in to_mark_complete:
+                request["lastUpdateTime"] = calendar.timegm(self.clock())
                 request["completed"] = True
 
     def periodic_cleanup(self):
