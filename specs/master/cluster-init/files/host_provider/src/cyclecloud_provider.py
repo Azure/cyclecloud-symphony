@@ -13,6 +13,7 @@ from builtins import str
 
 from symphony import RequestStates, MachineStates, MachineResults, SymphonyRestClient
 import cluster
+from cluster import OutOfCapacityError
 from capacity_tracking_db import CapacityTrackingDb
 from util import JsonStore, failureresponse
 import util
@@ -510,6 +511,10 @@ class CycleCloudProvider:
             logger.exception("Azure CycleCloud experienced an error and the node creation request failed. %s", e)
             return self.json_writer({"requestId": request_id, "status": RequestStates.complete_with_error,
                                      "message": "Azure CycleCloud experienced an error: %s" % str(e)})
+        except OutOfCapacityError as e:
+            logger.warning("Request Id %s failed with out of capacity %s", request_id, e)
+            return self.json_writer({"requestId": request_id, "status": RequestStates.running,
+                                     "message": "Azure CycleCloud does not currently have capacity %s" % str(e)})
         except Exception as e:
             logger.exception("Azure CycleCloud experienced an error, though it may have succeeded: %s", e)
             return self.json_writer({"requestId": request_id, "status": RequestStates.running,
@@ -672,8 +677,10 @@ class CycleCloudProvider:
                 logger.warning("No nodes found for request id %s.", request_id)
             
             completed_nodes = []
+            # Collect all node ids associated with requestId for recovery of failed request_store operation.
             all_nodes = []
-
+            # Collect nodes that have potential to be fulfilled. Excludes failed, terminating and unavailable.
+            valid_nodes = []
             machines = []
             request = {"requestId": request_id,
                         "machines": machines}
@@ -695,20 +702,25 @@ class CycleCloudProvider:
 
                 node_target_state = node.get("TargetState", "Started")
                 all_nodes.append(node["NodeId"])
-                
+                valid_nodes.append(node["NodeId"])
+
                 machine_status = MachineStates.active
                 
                 hostname = None
                 private_ip_address = None
-                if node_target_state and node_target_state != "Started":
-                    logger.debug("Node %s target state is not started it is %s", node.get("Name"), node_target_state)
-                    continue 
+
                 
                 if not node_target_state:
                     unknown_state_count = unknown_state_count + 1
                     continue
                 
-                elif node_status in report_failure_states:
+                if node_target_state and node_target_state != "Started":
+                    valid_nodes.remove(node["NodeId"])
+                    logger.debug("Node %s target state is not started it is %s", node.get("Name"), node_target_state) 
+                    continue
+                
+                if node_status in report_failure_states:
+                    valid_nodes.remove(node["NodeId"])
                     machine_result = MachineResults.failed
                     machine_status = MachineStates.error
                     if request_status != RequestStates.running:
@@ -789,7 +801,7 @@ class CycleCloudProvider:
                     requests_store[request_id] = {"requestTime": calendar.timegm(self.clock())}
                 #set default
                 requests_store[request_id]["lastUpdateTime"] = calendar.timegm(self.clock())
-                actual_machine_cnt = len(all_nodes)
+                actual_machine_cnt = len(valid_nodes)
                 if not requests_store[request_id].get("lastNumNodes") :
                     requests_store[request_id]["lastNumNodes"] = actual_machine_cnt
                 if actual_machine_cnt < requests_store[request_id]["lastNumNodes"]:
@@ -1032,7 +1044,7 @@ class CycleCloudProvider:
                 message = str(message)
                 logger.exception("Could not terminate %s", machines.keys())
             
-            logger.info("Terminating %d machine(s): %s", len(machines), machines.keys())
+            logger.info("Terminating %d machine(s): %s", len(machines), ",".join(list(machines.keys())))
 
             # NOTE: we will still respond with a failure here, but at least we attempted the termination
             if not request_id_persisted:
@@ -1134,11 +1146,30 @@ class CycleCloudProvider:
             except Exception:
                 logger.exception("Could not request status of creation quests.")
         
+        requests_store = self.creation_json.read()
+        to_update_status = []
+        # find all requests that are not completed but have expired
+        for request_id, request in requests_store.items():
+                if request.get("completed"):
+                    continue
+                created_timestamp = request["requestTime"]
+                now = calendar.timegm(self.clock())
+                delta = now - created_timestamp
+
+                if delta > self.creation_request_ttl:
+                    to_update_status.append(request_id)
+        if not to_update_status:
+            return
+        
+        self._create_status({"requests": [{"requestId": r} for r in to_update_status]},
+                              lambda input_json, **ignore: input_json)
+
         with self.creation_json as requests_store:
             to_shutdown = []
             to_mark_complete = []
             
-            for request_id, request in requests_store.items():
+            for request_id in to_update_status:
+                request = requests_store[request_id]
                 if request.get("completed"):
                     continue
 
@@ -1146,20 +1177,13 @@ class CycleCloudProvider:
                     logger.warning("Yet to find any NodeIds for RequestId %s", request_id)
                     continue
 
-                created_timestamp = request["requestTime"]
-                now = calendar.timegm(self.clock())
-                delta = now - created_timestamp
-
-                if delta > self.creation_request_ttl:
-                    completed_node_ids = [x["nodeid"] for x in request["completedNodes"]]
-                    failed_to_start = set(request["allNodes"]) - set(completed_node_ids)
-                    if failed_to_start:
-                        to_shutdown.extend(set(request["allNodes"]) - set(completed_node_ids))
-                        logger.warning("Expired creation request found - %s. %d out of %d completed.", request_id, 
-                            len(completed_node_ids), len(request["allNodes"]))
-                    to_mark_complete.append(request)
-
-                    
+                completed_node_ids = [x["nodeid"] for x in request["completedNodes"]]
+                failed_to_start = set(request["allNodes"]) - set(completed_node_ids)
+                if failed_to_start:
+                    to_shutdown.extend(set(request["allNodes"]) - set(completed_node_ids))
+                    logger.warning("Expired creation request found - %s. %d out of %d completed.", request_id, 
+                        len(completed_node_ids), len(request["allNodes"]))
+                to_mark_complete.append(request)
 
             if not to_mark_complete:
                 return
