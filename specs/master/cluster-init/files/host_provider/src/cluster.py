@@ -9,8 +9,12 @@ try:
     import cyclecli
 except ImportError:
     import cyclecliwrapper as cyclecli
+ 
     
+class OutOfCapacityError(RuntimeError):
+    pass
 
+    
 class Cluster:
     
     def __init__(self, cluster_name, provider_config, logger=None):
@@ -40,7 +44,7 @@ class Cluster:
 
         bucket = filtered_buckets[0]
         if bucket["availableCount"] == 0: 
-            raise RuntimeError(f"No availablity for {nodearray_name}/{machine_type}")
+            raise OutOfCapacityError(f"No availablity for {nodearray_name}/{machine_type}")
         
         if bucket["availableCount"] < request_set["count"]:
             logger.warning(f"Requesting available count {bucket['availableCount']} vs requested. {request_set['count']}")
@@ -48,17 +52,54 @@ class Cluster:
             request_set["count"] = bucket["availableCount"]
         return request_copy
         
-    
+
     def add_nodes(self, request):
-        #TODO: Remove request_copy once Max count is correctly enforced in CC.
+        def get_avail_count(status):
+            request_set = request['sets'][0]
+            machine_type = request_set["definition"]["machineType"]
+            nodearray_name = request_set['nodearray']
+            filtered = [x for x in status["nodearrays"] if x["name"] == nodearray_name]
+            if len(filtered) < 1:
+                raise RuntimeError(f"Nodearray {nodearray_name} does not exist or has been removed")
+            nodearray = filtered[0]
+            filtered_buckets = [x for x in nodearray["buckets"] if x["definition"]["machineType"] == machine_type]
+            if len(filtered_buckets) < 1:
+                raise RuntimeError(f"VM Size {machine_type} does not exist or has been removed from nodearray {nodearray_name}")
+            bucket = filtered_buckets[0]
+            return bucket["availableCount"]
+            
+        # TODO: Remove request_copy once Max count is correctly enforced in CC.
         status_resp = self.status()
         request_copy = self.limit_request_by_available_count(status=status_resp, request=request, logger=self.logger)
         
         response_raw = self.post("/clusters/%s/nodes/create" % self.cluster_name, json=request_copy)
         try:
-            return json.loads(response_raw)
+            response = json.loads(response_raw)
         except:
             raise RuntimeError("Could not parse response as json to create_nodes! '%s'" % response_raw)
+        # TODO: Get rid of extra status call in CC 8.4.0
+        import time
+        origin_avail_count = get_avail_count(status_resp)
+        max_mitigation_attempts = int(self.provider_config.get("symphony.max_status_mitigation_attempts", 10)) 
+        i = 0
+        avail_has_decreased = False
+        self.logger.info("BEGIN Overallocation Mitigation request id %s", request["requestId"])
+        while i < max_mitigation_attempts and not avail_has_decreased:
+            i = i + 1
+            temp_status = self.status()
+            new_avail_count = get_avail_count(temp_status)
+            if new_avail_count < origin_avail_count:
+                avail_has_decreased = True
+                break
+            time.sleep(1)  
+        if avail_has_decreased:
+            self.logger.info("END Availibility updated after %d attempts for requestId %s", i, request["requestId"])
+        else:
+            self.logger.warning("END For request %s availability has not properly updated after %d attempts", request["requestId"], max_mitigation_attempts)
+            
+              
+        
+        return response
     
     def all_nodes(self):
         return self.get("/clusters/%s/nodes" % self.cluster_name)
