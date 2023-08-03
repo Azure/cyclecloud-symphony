@@ -1,6 +1,6 @@
 
-default['symphony']['version'] = "7.3.1.0"
-default['symphony']['eval'] = false
+default['symphony']['version'] = "7.3.2.0"
+default['symphony']['eval'] = true
 default['symphony']['pkg']['linux'] = "sym-#{node['symphony']['version']}_x86_64.bin"
 default['symphony']['pkg']['windows'] = "sym-#{node['symphony']['version']}.exe"
 default['symphony']['pkg_plugin'] = "cyclecloud-symphony-pkg-2.0.0.zip"
@@ -9,10 +9,10 @@ default['symphony']['license_file'] = "sym_adv_entitlement.dat"
 if node['symphony']['eval'] == true
   default['symphony']['pkg']['linux'] = "symeval-#{node['symphony']['version']}_x86_64.bin"
   default['symphony']['pkg']['windows'] = "symeval-#{node['symphony']['version']}.exe"
-  default['symphony']['license_file'] = "sym_adv_ev_entitlement.dat"
+  default['symphony']['license_file'] = "sym.entitlement.keys.eval"
 end
 
-default['symphony']['simplifiedwem'] = 'N'
+default['symphony']['simplifiedwem'] = 'Y'
 default['symphony']['baseport'] = 14899
 default['symphony']['lim_port'] = node['symphony']['baseport']
 default['symphony']['kd_port'] = node['symphony']['baseport'] + 1
@@ -53,7 +53,7 @@ else
   default['symphony']['hostfactory']['templates_dir'] = 'hostfactory/7.2'
 end
 default['symphony']['hostfactory']['confdir'] = "#{node['symphony']['hostfactory']['top']}/conf"
-default['symphony']['hostfactory']['version'] = "1.1"
+default['symphony']['hostfactory']['version'] = "1.2"
 
 # IP or Hostname for REST API URLs
 default['symphony']['hostfactory']['rest_address'] = '127.0.0.1'

@@ -19,7 +19,7 @@ fi
 
 HF_VERSION=$( jetpack config symphony.hostfactory.version )
 if [ -z "${HF_VERSION}" ]; then
-    HF_VERSION="1.1"
+    HF_VERSION="1.2"
 fi
 
 set -e

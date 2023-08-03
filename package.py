@@ -152,7 +152,7 @@ def execute() -> None:
     _unix2dos("hostfactory", patterns=['**/*.ps1', '**/*.bat'])
     _add("hostfactory/install.ps1", mode=os.stat("hostfactory/install.ps1")[0])
     _add("hostfactory/install.sh", mode=os.stat("hostfactory/install.sh")[0])
-    _add_directory("hostfactory/1.1")
+    _add_directory("hostfactory/1.2")
 
 
     print("Created package: ", zf.filename)
