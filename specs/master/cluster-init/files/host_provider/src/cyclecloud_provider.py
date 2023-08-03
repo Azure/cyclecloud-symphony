@@ -578,10 +578,13 @@ class CycleCloudProvider:
             
             hostname = node.get("Hostname")
             if not hostname:
-                try:
-                    hostname = self.hostnamer.hostname(node.get("PrivateIp"))
-                except Exception:
-                    logger.warning("get_return_requests: No hostname set and could not convert ip %s to hostname for \"%s\" VM.", node.get("PrivateIp"), node)
+                # No hostname or no private ip then it could not possibly be returned
+                if node.get("PrivateIp"):
+                    try:
+                        hostname = self.hostnamer.hostname(node.get("PrivateIp"))
+                    except Exception:
+                        logger.warning("get_return_requests: No hostname set and could not convert ip %s to hostname for \"%s\" VM.", node.get("PrivateIp"), node)
+                
             cc_existing_hostnames.add(hostname)
             machine = {"gracePeriod": 0,
                        "machine": hostname or ""}
@@ -770,10 +773,11 @@ class CycleCloudProvider:
                         if not hostname:
                             try:
                                 hostname = self.hostnamer.hostname(node.get("PrivateIp"))
+                                logger.warning("_create_status: Node does not have hostname using %s ", hostname)
                             except Exception:                                
-                                logger.warning("_create_status: No hostname set and could not convert ip %s to hostname for \"%s\" VM.", node.get("PrivateIp"), node)
-                        else:
-                            completed_nodes.append({"hostname": hostname, "nodeid": node["NodeId"]})
+                                # TODO: need to append to completed node somewhere? What do we do?
+                                logger.warning("_create_status: No hostname set and could not convert ip %s to hostname for \"%s\" VM.", node.get("PrivateIp"), node)    
+                        completed_nodes.append({"hostname": hostname, "nodeid": node["NodeId"]})
                 else:
                     machine_result = MachineResults.executing
                     machine_status = MachineStates.building
@@ -1223,7 +1227,19 @@ class CycleCloudProvider:
 
         except Exception:
             logger.exception("Could not cleanup old requests")
-
+    
+    def debug_completed_nodes(self):
+        all_nodes = self.cluster.all_nodes()
+        actual_completed_nodes = set()
+        for node in all_nodes['nodes']:
+            if node.get("Status") in ["Ready", "Started"]:
+                actual_completed_nodes.add(node.get("NodeId"))
+        internal_completed_nodes = set()
+        with self.creation_json as request_store:
+            for request in request_store.values():
+                internal_completed_nodes.update(set(request.get("completedNodes")))
+        incomplete_nodes = actual_completed_nodes - internal_completed_nodes
+        print(incomplete_nodes)
 
 def bucket_priority(nodearrays, bucket_nodearray, b_index):
     prio = bucket_nodearray.get("Priority")
@@ -1317,6 +1333,8 @@ def main(argv=sys.argv, json_writer=simple_json_writer):  # pragma: no cover
             provider.get_return_requests(input_json)
         elif cmd == "terminate_machines":
             provider.terminate_machines(input_json)
+        elif cmd == "debug_completed_nodes":
+            provider.debug_completed_nodes()
         
         # best effort cleanup.
         provider.periodic_cleanup()
