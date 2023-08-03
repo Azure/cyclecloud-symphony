@@ -23,7 +23,7 @@ if [[  -z $HF_LOGDIR ]] ; then
 fi 
 
 if [[ -z $HF_VERSION ]] ; then
-     HF_VERSION="1.1"
+     HF_VERSION="1.2"
 fi 
 
 pluginSrcPath=$HF_TOP/$HF_VERSION/providerplugins/azurecc

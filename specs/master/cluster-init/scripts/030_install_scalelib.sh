@@ -7,7 +7,7 @@ fi
 
 HF_VERSION=$( jetpack config symphony.hostfactory.version )
 if [ -z "${HF_VERSION}" ]; then
-    HF_VERSION="1.1"
+    HF_VERSION="1.2"
 fi
 
 PKG_NAME=$( jetpack config symphony.pkg_plugin )
@@ -28,7 +28,7 @@ echo $VENV
 python3 -m virtualenv $VENV
 source $VENV/bin/activate
 pip install --upgrade packages/*
-rsync -av -r --exclude '*.bat' --include '*.sh|*.py'  hostfactory/1.1/providerplugins/azurecc/scripts  $pluginSrcPath
+rsync -av -r --exclude '*.bat' --include '*.sh|*.py'  hostfactory/1.2/providerplugins/azurecc/scripts  $pluginSrcPath
 
 if [ -f $PKG_NAME ]; then
     rm -f $PKG_NAME
