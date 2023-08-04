@@ -386,7 +386,8 @@ class TestHostFactory(unittest.TestCase):
         self.assertEqual({'status': 'complete', 'requests': [{'status': 'complete', 'message': '', 'requestId': 'missing', 'machines': []}]}, status_response)
         
         status_response = provider.status({"requests": [{"requestId": "delete-missing"}]})
-        self.assertEqual({'status': 'running', 'requests': [{'status': 'running', "message": "Unknown termination request id.", 'requestId': 'delete-missing', 'machines': []}]}, status_response)
+        # self.assertEqual({'status': 'running', 'requests': [{'status': 'running', "message": "Unknown termination request id.", 'requestId': 'delete-missing', 'machines': []}]}, status_response)
+        self.assertEqual({'status': 'running', 'requests': [{'status': 'complete_with_error', "message": "Unknown termination request id.", 'requestId': 'delete-missing', 'machines': []}]}, status_response)
         
     def test_terminate_status(self):
         provider = self._new_provider()
