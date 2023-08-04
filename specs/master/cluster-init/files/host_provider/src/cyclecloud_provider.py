@@ -852,7 +852,6 @@ class CycleCloudProvider:
     def _deperecated_terminate_status(self, input_json):
         # can transition from complete -> executing or complete -> complete_with_error -> executing
         # executing is a terminal state.
-        request_status = RequestStates.complete
         
         response = {"requests": []}
         # needs to be a [] when we return
@@ -884,6 +883,10 @@ class CycleCloudProvider:
                 logger.exception("Could not terminate nodes with ids %s. Will retry", machines_to_terminate)
             
             for termination_id in termination_ids:
+               
+                request_status = RequestStates.complete
+
+
                 response_machines = []
                 request = {"requestId": termination_id,
                            "machines": response_machines}
@@ -892,6 +895,8 @@ class CycleCloudProvider:
                 
                 if termination_id in terminate_requests:
                     termination_request = terminate_requests.get(termination_id)
+                    termination_request["lastUpdateTime"] = calendar.timegm(self.clock())
+
                     machines = termination_request.get("machines", {})
                     
                     if machines:
@@ -907,13 +912,24 @@ class CycleCloudProvider:
                                                    "machineId": machine_id})
                 else:
                     # we don't recognize this termination request!
-                    logger.warning("Unknown termination request %s. You may intervene manually by updating terminate_nodes.json" + 
-                                 " to contain the relevant NodeIds. %s ", termination_id, terminate_requests)
-                    # set to running so symphony will keep retrying, hopefully, until someone intervenes.
-                    request_status = RequestStates.running
-                    request["message"] = "Unknown termination request id."
+                    # this can result in leaked VMs!
+                    # logger.error("Unknown termination request %s. You may intervene manually by updating terminate_nodes.json" + 
+                    #              " to contain the relevant NodeIds. %s ", termination_id, terminate_requests)
+                    
+                    # # set to running so symphony will keep retrying, hopefully, until someone intervenes.
+                    # request_status = RequestStates.running
+
+                    # we don't recognize this termination request!
+                    logger.error("Unknown termination request %s. Nodes MAY be leaked.  " +
+                                 "You may intervene manually by checking the following NodesIds in CycleCloud: %s", 
+                                 termination_id, terminate_requests)
+                    
+                    # set to complete so symphony will STOP retrying.  May result in a VM leak...
+                    request_status = RequestStates.complete_with_error
+                    request["message"] = "Warning: Ignoring unknown termination request id."
                
                 request["status"] = request_status
+
         
         response["status"] = request_status
         
@@ -969,6 +985,7 @@ class CycleCloudProvider:
                 for termination_id in terminate_requests:
                     termination = terminate_requests[termination_id]
                     termination["terminated"] = True
+                    termination["lastUpdateTime"] = calendar.timegm(self.clock())
                         
             except Exception:
                 logger.exception("Could not terminate nodes with ids %s. Will retry", machines_to_terminate)
