@@ -1227,6 +1227,19 @@ class CycleCloudProvider:
 
         except Exception:
             logger.exception("Could not cleanup old requests")
+    
+    def debug_completed_nodes(self):
+        all_nodes = self.cluster.all_nodes()
+        actual_completed_nodes = set()
+        for node in all_nodes['nodes']:
+            if node.get("Status") in ["Ready", "Started"]:
+                actual_completed_nodes.add(node.get("NodeId"))
+        internal_completed_nodes = set()
+        with self.creation_json as request_store:
+            for request in request_store.values():
+                internal_completed_nodes.update(set(request.get("completedNodes")))
+        incomplete_nodes = actual_completed_nodes - internal_completed_nodes
+        print(incomplete_nodes)
 
 def bucket_priority(nodearrays, bucket_nodearray, b_index):
     prio = bucket_nodearray.get("Priority")
@@ -1320,6 +1333,8 @@ def main(argv=sys.argv, json_writer=simple_json_writer):  # pragma: no cover
             provider.get_return_requests(input_json)
         elif cmd == "terminate_machines":
             provider.terminate_machines(input_json)
+        elif cmd == "debug_completed_nodes":
+            provider.debug_completed_nodes()
         
         # best effort cleanup.
         provider.periodic_cleanup()
