@@ -59,13 +59,13 @@ class CapacityTrackingDb:
     def _capacity_key(self, nodearray_name, machine_type):
         return "%s_%s" % (nodearray_name, machine_type)
 
-    def _apply_capacity_limit(self, nodearray_name, machine_type, max_count = 0):
+    def pause_capacity(self, nodearray_name, machine_type):
         with self.capacity_db as db:
             now = calendar.timegm(self.clock())
             key = self._capacity_key(nodearray_name, machine_type)
             db[key] = { 'nodearray': nodearray_name,
                         'machine_type': machine_type,
-                        'max_count': max_count,
+                        'max_count': 0,              # we used to provide max_count set to 0 so left for backwards compatibility
                         'start_time': now }
 
 
@@ -93,30 +93,17 @@ class CapacityTrackingDb:
         num_created = len(request_status["machines"])
         request_envelope = self.get_request(request_id)
         if request_envelope:
-            for req in request_envelope.get('sets', []):
-                num_requested = 0
-                if req:
-                    num_requested = req['count'] if 'count' in req else 1
-                if num_created < num_requested:
-                    nodearray_name = req['nodearray']
-                    machine_type = req['definition']['machineType']
-                    self.logger.warning("Out-of-capacity condition detected for machine_type %s in nodearray %s", machine_type, nodearray_name)
-                    self._apply_capacity_limit(nodearray_name, machine_type)
-                    limits_changed = True
-
             self.remove_request(request_id)
 
-        limits_changed |= self._release_expired_limits()
-        return limits_changed
+        self._release_expired_limits()
     
-    def apply_capacity_limit(self, nodearray_name, machine_type, max_count):
-        current_max_count = max_count
+    def is_paused(self, nodearray_name, machine_type): 
         key = self._capacity_key(nodearray_name, machine_type)
-
+        ret = False
         limited_buckets = self.capacity_db.read()
         if key in limited_buckets:            
-            current_max_count = limited_buckets[key]['max_count']
-            self.logger.info("Limiting reported maxNumber to %s for machine_type %s in nodearray %s", current_max_count, machine_type, nodearray_name)
+            ret = True
+            self.logger.info("Limiting reported priority for machine_type %s in nodearray %s to 0", machine_type, nodearray_name)
 
         self._release_expired_limits()
-        return current_max_count
+        return ret

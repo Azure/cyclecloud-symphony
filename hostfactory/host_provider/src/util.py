@@ -1,15 +1,18 @@
 import collections
 from copy import deepcopy
-import fcntl
 import json
 import logging
+import logging.config
 from logging.handlers import RotatingFileHandler
 import os
 import shutil
 import subprocess
 import sys
 import traceback
+import time
 from builtins import str
+
+import os
 
 
 try:
@@ -30,6 +33,38 @@ def init_logging(loglevel=logging.INFO, logfile=None):
     try:
         import jetpack
         jetpack.util.setup_logging()
+    except ImportError:
+        LOGGING = {
+            'version': 1,
+            'disable_existing_loggers': False,
+            'formatters': {
+                'default': {
+                    'format': '%(asctime)s %(levelname)-8s %(message)s'
+                },
+            },
+            'handlers': {
+                'file': {
+                    # The values below are popped from this dictionary and
+                    # used to create the handler, set the handler's level and
+                    # its formatter.
+                    '()': RotatingFileHandler,
+                    'level': logging.INFO,
+                    'formatter': 'default',
+                    # The values below are passed to the handler creator callable
+                    # as keyword arguments.
+                    # 'owner': ['root', 'cyclecloud'],
+                    'filename': logfile_path,
+                },
+            },
+            'root': {
+                'handlers': ['file'],
+                'level': logging.getLevelName(loglevel),
+            },
+        }
+
+        logging.config.dictConfig(LOGGING)
+    
+    try:
         root_logger = logging.getLogger()
         filtered_handlers = []
         for handler in root_logger.handlers:
@@ -42,7 +77,7 @@ def init_logging(loglevel=logging.INFO, logfile=None):
         root_logger.handlers = filtered_handlers
         for handler in logging.getLogger().handlers:
             handler.setLevel(logging.ERROR)
-    except ImportError:
+    except:
         pass
     
     # this is really chatty
@@ -99,14 +134,21 @@ class JsonStore:
         self.lock_count += 1
         if self.lock_count > 1:
             return True
-        
-        try:
-            self.lockfp = open(self.lockpath, 'w')
-            fcntl.lockf(self.lockfp, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            return True
-        except IOError:
-            self.logger.exception("Could not acquire lock - %s" % self.lockpath)
-            return False
+        iter = 0
+        while iter < 18:
+            iter+=1
+            try:
+                self.lockfp = open(self.lockpath, 'w')
+                if os.name == 'nt':
+                    self.logger.warning("Skip locking on windows.  TODO: replace fcntl for windows")
+                else:
+                    import fcntl
+                    fcntl.lockf(self.lockfp, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                return True
+            except IOError:
+                self.logger.exception("Could not acquire lock - %s" % self.lockpath)
+                time.sleep(10)
+        return False
             
     def _unlock(self):
         self.lock_count -= 1
@@ -139,16 +181,24 @@ class JsonStore:
             
         return self.data
     
+    def write(self, data):
+        self._lock()
+        self._write(data)
+        self._unlock()
+    
+    def _write(self, data):
+        with open(self.path + ".tmp", "w") as fw:
+            indent = 2 if self.formatted else None
+            json.dump(data, fw, indent=indent, sort_keys=True)
+        shutil.move(self.path + ".tmp", self.path)
+                  
     def __enter__(self):
         if not self._lock():
             raise RuntimeError("Could not get lock %s" % self.lockpath)
-        return self._read(do_lock=False)
-            
+        return self._read(do_lock=False)         
+    
     def __exit__(self, *args):
-        with open(self.path + ".tmp", "w") as fw:
-            indent = 2 if self.formatted else None
-            json.dump(self.data, fw, indent=indent, sort_keys=True)
-        shutil.move(self.path + ".tmp", self.path)
+        self._write(self.data)
         self._unlock()
         
 
@@ -180,6 +230,10 @@ def failureresponse(response):
                 with_message = deepcopy(response)
                 with_message["message"] = str(e)
                 return args[0].json_writer(with_message)
+            except SystemExit as se:
+                # NOTE: see terminate_machines for more info
+                logger.exception("System Exit occured intentionally write 0 json so symphony recovers")
+                raise
             except:  # nopep8 ignore the bare except
                 logger.exception("Caught unknown exception...")
                 logger.debug(traceback.format_exc())
@@ -249,9 +303,14 @@ class ProviderConfig:
         return json.dumps(self.config)
 
 
-def provider_config_from_environment(pro_conf_dir=os.getenv('PRO_CONF_DIR', os.getcwd())):
+def provider_config_from_environment(pro_conf_dir=os.getenv('PRO_CONF_DIR', os.getcwd())):    
     config_file = os.path.join(pro_conf_dir, "conf", "azureccprov_config.json")
     templates_file = os.path.join(pro_conf_dir, "conf", "azureccprov_templates.json")
+    if os.name == 'nt':
+        # TODO: Why does the path matter?   Can we use one or the other for both OSs?
+        config_file = os.path.join(pro_conf_dir, "azureccprov_config.json")
+        templates_file = os.path.join(pro_conf_dir, "azureccprov_templates.json")
+
 
     hf_conf_dir = os.getenv('HF_CONFDIR', os.path.join(pro_conf_dir, "..", "..", ".."))
     hf_config_file = os.path.join(hf_conf_dir, "hostfactoryconf.json")

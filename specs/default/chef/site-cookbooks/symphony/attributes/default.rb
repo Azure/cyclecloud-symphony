@@ -1,17 +1,19 @@
 
-default['symphony']['version'] = "7.3.0.0"
-default['symphony']['eval'] = false
+default['symphony']['version'] = "7.3.2.0"
+default['symphony']['eval'] = true
 default['symphony']['pkg']['linux'] = "sym-#{node['symphony']['version']}_x86_64.bin"
 default['symphony']['pkg']['windows'] = "sym-#{node['symphony']['version']}.exe"
+default['symphony']['pkg_plugin'] = "cyclecloud-symphony-pkg-2.0.0.zip"
+default['symphony']['simplifiedwem'] = 'N'
 # TODO: Test with std license (binaries are specific to the license type as well)
 default['symphony']['license_file'] = "sym_adv_entitlement.dat"
 if node['symphony']['eval'] == true
   default['symphony']['pkg']['linux'] = "symeval-#{node['symphony']['version']}_x86_64.bin"
   default['symphony']['pkg']['windows'] = "symeval-#{node['symphony']['version']}.exe"
-  default['symphony']['license_file'] = "sym_adv_ev_entitlement.dat"
+  default['symphony']['license_file'] = "sym.entitlement.keys.eval"
+  default['symphony']['simplifiedwem'] = 'Y'
 end
 
-default['symphony']['simplifiedwem'] = 'N'
 default['symphony']['baseport'] = 14899
 default['symphony']['lim_port'] = node['symphony']['baseport']
 default['symphony']['kd_port'] = node['symphony']['baseport'] + 1
@@ -42,6 +44,17 @@ default['symphony']['ego_confdir'] = "#{node['symphony']['ego_top']}/kernel/conf
 
 # Use hostfactory? (Else use legacy autoscale.py)
 default['symphony']['host_factory']['enabled'] = true
+
+# Hostfactory location has changed in Symphony 7.3+
+if (Gem::Version.new(node['symphony']['version']) >= Gem::Version.new('7.3.0'))
+  default['symphony']['hostfactory']['top'] = "#{node['symphony']['ego_top']}/hostfactory"
+  default['symphony']['hostfactory']['templates_dir'] = 'hostfactory/7.3'
+else
+  default['symphony']['hostfactory']['top'] = "#{node['symphony']['ego_top']}/eservice/hostfactory"
+  default['symphony']['hostfactory']['templates_dir'] = 'hostfactory/7.2'
+end
+default['symphony']['hostfactory']['confdir'] = "#{node['symphony']['hostfactory']['top']}/conf"
+default['symphony']['hostfactory']['version'] = "1.2"
 
 # IP or Hostname for REST API URLs
 default['symphony']['hostfactory']['rest_address'] = '127.0.0.1'

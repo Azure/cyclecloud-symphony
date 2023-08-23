@@ -77,10 +77,11 @@ class TestHostFactory(unittest.TestCase):
         self.assertIsNotNone(db.get_request(request_id))
 
         # request completed with only 1 machine
-        create_response = {"requestId": request_id,
-                           "status": RequestStates.complete,
-                           "machines": [{"name": "host-123", "machineId": "id-123"}]}
-        db.request_completed(create_response)
+        #create_response = {"requestId": request_id,
+          #                 "status": RequestStates.complete,
+           #                "machines": [{"name": "host-123", "machineId": "id-123"}]}
+        #db.request_completed(create_response)
+        db.pause_capacity(request_set.get("nodearray"), request_set['definition']['machineType'])
         key = db._capacity_key("execute", "A4")
         capacity_db = db.capacity_db.read()
         self.assertIn(key, capacity_db)
@@ -89,8 +90,7 @@ class TestHostFactory(unittest.TestCase):
         self.assertIn(key, capacity_db)
 
         # Now verify that capacity is limited
-        max_count = db.apply_capacity_limit("execute", "A4", 100)
-        self.assertEqual(0, max_count)
+        self.assertTrue(db.is_paused("execute", "A4"))
 
         # Finally advance clock just over 5 min to expire the limit - default expiry is 300 sec
         db.clock.now = (1970, 1, 1, 0, 5, 10)
