@@ -12,6 +12,22 @@ if [ "${USE_HOSTFACTORY,,}" != "true"]; then
     exit 0
 fi
 
+SYM_VERSION=$( jetpack config symphony.version )
+HF_TOP=$( jetpack config symphony.hostfactory.top )
+if [ -z "${HF_TOP}" ]; then
+   # In Symphony 7.2 and earlier: HF_TOP=$EGO_TOP/eservice/hostfactory
+   if [ $SYM_VERSION == "7.2"* ]; then
+      HF_TOP=$EGO_TOP/eservice/hostfactory
+   else
+      HF_TOP=$EGO_TOP/hostfactory
+    fi
+fi
+
+HF_VERSION=$( jetpack config symphony.hostfactory.version )
+if [ -z "${HF_VERSION}" ]; then
+    HF_VERSION="1.2"
+fi
+
 set -e
 set -x
 
@@ -19,18 +35,23 @@ set -x
 # For now...
 # Just link the files directory from the Symphony install to make it easy to update the factory
 
-chmod 775 /opt/ibm/spectrumcomputing/eservice/hostfactory/conf
-chmod 775 ${CYCLECLOUD_SPEC_PATH}/files/host_provider/*.sh
+chmod 775 ${HF_TOP}/conf
+chmod 775 /tmp/hostfactory/host_provider/*.sh
 
-mkdir -p ${EGO_TOP}/${EGO_VERSION}/hostfactory/providers/azurecc
-ln -sf ${CYCLECLOUD_SPEC_PATH}/files/host_provider ${EGO_TOP}/${EGO_VERSION}/hostfactory/providers/azurecc/scripts
-
+#Check if SYM_VERSION is 7.2 or earlier
+if [ $SYM_VERSION == "7.2"* ]; then
+    mkdir -p ${EGO_TOP}/${EGO_VERSION}/hostfactory/providers/azurecc
+    ln -sf /tmp/hostfactory/host_provider ${EGO_TOP}/${EGO_VERSION}/hostfactory/providers/azurecc/scripts
+else
+    mkdir -p ${HF_TOP}/${HF_VERSION}/providerplugins/azurecc
+    ln -sf /tmp/hostfactory/host_provider ${HF_TOP}/${HF_VERSION}/providerplugins/azurecc/scripts
+fi
 
 set +e
 # for jetpack log access
 usermod -a -G cyclecloud egoadmin
+chown root:cyclecloud /opt/cycle/jetpack/logs/jetpack.log
 set -e
-
 
 # echo "TEMPORARY: Patching symA Requestor..."
 # sed -i.orig '/#status 1: Ready with no load, add all allocated hosts as candidates for removal/a\
