@@ -663,58 +663,56 @@ class TestHostFactory(unittest.TestCase):
         buckets = [NodeBucket(nodearray="n1", bucket_id="abcd2", priority=9)]
         self.assertEqual(9000, cyclecloud_provider.bucket_priority(buckets, buckets[0]))
         
-        buckets = [NodeBucket(nodearray="n1", bucket_id="abcd2", priority=9), NodeBucket(nodearray="n1", bucket_id="abcd3", priority=9)]
-        self.assertEqual(8999, cyclecloud_provider.bucket_priority(buckets, buckets[1]))
-
-        buckets = [NodeBucket(nodearray="n1", bucket_id="abcd2", priority=9.9)]
-        self.assertEqual(9000, cyclecloud_provider.bucket_priority(buckets, buckets[0]))
+        nodearrays = [{"name": "n1", "nodearray": {"Priority": None}}]
+        self.assertEqual(10000, cyclecloud_provider.bucket_priority(nodearrays, nodearrays[0], b_index=0))
+        self.assertEqual(9999, cyclecloud_provider.bucket_priority(nodearrays, nodearrays[0], b_index=1))
         
-        buckets = [NodeBucket(nodearray="n1", bucket_id="abcd2", priority=9.9), NodeBucket(nodearray="n1", bucket_id="abcd3", priority=9.9)]
-        self.assertEqual(8999, cyclecloud_provider.bucket_priority(buckets, buckets[1]))
-
-        buckets = [NodeBucket(nodearray="n1", bucket_id="abcd2", priority="9")]
-        self.assertEqual(9000, cyclecloud_provider.bucket_priority(buckets, buckets[0]))
+        nodearrays = [{"name": "n1", "nodearray": {"Priority": 9}}]
+        self.assertEqual(9000, cyclecloud_provider.bucket_priority(nodearrays, nodearrays[0], b_index=0))
+        self.assertEqual(8999, cyclecloud_provider.bucket_priority(nodearrays, nodearrays[0], b_index=1))
         
-        buckets = [NodeBucket(nodearray="n1", bucket_id="abcd2", priority="9"), NodeBucket(nodearray="n1", bucket_id="abcd3", priority=9.9)]
-        self.assertEqual(8999, cyclecloud_provider.bucket_priority(buckets, buckets[1]))
-        
-        buckets = [NodeBucket(nodearray="n1", bucket_id="abcd2", priority="9.9")]
-        self.assertEqual(9000, cyclecloud_provider.bucket_priority(buckets, buckets[0]))
+        nodearrays = [{"name": "n1", "nodearray": {"Priority": 9.9}}]
+        self.assertEqual(9000, cyclecloud_provider.bucket_priority(nodearrays, nodearrays[0], b_index=0))
+        self.assertEqual(8999, cyclecloud_provider.bucket_priority(nodearrays, nodearrays[0], b_index=1))
         
         buckets = [NodeBucket(nodearray="n1", bucket_id="abcd2", priority="9.9"), NodeBucket(nodearray="n1", bucket_id="abcd3", priority=9.9)]
         self.assertEqual(8999, cyclecloud_provider.bucket_priority(buckets, buckets[1]))
         
-        buckets = [NodeBucket(nodearray="n1", bucket_id="abcd2", priority=0)]
-        self.assertEqual(0, cyclecloud_provider.bucket_priority(buckets, buckets[0]))
+        nodearrays = [{"name": "n1", "nodearray": {"Priority": "9"}}]
+        self.assertEqual(9000, cyclecloud_provider.bucket_priority(nodearrays, nodearrays[0], b_index=0))
+        self.assertEqual(8999, cyclecloud_provider.bucket_priority(nodearrays, nodearrays[0], b_index=1))
         
-        buckets = [NodeBucket(nodearray="n1", bucket_id="abcd2", priority=0), NodeBucket(nodearray="n1", bucket_id="abcd3", priority=0)]
-        self.assertEqual(0, cyclecloud_provider.bucket_priority(buckets, buckets[1]))
+        nodearrays = [{"name": "n1", "nodearray": {"Priority": "9.9"}}]
+        self.assertEqual(9000, cyclecloud_provider.bucket_priority(nodearrays, nodearrays[0], b_index=0))
+        self.assertEqual(8999, cyclecloud_provider.bucket_priority(nodearrays, nodearrays[0], b_index=1))
         
-        buckets = [NodeBucket(nodearray="n1", bucket_id="abcd2", priority=-4)]
-        self.assertEqual(10000, cyclecloud_provider.bucket_priority(buckets, buckets[0]))
+        nodearrays = [{"name": "n1", "nodearray": {"Priority": 0}}]
+        self.assertEqual(0, cyclecloud_provider.bucket_priority(nodearrays, nodearrays[0], b_index=0))
+        self.assertEqual(0, cyclecloud_provider.bucket_priority(nodearrays, nodearrays[0], b_index=1))
         
-        buckets = [NodeBucket(nodearray="n1", bucket_id="abcd2", priority=-4), NodeBucket(nodearray="n1", bucket_id="abcd3", priority=-4)]
-        self.assertEqual(9999, cyclecloud_provider.bucket_priority(buckets, buckets[1]))
+        nodearrays = [{"name": "n1", "nodearray": {"Priority": -4}}]
+        self.assertEqual(10000, cyclecloud_provider.bucket_priority(nodearrays, nodearrays[0], b_index=0))
+        self.assertEqual(9999, cyclecloud_provider.bucket_priority(nodearrays, nodearrays[0], b_index=1))
         
-        buckets = [NodeBucket(nodearray="n1", bucket_id="abcd2", priority="-4")]
-        self.assertEqual(10000, cyclecloud_provider.bucket_priority(buckets, buckets[0]))
+        nodearrays = [{"name": "n1", "nodearray": {"Priority": "-4"}}]
+        self.assertEqual(10000, cyclecloud_provider.bucket_priority(nodearrays, nodearrays[0], b_index=0))
+        self.assertEqual(9999, cyclecloud_provider.bucket_priority(nodearrays, nodearrays[0], b_index=1))
         
-        buckets = [NodeBucket(nodearray="n1", bucket_id="abcd2", priority="-4"), NodeBucket(nodearray="n1", bucket_id="abcd3", priority="-4")]
-        self.assertEqual(9999, cyclecloud_provider.bucket_priority(buckets, buckets[1]))
-
-        buckets = [NodeBucket(nodearray="n1", bucket_id="abcd2", priority=[1,2,3])]
-        self.assertEqual(10000, cyclecloud_provider.bucket_priority(buckets, buckets[0]))
+        nodearrays = [{"name": "n1", "nodearray": {"Priority": [1,2,3]}}]
+        self.assertEqual(10000, cyclecloud_provider.bucket_priority(nodearrays, nodearrays[0], b_index=0))
+        self.assertEqual(9999, cyclecloud_provider.bucket_priority(nodearrays, nodearrays[0], b_index=1))
         
-        buckets = [NodeBucket(nodearray="n1", bucket_id="abcd2", priority=[1,2,3]), NodeBucket(nodearray="n1", bucket_id="abcd3", priority=[1,2,3])]
-        self.assertEqual(9999, cyclecloud_provider.bucket_priority(buckets, buckets[1]))
+        nodearrays = [{"name": "n1", "nodearray": {"Priority": "[1,2,3]"}}]
+        self.assertEqual(10000, cyclecloud_provider.bucket_priority(nodearrays, nodearrays[0], b_index=0))
+        self.assertEqual(9999, cyclecloud_provider.bucket_priority(nodearrays, nodearrays[0], b_index=1))
         
         buckets = [NodeBucket(nodearray="n1", bucket_id="abcd2"), NodeBucket(nodearray="n2", bucket_id="abcd3")]
         self.assertEqual(20000, cyclecloud_provider.bucket_priority(buckets, buckets[0]))
         self.assertEqual(10000, cyclecloud_provider.bucket_priority(buckets, buckets[1]))
         
-        buckets = [NodeBucket(nodearray="n1", bucket_id="abcd2"), NodeBucket(nodearray="n2", bucket_id="abcd3", priority=20)]
-        self.assertEqual(20000, cyclecloud_provider.bucket_priority(buckets, buckets[0]))
-        self.assertEqual(20000, cyclecloud_provider.bucket_priority(buckets, buckets[1]))
+        nodearrays = [{"name": "n1"}, {"name": "n2", "nodearray": {"Priority": 20}}]
+        self.assertEqual(20000, cyclecloud_provider.bucket_priority(nodearrays, nodearrays[0], b_index=0))
+        self.assertEqual(20000, cyclecloud_provider.bucket_priority(nodearrays, nodearrays[1], b_index=0))
         
 
 if __name__ == "__main__":

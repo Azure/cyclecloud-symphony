@@ -77,66 +77,36 @@ class Cluster:
             logger.warning(f"This could trigger a pause capacity for nodearray {nodearray_name} VM Size {machine_type}")
             request_set["count"] = bucket["availableCount"]
         return request_copy
-    
-    def add_nodes_scalelib(self, request, max_count):
-        sku = request['sets'][0]['definition']['machineType']
-        selector = {"node.nodearray": request['sets'][0]['nodearray']}
-        if sku:
-           selector["node.vm_size"] = sku
-        selector_list = [selector]
-        alloc_result = self.node_mgr.allocate(constraints=selector_list, node_count=request['sets'][0]['count'], allow_existing=False)
-        filtered_nodes = [n for n in alloc_result.nodes if int(n.name.split("-")[-1]) <= max_count]
-        exceeded_nodes = list(set(alloc_result.nodes) - set(filtered_nodes))
-        if len(exceeded_nodes) > 0:
-            self.logger.warning("In the allocation result %s nodes exceeded %s", len(exceeded_nodes), str(exceeded_nodes))
-            for node in self.node_mgr.get_nodes():
-                self.logger.debug("Node name %s Node state %s Node targetstate %s", node.name, node.state, node.target_state)
         
-        self.logger.debug("Request id in add nodes %s",request['requestId'])    
-        request_id_start = f"{request['requestId']}-start"
-        request_id_create = f"{request['requestId']}-create"
-
-        bootup_resp = []
-        if len(filtered_nodes) > 0:
-            bootup_resp = self.node_mgr.bootup(nodes=filtered_nodes,
-            request_id_start=request_id_start, request_id_create=request_id_create
-            )
-        if (bootup_resp is None or []) or (bootup_resp.nodes is None or []):
-            return False
-        self.logger.debug("node bootup %s",bootup_resp)
-        self.logger.debug("node bootup requestids %s",bootup_resp.request_ids)
-        return (bootup_resp)
-    
-    def add_nodes(self, request, max_count):
-        def get_avail_count(status):
-            request_set = request['sets'][0]
-            machine_type = request_set["definition"]["machineType"]
-            nodearray_name = request_set['nodearray']
-            filtered = [x for x in status["nodearrays"] if x["name"] == nodearray_name]
-            if len(filtered) < 1:
-                raise RuntimeError(f"Nodearray {nodearray_name} does not exist or has been removed")
-            nodearray = filtered[0]
-            filtered_buckets = [x for x in nodearray["buckets"] if x["definition"]["machineType"] == machine_type]
-            if len(filtered_buckets) < 1:
-                raise RuntimeError(f"VM Size {machine_type} does not exist or has been removed from nodearray {nodearray_name}")
-            bucket = filtered_buckets[0]
-            return bucket["availableCount"]
-            
+    def get_avail_count(self, machine_type, nodearray_name):
+        status_resp = self.status()
+        filtered = [x for x in status_resp["nodearrays"] if x["name"] == nodearray_name]
+        if len(filtered) < 1:
+            raise RuntimeError(f"Nodearray {nodearray_name} does not exist or has been removed")
+        nodearray = filtered[0]
+        filtered_buckets = [x for x in nodearray["buckets"] if x["definition"]["machineType"] == machine_type]
+        if len(filtered_buckets) < 1:
+            raise RuntimeError(f"VM Size {machine_type} does not exist or has been removed from nodearray {nodearray_name}")
+        bucket = filtered_buckets[0]
+        return bucket["availableCount"]
+        
+    def add_nodes(self, request):   
         # TODO: Remove request_copy once Max count is correctly enforced in CC.
         status_resp = self.status()
         request_copy = self.limit_request_by_available_count(status=status_resp, request=request, logger=self.logger)
         
         response = self.add_nodes_scalelib(request_copy, max_count)
         # TODO: Get rid of extra status call in CC 8.4.0
-        origin_avail_count = get_avail_count(status_resp)
+        import time
+        request_copy_set = request_copy['sets'][0]
+        origin_avail_count = self.get_avail_count(request_copy_set["definition"]["machineType"], request_copy_set['nodearray'])
         max_mitigation_attempts = int(self.provider_config.get("symphony.max_status_mitigation_attempts", 10)) 
         i = 0
         avail_has_decreased = False
         self.logger.info("BEGIN Overallocation Mitigation request id %s", request["requestId"])
         while i < max_mitigation_attempts and not avail_has_decreased:
             i = i + 1
-            temp_status = self.status()
-            new_avail_count = get_avail_count(temp_status)
+            new_avail_count = self.get_avail_count(request_copy_set["definition"]["machineType"], request_copy_set['nodearray'])
             if new_avail_count < origin_avail_count:
                 avail_has_decreased = True
                 break
