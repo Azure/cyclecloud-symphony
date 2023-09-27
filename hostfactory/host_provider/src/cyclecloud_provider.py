@@ -90,10 +90,8 @@ class CycleCloudProvider:
                 max_count = 0
             at_least_one_available_bucket = at_least_one_available_bucket or max_count > 0  
         return not at_least_one_available_bucket
-     
-    # Regenerate templates (and potentially reconfig HostFactory) without output, so 
-    #  this method is safe to call from other API calls
-    def _update_templates(self, do_REST=False):
+    
+    def _generate_templates(self):
         """
         input (ignored):
         []
@@ -230,9 +228,58 @@ class CycleCloudProvider:
                 symphony_template["maxNumber"] = 0
                 symphony_template["priority"] = 0
                 
-        new_templates_str = json.dumps(templates_store, indent=2, sort_keys=True)
         symphony_templates = list(templates_store.values())
         symphony_templates = sorted(symphony_templates, key=lambda x: -x["priority"])
+    
+        # Note: we aren't going to store this, so it will naturally appear as an error during allocation.
+        if not at_least_one_available_bucket:
+            symphony_templates.insert(0, PLACEHOLDER_TEMPLATE)
+        self.templates_json.write(templates_store)
+        return symphony_templates
+        
+    # Regenerate templates (and potentially reconfig HostFactory) without output, so 
+    #  this method is safe to call from other API calls
+    def _update_templates(self):
+        """
+        input (ignored):
+        []
+        
+        output:
+        {'templates': [{'attributes': {'azurecchost': ['Boolean', '1'],
+                               'mem': ['Numeric', '2048'],
+                               'ncores': ['Numeric', '4'],
+                               'ncpus': ['Numeric', '1'],
+                               'type': ['String', 'X86_64'],
+                               'zone': ['String', 'southeastus']},
+                'instanceTags': 'group=project1',
+                'maxNumber': 10,
+                'pgrpName': None,
+                'priority': 0,
+                'templateId': 'execute0'},
+               {'attributes': {'azurecchost': ['Boolean', '1'],
+                               'mem': ['Numeric', '4096'],
+                               'ncores': ['Numeric', '8'],
+                               'ncpus': ['Numeric', '1'],
+                               'rank': ['Numeric', '0'],
+                               'priceInfo': ['String', 'price:0.1,billingTimeUnitType:prorated_hour,billingTimeUnitNumber:1,billingRoundoffType:unit'],
+                               'type': ['String', 'X86_64'],
+                               'zone': ['String', 'southeastus']},
+                'instanceTags': 'group=project1',
+                'maxNumber': 10,
+                'pgrpName': None,
+                'priority': 0,
+                'templateId': 'execute1'}]}
+        """
+        templates_store = self.templates_json.read()
+        
+        prior_templates_str = json.dumps(templates_store, indent=2, sort_keys=True) 
+        logger.info("Prior templates:\n%s", prior_templates_str) 
+        
+        symphony_templates = self._generate_templates()
+        
+        templates_store = self.templates_json.read()
+        new_templates_str = json.dumps(templates_store, indent=2, sort_keys=True)
+        logger.info("new templates:\n%s", new_templates_str)
         #if new_templates_str != prior_templates_str and len(prior_templates) > 0: this probably was here to avoid a deadlock, but here we are avoiding with do_REST
         if new_templates_str != prior_templates_str:
             generator = difflib.context_diff(prior_templates_str.splitlines(), new_templates_str.splitlines())
@@ -240,34 +287,41 @@ class CycleCloudProvider:
             new_template_order = ", ".join(["%s:%s" % (x.get("templateId", "?"), x.get("maxNumber", "?")) for x in symphony_templates])
             logger.warning("Templates have changed - new template priority order: %s", new_template_order)
             logger.warning("Diff:\n%s", str(difference))
-            persist_templates = not do_REST #we always persist if not doing REST call, otherwise only persist on succesful REST call
-            if do_REST:
-                try:
-                    rest_client = SymphonyRestClient(self.config, logger)  
-                    rest_client.update_hostfactory_templates({"templates": symphony_templates, "message": "Get available templates success."})
-                    persist_templates = True
-                except:
-                    logger.exception("Ignoring failure to update cluster templates via Symphony REST API. (Is REST service running?)")
+
+            try:
+                rest_client = SymphonyRestClient(self.config, logger)  
+                rest_client.update_hostfactory_templates({"templates": symphony_templates, "message": "Get available templates success."})
+                persist_templates = True
+            except:
+                logger.exception("Ignoring failure to update cluster templates via Symphony REST API. (Is REST service running?)")
             if persist_templates:        
                 self.templates_json.write(templates_store)
-               
-        # Note: we aren't going to store this, so it will naturally appear as an error during allocation.
-        if not at_least_one_available_bucket:
-            symphony_templates.insert(0, PLACEHOLDER_TEMPLATE)
 
         return symphony_templates
-        
+     
+    # TODO: method to generate templates in memory and methods for returning it for getAvailableTemplates or REST call.   
     # If we return an empty list or templates with 0 hosts, it removes us forever and ever more, so _always_
     # return at least one machine.
     # BUGFIX: exiting non-zero code will make symphony retry.
-    def templates(self):
+    def templates(self): 
         try:
-            symphony_templates = self._update_templates()
+            if not self.config.get("symphony.enable_template_creation", False):
+                pro_conf_dir=os.getenv('PRO_CONF_DIR', os.getcwd())
+                conf_path = os.path.join(pro_conf_dir, "conf", "azureccprov_templates.json")
+                with open(conf_path, 'r') as json_file:
+                    template_json = json.load(json_file)
+                symphony_templates = template_json["templates"]
+                logger.info("Symphony tempolates")
+                logger.info(symphony_templates)
+            else:
+                symphony_templates = self._generate_templates()
+                
             return self.json_writer({"templates": symphony_templates, "message": "Get available templates success."}, debug_output=False)
         except:
             logger.warning("Exiting Non-zero so that symphony will retry")
             logger.exception("Could not get template_json")
-            sys.exit(1)        
+            sys.exit(1) 
+                   
     def generate_userdata(self, template):
         ret = {}
         
@@ -1161,7 +1215,8 @@ class CycleCloudProvider:
 
     def periodic_cleanup(self):
         try:
-            self._update_templates(do_REST=True)
+            if self.config.get("symphony.enable_template_creation", False):
+                self._update_templates()
         except Exception:
             logger.exception("Could not update templates")
 
