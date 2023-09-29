@@ -77,6 +77,17 @@ class Cluster:
             logger.warning(f"This could trigger a pause capacity for nodearray {nodearray_name} VM Size {machine_type}")
             request_set["count"] = bucket["availableCount"]
         return request_copy
+    def get_avail_count(self, machine_type, nodearray_name):
+        status_resp = self.status()
+        filtered = [x for x in status_resp["nodearrays"] if x["name"] == nodearray_name]
+        if len(filtered) < 1:
+            raise RuntimeError(f"Nodearray {nodearray_name} does not exist or has been removed")
+        nodearray = filtered[0]
+        filtered_buckets = [x for x in nodearray["buckets"] if x["definition"]["machineType"] == machine_type]
+        if len(filtered_buckets) < 1:
+            raise RuntimeError(f"VM Size {machine_type} does not exist or has been removed from nodearray {nodearray_name}")
+        bucket = filtered_buckets[0]
+        return bucket["availableCount"]
     
     def add_nodes_scalelib(self, request, max_count):
         sku = request['sets'][0]['definition']['machineType']
@@ -108,19 +119,6 @@ class Cluster:
         return (bootup_resp)
     
     def add_nodes(self, request, max_count):
-        def get_avail_count(status):
-            request_set = request['sets'][0]
-            machine_type = request_set["definition"]["machineType"]
-            nodearray_name = request_set['nodearray']
-            filtered = [x for x in status["nodearrays"] if x["name"] == nodearray_name]
-            if len(filtered) < 1:
-                raise RuntimeError(f"Nodearray {nodearray_name} does not exist or has been removed")
-            nodearray = filtered[0]
-            filtered_buckets = [x for x in nodearray["buckets"] if x["definition"]["machineType"] == machine_type]
-            if len(filtered_buckets) < 1:
-                raise RuntimeError(f"VM Size {machine_type} does not exist or has been removed from nodearray {nodearray_name}")
-            bucket = filtered_buckets[0]
-            return bucket["availableCount"]
             
         # TODO: Remove request_copy once Max count is correctly enforced in CC.
         status_resp = self.status()
@@ -128,15 +126,15 @@ class Cluster:
         
         response = self.add_nodes_scalelib(request_copy, max_count)
         # TODO: Get rid of extra status call in CC 8.4.0
-        origin_avail_count = get_avail_count(status_resp)
+        request_copy_set = request_copy['sets'][0]
+        origin_avail_count = self.get_avail_count(request_copy_set["definition"]["machineType"], request_copy_set['nodearray'])
         max_mitigation_attempts = int(self.provider_config.get("symphony.max_status_mitigation_attempts", 10)) 
         i = 0
         avail_has_decreased = False
         self.logger.info("BEGIN Overallocation Mitigation request id %s", request["requestId"])
         while i < max_mitigation_attempts and not avail_has_decreased:
             i = i + 1
-            temp_status = self.status()
-            new_avail_count = get_avail_count(temp_status)
+            new_avail_count = self.get_avail_count(request_copy_set["definition"]["machineType"], request_copy_set['nodearray'])
             if new_avail_count < origin_avail_count:
                 avail_has_decreased = True
                 break
