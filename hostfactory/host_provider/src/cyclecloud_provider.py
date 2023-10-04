@@ -373,6 +373,11 @@ class CycleCloudProvider:
                 with open(conf_path, 'r') as json_file:
                     template_json = json.load(json_file)
                 symphony_templates = template_json["templates"]
+                templates_store = {}
+                for template in symphony_templates:
+                    key = template["templateId"]
+                    templates_store[key] = template
+                self.templates_json.write(templates_store)
                 logger.info("Symphony tempolates")
                 logger.info(symphony_templates)
             else:
@@ -508,19 +513,19 @@ class CycleCloudProvider:
             def _get(name):
                 return template["attributes"].get(name, [None, None])[1]
             
-            rc_account = input_json.get("rc_account", "default")
+            # rc_account = input_json.get("rc_account", "default")
             
-            user_data = template.get("UserData")
+            # user_data = template.get("UserData")
 
-            if rc_account != "default":
-                if "symphony" not in user_data:
-                    user_data["symphony"] = {}
+            # if rc_account != "default":
+            #     if "symphony" not in user_data:
+            #         user_data["symphony"] = {}
                 
-                if "custom_env" not in user_data["symphony"]:
-                    user_data["symphony"]["custom_env"] = {}
+            #     if "custom_env" not in user_data["symphony"]:
+            #         user_data["symphony"]["custom_env"] = {}
                     
-                user_data["symphony"]["custom_env"]["rc_account"] = rc_account
-                user_data["symphony"]["custom_env_names"] = " ".join(sorted(user_data["symphony"]["custom_env"].keys()))
+            #     user_data["symphony"]["custom_env"]["rc_account"] = rc_account
+            #     user_data["symphony"]["custom_env_names"] = " ".join(sorted(user_data["symphony"]["custom_env"].keys()))
             
             nodearray = _get("nodearray")
             
@@ -528,11 +533,11 @@ class CycleCloudProvider:
             
             request_set = { 'count': machine_count,                       
                             'definition': {'machineType': machinetype_name},
-                            'nodeAttributes': {'Tags': {"rc_account": rc_account},
-                                                'Configuration': user_data},
+                            # 'nodeAttributes': {'Tags': {"rc_account": rc_account},
+                            #                     'Configuration': user_data},
                             'nodearray': nodearray }
-            if template["attributes"].get("placementgroup"):
-                request_set["placementGroupId"] = template["attributes"].get("placementgroup")[1]
+            # if template["attributes"].get("placementgroup"):
+            #     request_set["placementGroupId"] = template["attributes"].get("placementgroup")[1]
             
             # We are grabbing the lock to serialize this call.
             try:
@@ -1313,7 +1318,8 @@ class CycleCloudProvider:
         print(incomplete_nodes)
 
 def bucket_priority(nodearrays, bucket_nodearray, b_index):
-    prio = bucket_nodearray.get("nodearray")["Priority"]
+    nodearray = bucket_nodearray.get("nodearray")
+    prio = nodearray.get("Priority")
     if isinstance(prio, str):
         try:
             prio = int(float(prio))
