@@ -654,14 +654,9 @@ class TestHostFactory(unittest.TestCase):
         assert_no_user_data()
 
     def test_bucket_priority(self):
-        buckets = [NodeBucket(nodearray="n1", bucket_id="abcd2")]
-        self.assertEqual(10000, cyclecloud_provider.bucket_priority(buckets, buckets[0]))
-        
-        buckets = [NodeBucket(nodearray="n1", bucket_id="abcd2"), NodeBucket(nodearray="n1", bucket_id="abcd3")]
-        self.assertEqual(9999, cyclecloud_provider.bucket_priority(buckets, buckets[1]))
-
-        buckets = [NodeBucket(nodearray="n1", bucket_id="abcd2", priority=9)]
-        self.assertEqual(9000, cyclecloud_provider.bucket_priority(buckets, buckets[0]))
+        nodearrays = [{"name": "n1","nodearray":{}}]
+        self.assertEqual(10000, cyclecloud_provider.bucket_priority(nodearrays, nodearrays[0], b_index=0))
+        self.assertEqual(9999, cyclecloud_provider.bucket_priority(nodearrays, nodearrays[0], b_index=1))
         
         nodearrays = [{"name": "n1", "nodearray": {"Priority": None}}]
         self.assertEqual(10000, cyclecloud_provider.bucket_priority(nodearrays, nodearrays[0], b_index=0))
@@ -706,11 +701,11 @@ class TestHostFactory(unittest.TestCase):
         self.assertEqual(10000, cyclecloud_provider.bucket_priority(nodearrays, nodearrays[0], b_index=0))
         self.assertEqual(9999, cyclecloud_provider.bucket_priority(nodearrays, nodearrays[0], b_index=1))
         
-        buckets = [NodeBucket(nodearray="n1", bucket_id="abcd2"), NodeBucket(nodearray="n2", bucket_id="abcd3")]
-        self.assertEqual(20000, cyclecloud_provider.bucket_priority(buckets, buckets[0]))
-        self.assertEqual(10000, cyclecloud_provider.bucket_priority(buckets, buckets[1]))
+        nodearrays = [{"name": "n1", "nodearray":{}}, {"name": "n2", "nodearray":{}}]
+        self.assertEqual(20000, cyclecloud_provider.bucket_priority(nodearrays, nodearrays[0], b_index=0))
+        self.assertEqual(10000, cyclecloud_provider.bucket_priority(nodearrays, nodearrays[1], b_index=0))
         
-        nodearrays = [{"name": "n1"}, {"name": "n2", "nodearray": {"Priority": 20}}]
+        nodearrays = [{"name": "n1", "nodearray":{}}, {"name": "n2", "nodearray": {"Priority": 20}}]
         self.assertEqual(20000, cyclecloud_provider.bucket_priority(nodearrays, nodearrays[0], b_index=0))
         self.assertEqual(20000, cyclecloud_provider.bucket_priority(nodearrays, nodearrays[1], b_index=0))
         

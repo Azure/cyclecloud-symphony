@@ -319,6 +319,11 @@ class CycleCloudProvider:
                 with open(conf_path, 'r') as json_file:
                     template_json = json.load(json_file)
                 symphony_templates = template_json["templates"]
+                templates_store = {}
+                for template in symphony_templates:
+                    key = template["templateId"]
+                    templates_store[key] = template
+                self.templates_json.write(templates_store)
                 logger.info("Symphony tempolates")
                 logger.info(symphony_templates)
             else:
@@ -1262,7 +1267,8 @@ class CycleCloudProvider:
         print(incomplete_nodes)
 
 def bucket_priority(nodearrays, bucket_nodearray, b_index):
-    prio = bucket_nodearray.get("nodearray")["Priority"]
+    nodearray = bucket_nodearray.get("nodearray")
+    prio = nodearray.get("Priority")
     if isinstance(prio, str):
         try:
             prio = int(float(prio))
