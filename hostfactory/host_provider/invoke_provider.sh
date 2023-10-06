@@ -12,7 +12,7 @@ export PYTHONPATH=$PYTHONPATH:$scriptDir/src
 env > /tmp/invoke.env
 
 embedded_python=/opt/cycle/jetpack/system/embedded/bin/python
-venv_path=/opt/ibm/spectrumcomputing/hostfactory/1.1/providerplugins/azurecc/venv/bin
+venv_path=/opt/ibm/spectrumcomputing/hostfactory/1.2/providerplugins/azurecc/venv/bin
 
 
 if [ -e $venv_path ]; then
