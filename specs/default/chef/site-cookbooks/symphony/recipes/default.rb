@@ -37,26 +37,26 @@ mgmt_hosts = []
 if node['symphony']['master_host'].nil?
   mgmt_nodes = []
   master_nodes = Symphony::Helpers.wait_for_master(30) do
-  mgmt_nodes = cluster.search(:clusterUID => node['cyclecloud']['cluster']['id']).select { |n|
-    if not n['symphony'].nil?
-      Chef::Log.info("#{n['cyclecloud']['instance']['ipv4']} mgmt: #{n['symphony']['is_management'] == true}  master: #{n['symphony']['is_master'] == true}")
-    end
-    if not n['symphony'].nil? and n['symphony']['is_management'] == true
-      mgmt_nodes << n
-    end
-    # Return the master node
-    if not n['symphony'].nil? and n['symphony']['is_master'] == true
-      n
-    end
-  }
-end
+    mgmt_nodes = cluster.search(:clusterUID => node['cyclecloud']['cluster']['id']).select { |n|
+      if not n['symphony'].nil?
+        Chef::Log.info("#{n['cyclecloud']['instance']['ipv4']} mgmt: #{n['symphony']['is_management'] == true}  master: #{n['symphony']['is_master'] == true}")
+      end
+      if not n['symphony'].nil? and n['symphony']['is_management'] == true
+        mgmt_nodes << n
+      end
+      # Return the master node
+      if not n['symphony'].nil? and n['symphony']['is_master'] == true
+        n
+      end
+    }
+  end
 
-master_node = master_nodes[0]
-master_host = master_node['cyclecloud']['instance']['hostname']
-mgmt_hosts = mgmt_nodes.map { |n|
-  n['cyclecloud']['instance']['hostname']
-}
-mgmt_hosts = mgmt_hosts.sort {|a,b| a[1] <=> b[1]}
+  master_node = master_nodes[0]
+  master_host = master_node['cyclecloud']['instance']['hostname']
+  mgmt_hosts = mgmt_nodes.map { |n|
+    n['cyclecloud']['instance']['hostname']
+  }
+  mgmt_hosts = mgmt_hosts.sort {|a,b| a[1] <=> b[1]}
   Chef::Log.info("Found master: #{master_host} and Management Nodes: #{mgmt_hosts}.")
   
 else
@@ -254,10 +254,10 @@ if node['symphony']['shared_fs_install'] == false or node['symphony']['is_master
     set -x
     . /etc/profile.d/symphony.sh
     set -e
-env
+    env
     chmod a+x #{node['jetpack']['downloads']}/#{node['symphony']['pkg']['linux']}
     #{node['jetpack']['downloads']}/#{node['symphony']['pkg']['linux']} --quiet
-touch /etc/sym-installed
+    touch /etc/sym-installed
     EOH
     creates "/etc/sym-installed"
   end

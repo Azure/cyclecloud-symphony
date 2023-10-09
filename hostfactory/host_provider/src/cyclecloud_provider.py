@@ -28,7 +28,8 @@ PLACEHOLDER_TEMPLATE = {"templateId": "exceptionPlaceholder",
                         "attributes": {
                             "mem": ["Numeric", 1024],
                             "ncpus": ["Numeric", 1],
-                            "ncores": ["Numeric", 1]
+                            "ncores": ["Numeric", 1],
+                            "type" : [ "String", "X86_64" ]
                             }
                         }
 
@@ -76,32 +77,20 @@ class CycleCloudProvider:
             
         for writer in writers:
             json.dump(example, writer, indent=2, separators=(',', ': '))
-
-    def _check_for_zero_capacity(self, nodearrays):
+            
+    def _check_for_zero_capacity_scalelib(self, buckets):
         at_least_one_available_bucket = False
-        for nodearray_root in nodearrays:
-            nodearray = nodearray_root.get("nodearray")
-            
-            # legacy, ignore any dynamically created arrays.
-            if nodearray.get("Dynamic"):
-                continue
-            
-            autoscale_enabled = nodearray.get("Configuration", {}).get("autoscaling", {}).get("enabled", False)
+        for bucket in buckets:
+            autoscale_enabled = bucket.software_configuration.get("autoscaling", {}).get("enabled", False)
             if not autoscale_enabled:
-                continue
-            
-            for bucket in nodearray_root.get("buckets"):
-                machine_type =  bucket["definition"]["machineType"]
-                virtual_machine = bucket["virtualMachine"]
-                # Symphony hates special characters
-                nodearray_name = nodearray_root["name"]
-                max_count = self._max_count(nodearray_name, nodearray, virtual_machine.get("vcpuCount"), bucket)
-                is_paused = self.capacity_tracker.is_paused(nodearray_name, machine_type)
-                if is_paused:
-                    max_count = 0
-                at_least_one_available_bucket = at_least_one_available_bucket or max_count > 0
+               continue
+            max_count = bucket.max_count
+            is_paused = self.capacity_tracker.is_paused(bucket.nodearray, bucket.vm_size)
+            if is_paused:
+                max_count = 0
+            at_least_one_available_bucket = at_least_one_available_bucket or max_count > 0  
         return not at_least_one_available_bucket
-    
+     
     # Regenerate templates (and potentially reconfig HostFactory) without output, so 
     #  this method is safe to call from other API calls
     def _update_templates(self, do_REST=False):
@@ -139,151 +128,99 @@ class CycleCloudProvider:
         templates_store = self.templates_json.read()
         
         prior_templates_str = json.dumps(templates_store, indent=2, sort_keys=True)  
-        # returns Cloud.Node records joined on MachineType - the array node only
-        response = self.cluster.status()
 
-        nodearrays = response["nodearrays"]
-        
-        if "nodeArrays" in nodearrays:
-            logger.error("Invalid CycleCloud version. Please upgrade your CycleCloud instance.")
-            raise InvalidCycleCloudVersionError("Invalid CycleCloud version. Please upgrade your CycleCloud instance.")
-        
-        if self.fine:
-            logger.debug("nodearrays response\n%s", json.dumps(nodearrays, indent=2))
+        buckets = self.cluster.get_buckets()
         
         # We cannot report to Symphony that we have 0 capacity on all VMs. If we detect this we
         # simply reset any temporary capacity constraints.
-        if self._check_for_zero_capacity(nodearrays):
+        if self._check_for_zero_capacity_scalelib(buckets):
             logger.warning("All buckets have 0 capacity. Resetting capacity tracker.")
             self.capacity_tracker.reset()
         
         currently_available_templates = set()
-        
-        for nodearray_root in nodearrays:
-            nodearray = nodearray_root.get("nodearray")
             
-            # legacy, ignore any dynamically created arrays.
-            if nodearray.get("Dynamic"):
-                continue
+        for bucket in buckets:
+
             
-            autoscale_enabled = nodearray.get("Configuration", {}).get("autoscaling", {}).get("enabled", False)
+            autoscale_enabled = bucket.software_configuration.get("autoscaling", {}).get("enabled", False)
             if not autoscale_enabled:
                 continue
+            # Symphony hates special characters
+            template_id = "%s%s" % (bucket.nodearray, bucket.vm_size)
+            template_id = self._escape_id(template_id)
+            currently_available_templates.add(template_id)
             
-            for b_index, bucket in enumerate(nodearray_root.get("buckets")):
-                machine_type_name = bucket["definition"]["machineType"]
-                machine_type_short = machine_type_name.lower().replace("standard_", "").replace("basic_", "").replace("_", "")
-                machine_type = bucket["virtualMachine"]
-                
-                # Symphony hates special characters
-                nodearray_name = nodearray_root["name"]
-                template_id = "%s%s" % (nodearray_name, machine_type_name)
-                template_id = self._escape_id(template_id)
-                if bucket.get("valid", True):
-                    currently_available_templates.add(template_id)
-                
-                max_count = self._max_count(nodearray_name, nodearray, machine_type.get("vcpuCount"), bucket)
+            max_count = bucket.max_count
+            is_low_prio = bucket.spot
+            at_least_one_available_bucket = at_least_one_available_bucket or max_count > 0
+            memory = bucket.memory.convert_to("m").value
 
-                at_least_one_available_bucket = at_least_one_available_bucket or max_count > 0
-                memory = machine_type.get("memory") * 1024
-                is_low_prio = nodearray.get("Interruptible", False)
-                ngpus = 0
-                try:
-                    ngpus = int(nodearray.get("Configuration", {}).get("symphony", {}).get("ngpus", 0))
-                except ValueError:
-                    logger.exception("Ignoring symphony.ngpus for nodearray %s" % nodearray_name)
-                
-                base_priority = bucket_priority(nodearrays, nodearray_root, b_index)
-                # Symphony
-                # - uses nram rather than mem
-                # - uses strings for numerics  
-                ncpus_use_vcpus = bool(self.config.get("symphony.ncpus_use_vcpus", True))
-                if ncpus_use_vcpus:
-                    ncpus = machine_type.get("vcpuCount")
-                else:
-                    ncpus = machine_type.get("pcpuCount")       
-                record = {
-                    "maxNumber": max_count,
-                    "templateId": template_id,
-                    "priority": base_priority,
-                    "attributes": {
-                        "zone": ["String", nodearray.get("Region")],
-                        "mem": ["Numeric", "%d" % memory],
-                        "nram": ["Numeric", "%d" % memory],
-                        # NOTE:
-                        #  ncpus == num_sockets == ncores / cores_per_socket
-                        #  Since we don't generally know the num_sockets,
-                        #      just set ncpus = 1 for all skus (1 giant CPU with N cores)
-                        #"ncpus": ["Numeric", "%d" % machine_type.get("???physical_socket_count???")],
-                        "ncpus": ["Numeric", "%d" % ncpus],  
-                        "ncores": ["Numeric", "%d" % machine_type.get("vcpuCount")],
-                        "ngpus": ["Numeric", ngpus],                            
-                        "azurecchost": ["Boolean", "1"],
-                        'rank': ['Numeric', '0'],
-                        'priceInfo': ['String', 'price:0.1,billingTimeUnitType:prorated_hour,billingTimeUnitNumber:1,billingRoundoffType:unit'],                               'type': ['String', 'X86_64'],
-                        "type": ["String", "X86_64"],
-                        "machinetypefull": ["String", machine_type_name],
-                        "machinetype": ["String", machine_type_name],
-                        "nodearray": ["String", nodearray_name],
-                        "azureccmpi": ["Boolean", "0"],
-                        "azurecclowprio": ["Boolean", "1" if is_low_prio else "0"]
-                    }
+            ngpus = 0
+            try:
+                ngpus = int(bucket.software_configuration.get("symphony", {}).get("ngpus", bucket.gpu_count))
+            except ValueError:
+                logger.exception("Ignoring symphony.ngpus for nodearray %s" % bucket.nodearray)
+            
+            base_priority = bucket_priority(buckets, bucket)
+            # Symphony
+            # - uses nram rather than mem
+            # - uses strings for numerics         
+            record = {
+                "maxNumber": max_count,
+                "templateId": template_id,
+                "priority": base_priority,
+                "attributes": {
+                    "zone": ["String", bucket.location],
+                    "mem": ["Numeric", "%d" % memory],
+                    "nram": ["Numeric", "%d" % memory],
+                    # NOTE:
+                    #  ncpus == num_sockets == ncores / cores_per_socket
+                    #  Since we don't generally know the num_sockets,
+                    #      just set ncpus = 1 for all skus (1 giant CPU with N cores)
+                    #"ncpus": ["Numeric", "%d" % machine_type.get("???physical_socket_count???")],
+                    "ncpus": ["Numeric", "%d" % bucket.resources.get("ncpus", 1)],  
+                    "ncores": ["Numeric", "%d" % bucket.resources.get("ncores", bucket.vcpu_count)],
+                    "ngpus": ["Numeric", ngpus],                            
+                    "azurecchost": ["Boolean", "1"],
+                    'rank': ['Numeric', '0'],
+                    'priceInfo': ['String', 'price:0.1,billingTimeUnitType:prorated_hour,billingTimeUnitNumber:1,billingRoundoffType:unit'],                               'type': ['String', 'X86_64'],
+                    "type": ["String", "X86_64"],
+                    "machinetypefull": ["String", bucket.vm_size],
+                    "machinetype": ["String", bucket.vm_size],
+                    "nodearray": ["String", bucket.nodearray],
+                    "azureccmpi": ["Boolean", "0"],
+                    "azurecclowprio": ["Boolean", "1" if is_low_prio else "0"]
                 }
-                
-                # deepcopy so we can pop attributes
-                
-                for override_sub_key in ["default", nodearray_name]:
-                    overrides = deepcopy(self.config.get("templates.%s" % override_sub_key, {}))
-                    attribute_overrides = overrides.pop("attributes", {})
-                    record.update(overrides)
-                    record["attributes"].update(attribute_overrides)
-                
-                attributes = self.generate_userdata(record)
-                
-                custom_env = self._parse_UserData(record.pop("UserData", "") or "")
-                record["UserData"] = {"symphony": {}}
-                
-                if custom_env:
-                    record["UserData"]["symphony"] = {"custom_env": custom_env,
-                                                    "custom_env_names": " ".join(sorted(custom_env))}
-                
-                record["UserData"]["symphony"]["attributes"] = attributes
-                record["UserData"]["symphony"]["attribute_names"] = " ".join(sorted(attributes))
+            }
+            
+            # deepcopy so we can pop attributes
+            
+            for override_sub_key in ["default", bucket.nodearray]:
+                overrides = deepcopy(self.config.get("templates.%s" % override_sub_key, {}))
+                attribute_overrides = overrides.pop("attributes", {})
+                record.update(overrides)
+                record["attributes"].update(attribute_overrides)
+            
+            attributes = self.generate_userdata(record)
+            
+            custom_env = self._parse_UserData(record.pop("UserData", "") or "")
+            record["UserData"] = {"symphony": {}}
+            
+            if custom_env:
+                record["UserData"]["symphony"] = {"custom_env": custom_env,
+                                                "custom_env_names": " ".join(sorted(custom_env))}
+            
+            record["UserData"]["symphony"]["attributes"] = attributes
+            record["UserData"]["symphony"]["attribute_names"] = " ".join(sorted(attributes))
 
-                record["pgrpName"] = None
-                
-                is_paused_capacity = self.capacity_tracker.is_paused(nodearray_name, machine_type_name)
+            record["pgrpName"] = None
+            
+            is_paused_capacity = self.capacity_tracker.is_paused(bucket.nodearray, bucket.vm_size)
 
-                if is_paused_capacity:
-                    record["priority"] = 0
-                    
-                templates_store[template_id] = record
+            if is_paused_capacity:
+                record["priority"] = 0
                 
-                for n, placement_group in enumerate(_placement_groups(self.config)):
-                    template_id = record["templateId"] + placement_group
-                    # placement groups can't be the same across templates. Might as well make them the same as the templateid
-                    namespaced_placement_group = template_id
-                    if is_low_prio:
-                        # not going to create mpi templates for interruptible nodearrays.
-                        # if the person updated the template, set maxNumber to 0 on any existing ones
-                        if template_id in templates_store:
-                            templates_store[template_id]["maxNumber"] = 0
-                            continue
-                        else:
-                            break
-                    
-                    record_mpi = deepcopy(record)
-                    record_mpi["attributes"]["placementgroup"] = ["String", namespaced_placement_group]
-                    record_mpi["UserData"]["symphony"]["attributes"]["placementgroup"] = namespaced_placement_group
-                    record_mpi["attributes"]["azureccmpi"] = ["Boolean", "1"]
-                    record_mpi["UserData"]["symphony"]["attributes"]["azureccmpi"] = True
-                    # regenerate names, as we have added placementgroup
-                    record_mpi["UserData"]["symphony"]["attribute_names"] = " ".join(sorted(record_mpi["attributes"]))
-                    record_mpi["priority"] = record_mpi["priority"] - n - 1
-                    record_mpi["templateId"] = template_id
-                    record_mpi["maxNumber"] = min(record["maxNumber"], nodearray.get("Azure", {}).get("MaxScalesetSize", 40))
-                    templates_store[record_mpi["templateId"]] = record_mpi
-                    currently_available_templates.add(record_mpi["templateId"])
+            templates_store[template_id] = record
         
         # for templates that are no longer available, advertise them but set maxNumber = 0
         for symphony_template in templates_store.values():
@@ -382,23 +319,23 @@ class CycleCloudProvider:
         max_count = bucket.get("maxCount")
         
         if max_count is not None:
-            logger.debug("Using maxCount %s for %s", max_count, bucket)
             max_count = max(-1, max_count)
+            logger.debug("Using maxCount %s for %s", max_count, bucket)
         else:
             max_core_count = bucket.get("maxCoreCount")
             if max_core_count is None:
                 if nodearray.get("maxCoreCount") is None:
                     logger.error("Need to define either maxCount or maxCoreCount! %s", pprint.pformat(bucket))
                     return -1
-                logger.debug("Using maxCoreCount")
+               
                 max_core_count = nodearray.get("maxCoreCount")
-            
+                logger.debug("Using maxCoreCount %s",max_core_count)
             max_core_count = max(-1, max_core_count)
         
             max_count = max_core_count / machine_cores
 
         # We handle unexpected Capacity failures (Spot)  by zeroing out capacity for a timed duration
-        machine_type_name = bucket["definition"]["machineType"]
+        # machine_type_name = bucket["definition"]["machineType"]
         
         
         # Below code is commented out as a customer faced an issue where autoscaling was being limited
@@ -485,16 +422,20 @@ class CycleCloudProvider:
             try:
                 with self.creation_json as requests_store:                   
                         add_nodes_response = self.cluster.add_nodes({'requestId': request_id,
-                                                            'sets': [request_set]})
+                                                        'sets': [request_set]}, template.get("maxNumber"))
             finally:
                 request_set['requestId'] = request_id
                 self.capacity_tracker.add_request(request_set)
-                
+        
+            
+            
+            if not add_nodes_response:
+                raise ValueError("No nodes were created")
+            
             logger.info("Create nodes response: %s", add_nodes_response)
-            nodes_response = self.cluster.nodes_by_operation_id(operation_id=add_nodes_response["operationId"])
             
             with self.creation_json as requests_store:
-                requests_store[request_id]["allNodes"] = [x["NodeId"] for x in nodes_response["nodes"]]
+                 requests_store[request_id]["allNodes"] = [self.cluster.get_node_id(x) for x in add_nodes_response.nodes]
 
             if template["attributes"].get("placementgroup"):
                 logger.info("Requested %s instances of machine type %s in placement group %s for nodearray %s.", machine_count, machinetype_name, _get("placementgroup"), _get("nodearray"))
@@ -578,13 +519,10 @@ class CycleCloudProvider:
             
             hostname = node.get("Hostname")
             if not hostname:
-                # No hostname or no private ip then it could not possibly be returned
-                if node.get("PrivateIp"):
-                    try:
-                        hostname = self.hostnamer.hostname(node.get("PrivateIp"))
-                    except Exception:
-                        logger.warning("get_return_requests: No hostname set and could not convert ip %s to hostname for \"%s\" VM.", node.get("PrivateIp"), node)
-                
+                try:
+                    hostname = self.hostnamer.hostname(node.get("PrivateIp"))
+                except Exception:
+                    logger.warning("get_return_requests: No hostname set and could not convert ip %s to hostname for \"%s\" VM.", node.get("PrivateIp"), node)
             cc_existing_hostnames.add(hostname)
             machine = {"gracePeriod": 0,
                        "machine": hostname or ""}
@@ -652,7 +590,8 @@ class CycleCloudProvider:
         # go one by one in case one of the request_ids does not exist in CycleCloud
         for request_id in request_ids:
             try:
-                nodes_by_request_id.update(self.cluster.nodes(request_ids=[request_id]))                
+                nodes_by_request_id.update(self.cluster.nodes(request_ids=[request_id]))   
+                logger.debug("Node list by request id %s",nodes_by_request_id)             
             except Exception as e:
                 if "No operation found for request id" in str(e):
                     nodes_by_request_id[request_id] = {"nodes": []}
@@ -697,16 +636,15 @@ class CycleCloudProvider:
                 report_failure_states = ["Unavailable"]
                 terminate_states = ["Failed"]
             
-            for node in requested_nodes["nodes"]:
+            for node in requested_nodes:
                 # for new nodes, completion is Ready. For "released" nodes, as long as
                 # the node has begun terminated etc, we can just say success.
                 # node_status = node.get("State")
-                node_status = node.get("Status")
-
-                node_target_state = node.get("TargetState", "Started")
-                all_nodes.append(node["NodeId"])
-                valid_nodes.append(node["NodeId"])
-
+                node_status = node.state
+                node_target_state = node.target_state
+                node_id = self.cluster.get_node_id(node)
+                all_nodes.append(node_id)
+                valid_nodes.append(node_id)
                 machine_status = MachineStates.active
                 
                 hostname = None
@@ -718,16 +656,16 @@ class CycleCloudProvider:
                     continue
                 
                 if node_target_state and node_target_state != "Started":
-                    valid_nodes.remove(node["NodeId"])
+                    valid_nodes.remove(node_id)
                     logger.debug("Node %s target state is not started it is %s", node.get("Name"), node_target_state) 
                     continue
                 
                 if node_status in report_failure_states:
-                    valid_nodes.remove(node["NodeId"])
+                    valid_nodes.remove(node_id)
                     machine_result = MachineResults.failed
                     machine_status = MachineStates.error
                     if request_status != RequestStates.running:
-                        message = node.get("StatusMessage", "Unknown error.")
+                        # message = node.get("StatusMessage", "Unknown error.")
                         request_status = RequestStates.complete_with_error
                         
                 elif node_status in terminate_states:
@@ -738,22 +676,22 @@ class CycleCloudProvider:
                     machine_status = MachineStates.building
                     request_status = RequestStates.running
 
-                    hostname = node.get("Hostname")
+                    hostname = node.hostname
                     if not hostname:
                         try:
-                            hostname = self.hostnamer.hostname(node.get("PrivateIp"))
+                            hostname = self.hostnamer.hostname(node.private_ip)
                         except Exception:                            
-                            logger.warning("_create_status: No hostname set and could not convert ip %s to hostname for \"%s\" VM.", node.get("PrivateIp"), node_status)
+                            logger.warning("_create_status: No hostname set and could not convert ip %s to hostname for \"%s\" VM.", node.private_ip, node_status)
 
                     try:
                         logger.warning("Warning: Cluster status check terminating failed node %s", node)
                         # import traceback
                         #logger.warning("Traceback:\n%s", '\n'.join([line  for line in traceback.format_stack()]))
-                        self.cluster.terminate([{"machineId": node.get("NodeId"), "name": hostname}])
+                        self.cluster.shutdown_nodes([{"machineId": self.cluster.get_node_id(node), "name": hostname}])
                     except Exception:
-                        logger.exception("Could not terminate node with id %s" % node.get("NodeId"))
+                        logger.exception("Could not terminate node with id %s" % self.cluster.get_node_id(node))
         
-                elif not node.get("InstanceId"):
+                elif not node.instance_id:
                     requesting_count = requesting_count + 1
                     request_status = RequestStates.running
                     machine_result = MachineResults.executing
@@ -762,22 +700,22 @@ class CycleCloudProvider:
                 elif node_status in ["Ready", "Started"]:
                     machine_result = MachineResults.succeed
                     machine_status = MachineStates.active
-                    private_ip_address = node.get("PrivateIp")
+                    private_ip_address = node.private_ip
                     if not private_ip_address:
                         logger.warning("No ip address found for ready node %s", node.get("Name"))
                         machine_result = MachineResults.executing
                         machine_status = MachineStates.building
                         request_status = RequestStates.running
                     else:
-                        hostname = node.get("Hostname")
+                        hostname = node.hostname
                         if not hostname:
                             try:
-                                hostname = self.hostnamer.hostname(node.get("PrivateIp"))
+                                hostname = self.hostnamer.hostname(node.private_ip)
                                 logger.warning("_create_status: Node does not have hostname using %s ", hostname)
                             except Exception:                                
                                 # TODO: need to append to completed node somewhere? What do we do?
                                 logger.warning("_create_status: No hostname set and could not convert ip %s to hostname for \"%s\" VM.", node.get("PrivateIp"), node)    
-                        completed_nodes.append({"hostname": hostname, "nodeid": node["NodeId"]})
+                        completed_nodes.append({"hostname": hostname, "nodeid": node_id})
                 else:
                     machine_result = MachineResults.executing
                     machine_status = MachineStates.building
@@ -788,13 +726,15 @@ class CycleCloudProvider:
                     "name": hostname or "",
                     "status": machine_status,
                     "result": machine_result,
-                    "machineId": node.get("NodeId") or "",
+                    "machineId": self.cluster.get_node_id(node) or "",
                     # launchTime is manditory in Symphony
                     # maybe we can add something so we don"t have to expose this
                     # node["PhaseMap"]["Cloud.AwaitBootup"]["StartTime"]["$date"]
-                    "launchtime": node.get("LaunchTime") or int(time.time()),
+                    "launchtime": int(time.time()),
+                   # "launchtime": node.get("LaunchTime") or int(time.time()),
                     "privateIpAddress": private_ip_address or "",
-                    "message": node.get("StatusMessage") or ""
+                    "message": ""
+                    #"message": node.get("StatusMessage") or ""
                 }
                 
                 machines.append(machine)
@@ -871,7 +811,7 @@ class CycleCloudProvider:
                 
                 if machines_to_terminate:
                     logger.warning("Re-attempting termination of nodes %s", machines_to_terminate)
-                    self.cluster.terminate(machines_to_terminate)
+                    self.cluster.shutdown_nodes(machines_to_terminate)
                     
                 for termination_id in termination_ids:
                     if termination_id in terminate_requests:
@@ -980,7 +920,7 @@ class CycleCloudProvider:
                 
                 if machines_to_terminate:
                     logger.info("Attempting termination of nodes %s", machines_to_terminate)
-                    self.cluster.terminate(machines_to_terminate)
+                    self.cluster.shutdown_nodes(machines_to_terminate)
                     
                 for termination_id in terminate_requests:
                     termination = terminate_requests[termination_id]
@@ -1056,7 +996,7 @@ class CycleCloudProvider:
             message = "CycleCloud is terminating the VM(s)"
 
             try:
-                self.cluster.terminate(input_json["machines"])
+                self.cluster.shutdown_nodes(input_json["machines"])
                 with self.terminate_json as terminations:
                     terminations[request_id]["terminated"] = True
             except Exception:
@@ -1258,8 +1198,15 @@ class CycleCloudProvider:
         incomplete_nodes = actual_completed_nodes - internal_completed_nodes
         print(incomplete_nodes)
 
-def bucket_priority(nodearrays, bucket_nodearray, b_index):
-    prio = bucket_nodearray.get("Priority")
+def bucket_priority(buckets, bucket_nodearray):
+    nodearrays = list(dict.fromkeys(bucket.nodearray for bucket in buckets))
+    filter_bucket_nodearray = [bucket for bucket in buckets if bucket.nodearray == bucket_nodearray.nodearray]
+    b_index = next((i for i, bucket in enumerate(filter_bucket_nodearray) if bucket.bucket_id == bucket_nodearray.bucket_id), None)
+    reveresed_nodearrays = nodearrays[::-1]
+    return _bucket_priority(reveresed_nodearrays, bucket_nodearray, b_index)
+
+def _bucket_priority(nodearrays, bucket_nodearray, b_index):
+    prio = bucket_nodearray.priority
     if isinstance(prio, str):
         try:
             prio = int(float(prio))
@@ -1273,24 +1220,11 @@ def bucket_priority(nodearrays, bucket_nodearray, b_index):
     if prio is not None and not isinstance(prio, int):
         prio = None    
     if prio is None:
-        nodearray_names = [x["name"] for x in reversed(nodearrays)]
-        prio = (nodearray_names.index(bucket_nodearray["name"]) + 1) * 10
+        prio = (nodearrays.index(bucket_nodearray.nodearray) + 1) * 10
     if prio > 0:
         return prio * 1000 - b_index
     assert prio == 0, f'Unexpected prio {prio} - should ALWAYS be >= 0.'
-    return prio    
-        
-
-def _placement_groups(config):
-    try:
-        num_placement_groups = min(26 * 26, int(config.get("symphony.num_placement_groups", 0)))
-    except ValueError:
-        raise ValueError("Expected a positive integer for symphony.num_placement_groups, got %s" % config.get("symphony.num_placement_groups"))
-    if num_placement_groups <= 0:
-        return []
-    else:
-        return ["pg%s" % x for x in range(num_placement_groups)]
-
+    return prio   
 
 def simple_json_writer(data, debug_output=True):  # pragma: no cover
     data_str = json.dumps(data)

@@ -87,3 +87,6 @@ default['symphony']['hostfactory']['requestors']['symA']['host_return_policy']['
 default['symphony']['hostfactory']['requestors']['symA']['host_return_policy']['force_return_interval'] = 5
 default['symphony']['hostfactory']['requestors']['symA']['host_return_policy']['return_idle_only'] = true
 
+#attributes for sethostname
+default[:symphony][:ensure_waagent_monitor_hostname] = true
+default[:symphony][:use_nodename_as_hostname] = false

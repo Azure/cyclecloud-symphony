@@ -14,16 +14,20 @@ Autoscale = $Autoscale
     SubnetId = $SubnetId
     Region = $Region
     KeyPairLocation = ~/.ssh/cyclecloud.pem
+    ShutdownPolicy = $ShutdownPolicy
 
     MachineType = $ExecuteMachineType
     
         [[[configuration]]]
         run_list = recipe[cuser]
+        # Disable ip-XXXXXXXX hostname generation
+        cyclecloud.hosts.standalone_dns.enabled = ${NodeNameIsHostname==false}
+        cyclecloud.hosts.simple_vpc_dns.enabled = ${NodeNameIsHostname==false}
 
         [[[network-interface eth0]]]
         AssociatePublicIpAddress = false
 
-        [[[cluster-init symphony:default:2.0.0]]]
+        [[[cluster-init symphony:default:3.0.0]]]
 	
     [[node master]]
     MachineType = $ManagementMachineType
@@ -44,7 +48,7 @@ Autoscale = $Autoscale
         [[[network-interface eth0]]]
         AssociatePublicIpAddress = $UsePublicNetwork
 
-        [[[cluster-init symphony:master:2.0.0]]]
+        [[[cluster-init symphony:master:3.0.0]]]
 
     [[nodearray management]]
     MachineType = $ManagementMachineType    
@@ -52,12 +56,15 @@ Autoscale = $Autoscale
     MaxCoreCount = 64
 
         [[[configuration]]]
+        symphony.node_prefix = ${ifThenElse(NodeNamePrefix=="Cluster Prefix", StrJoin("-", toLower(ClusterName), ""), NodeNamePrefix)}
+        symphony.node_domain_suffix = $ZCSDomain
+        symphony.use_nodename_as_hostname = $NodeNameIsHostname
         cyclecloud.discoverable = true
 	
         [[[configuration symphony]]]
         is_management = true
 
-        [[[cluster-init symphony:management:2.0.0]]]
+        [[[cluster-init symphony:management:3.0.0]]]
 
     [[nodearray execute]]
     MaxCoreCount = $MaxExecuteCoreCount
@@ -65,9 +72,12 @@ Autoscale = $Autoscale
     Priority = 10
     
         [[[configuration]]]
+        symphony.node_prefix = ${ifThenElse(NodeNamePrefix=="Cluster Prefix", StrJoin("-", toLower(ClusterName), ""), NodeNamePrefix)}
+        symphony.node_domain_suffix = $ZCSDomain
+        symphony.use_nodename_as_hostname = $NodeNameIsHostname
         autoscaling.enabled = true
     
-        [[[cluster-init symphony:execute:2.0.0]]]
+        [[[cluster-init symphony:execute:3.0.0]]]
 
     [[nodearray execute2]]
     Extends = execute
@@ -81,9 +91,12 @@ Autoscale = $Autoscale
     MaxCoreCount = 128
 
         [[[configuration]]]
+        symphony.node_prefix = ${ifThenElse(NodeNamePrefix=="Cluster Prefix", StrJoin("-", toLower(ClusterName), ""), NodeNamePrefix)}
+        symphony.node_domain_suffix = $ZCSDomain
+        symphony.use_nodename_as_hostname = $NodeNameIsHostname
         cyclecloud.cluster.autoscale.stop_enabled = false
     
-        [[[cluster-init symphony:execute:2.0.0]]]
+        [[[cluster-init symphony:execute:3.0.0]]]
 
 
 [parameters About]
@@ -133,7 +146,7 @@ Order = 10
         Label = Mgmt Machine Type
         Description = The machine type for the Symphony Management nodes
         ParameterType = Cloud.MachineType
-        DefaultValue = Standard_E16_v3
+        DefaultValue = Standard_F2s_v2
 	
         [[[parameter ExecuteMachineType]]]
         Label = Execute VM Type
@@ -193,11 +206,34 @@ Order = 20
     Description = "Specify the scheduling software, and base OS installed on all nodes, and optionally the cluster-init and chef versions from your Locker."
     Order = 10
 
+        [[[parameter NodeNameIsHostname]]]
+        Label = Name As Hostname
+        Description = Should the hostname match the nodename for execute nodes?
+        ParameterType = Boolean
+        DefaultValue = false
+        
+        [[[parameter ZCSDomain]]]
+        Label = Name of Domain
+        Description = Domain name of the node
+        ParameterType = String
+        DefaultValue = true
+ 
+        [[[parameter NodeNamePrefix]]]
+        Label = Node Prefix
+        Description = Prefix for generated node names, i.e. "prefix-" generates prefix-nodearray-1. Use 'Cluster Prefix' to get $ClusterName-nodearray-1
+        ParameterType = StringList
+        Config.Plugin = pico.form.Dropdown
+        Config.FreeForm = true
+        DefaultValue = "Cluster Prefix"
+        Config.Entries := {[Value=""], [Value="Cluster Prefix"]}
+        Conditions.Hidden := NodeNameIsHostname != true
+
+
         [[[parameter ImageName]]]
         Label = Base OS
         ParameterType = Cloud.Image
         Config.OS = linux
-        DefaultValue = cycle.image.centos7
+        DefaultValue = cycle.image.ubuntu20
 
         [[[parameter DefaultClusterInitSpecs]]]
         Label = Default Cluster-Init Specs
@@ -230,5 +266,16 @@ Order = 20
         DefaultValue = true
         ParameterType = Boolean
         Config.Label = Access master node from the Internet
+
+        [[[parameter ShutdownPolicy]]]
+        description = By default, autostop will Delete stopped VMS for lowest cost.  Optionally, Stop/Deallocate the VMs for faster restart instead.
+        DefaultValue = Terminate
+        config.plugin = pico.control.AutoCompleteDropdown
+            [[[[list Config.Entries]]]]
+            Name = Terminate
+            Label = Terminate
+            [[[[list Config.Entries]]]]
+            Name = Deallocate
+            Label = Deallocate	
 
 

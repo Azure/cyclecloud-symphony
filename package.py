@@ -11,18 +11,28 @@ from argparse import Namespace
 from subprocess import check_call
 from typing import Dict, List, Optional
 
+SCALELIB_VERSION = "1.0.0"
 CYCLECLOUD_API_VERSION = "8.1.0"
+CONCURRENT_HANDLER_VERSION = "0.9.21"
 
 def get_cycle_libs(args: Namespace) -> List[str]:
     ret = []
 
+    scalelib_file = "cyclecloud-scalelib-{}.tar.gz".format(SCALELIB_VERSION)
     cyclecloud_api_file = "cyclecloud_api-{}-py2.py3-none-any.whl".format(
         CYCLECLOUD_API_VERSION
     )
+    concurrent_handler_file ="concurrent-log-handler-{}.tar.gz".format(CONCURRENT_HANDLER_VERSION)
+    scalelib_url = "https://github.com/Azure/cyclecloud-scalelib/archive/{}.tar.gz".format(
+        SCALELIB_VERSION
+    )
     # TODO RDH!!!
     cyclecloud_api_url = "https://github.com/Azure/cyclecloud-gridengine/releases/download/2.0.0/cyclecloud_api-8.0.1-py2.py3-none-any.whl"
+    concurrent_handler_url = "https://github.com/Preston-Landers/concurrent-log-handler/archive/refs/tags/{}.tar.gz".format(CONCURRENT_HANDLER_VERSION)
     to_download = {
-        cyclecloud_api_file: (args.cyclecloud_api, cyclecloud_api_url)
+        scalelib_file: (args.scalelib, scalelib_url),
+        cyclecloud_api_file: (args.cyclecloud_api, cyclecloud_api_url),
+        concurrent_handler_file: (None,concurrent_handler_url)
     }
 
     for lib_file in to_download:
