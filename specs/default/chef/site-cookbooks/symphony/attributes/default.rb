@@ -3,7 +3,7 @@ default['symphony']['version'] = "7.3.2.0"
 default['symphony']['eval'] = true
 default['symphony']['pkg']['linux'] = "sym-#{node['symphony']['version']}_x86_64.bin"
 default['symphony']['pkg']['windows'] = "sym-#{node['symphony']['version']}.exe"
-default['symphony']['pkg_plugin'] = "cyclecloud-symphony-pkg-2.0.0.zip"
+default['symphony']['pkg_plugin'] = "cyclecloud-symphony-pkg-3.0.0.zip"
 default['symphony']['simplifiedwem'] = 'N'
 # TODO: Test with std license (binaries are specific to the license type as well)
 default['symphony']['license_file'] = "sym_adv_entitlement.dat"
