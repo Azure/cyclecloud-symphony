@@ -150,7 +150,7 @@ class CycleCloudProvider:
         
         # We cannot report to Symphony that we have 0 capacity on all VMs. If we detect this we
         # simply reset any temporary capacity constraints.
-        if self._should_reset_capacity_scalelib(buckets):
+        if self._should_reset_capacity(buckets):
             logger.warning("All buckets have 0 capacity. Resetting capacity tracker.")
             self.capacity_tracker.reset()
         
