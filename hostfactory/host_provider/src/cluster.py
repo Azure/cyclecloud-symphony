@@ -1,5 +1,5 @@
 import json
-
+import time
 import logging
 from urllib.parse import urlencode
 from builtins import str
@@ -127,12 +127,7 @@ class Cluster:
         request_copy = self.limit_request_by_available_count(status=status_resp, request=request, logger=self.logger)
         
         response = self.add_nodes_scalelib(request_copy, max_count)
-        # try:
-        #     response = json.loads(response_raw)
-        # except:
-        #     raise RuntimeError("Could not parse response as json to create_nodes! '%s'" % response_raw)
         # TODO: Get rid of extra status call in CC 8.4.0
-        import time
         origin_avail_count = get_avail_count(status_resp)
         max_mitigation_attempts = int(self.provider_config.get("symphony.max_status_mitigation_attempts", 10)) 
         i = 0

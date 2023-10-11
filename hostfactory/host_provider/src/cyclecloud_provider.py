@@ -78,7 +78,7 @@ class CycleCloudProvider:
         for writer in writers:
             json.dump(example, writer, indent=2, separators=(',', ': '))
             
-    def _check_for_zero_capacity_scalelib(self, buckets):
+    def _check_for_zero_capacity(self, buckets):
         at_least_one_available_bucket = False
         for bucket in buckets:
             autoscale_enabled = bucket.software_configuration.get("autoscaling", {}).get("enabled", False)
@@ -133,7 +133,7 @@ class CycleCloudProvider:
         
         # We cannot report to Symphony that we have 0 capacity on all VMs. If we detect this we
         # simply reset any temporary capacity constraints.
-        if self._check_for_zero_capacity_scalelib(buckets):
+        if self._check_for_zero_capacity(buckets):
             logger.warning("All buckets have 0 capacity. Resetting capacity tracker.")
             self.capacity_tracker.reset()
         
