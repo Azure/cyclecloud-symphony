@@ -4,6 +4,7 @@ import json
 import logging
 import logging.config
 from logging.handlers import RotatingFileHandler
+from concurrent_log_handler import ConcurrentRotatingFileHandler
 import os
 import shutil
 import subprocess
@@ -28,12 +29,12 @@ def init_logging(loglevel=logging.INFO, logfile=None):
     global _logging_init
     if logfile is None:
         logfile = "azurecc_prov.log"
-    logfile_path = os.path.join(os.getenv("PRO_LOG_DIR", "/tmp"), logfile)
+    logfile_path = os.path.join(os.getenv("PRO_LOG_DIR", "."), logfile)
     
     try:
         import jetpack
         jetpack.util.setup_logging()
-    except ImportError:
+    except (ModuleNotFoundError,ImportError) as ex:
         LOGGING = {
             'version': 1,
             'disable_existing_loggers': False,
@@ -47,7 +48,7 @@ def init_logging(loglevel=logging.INFO, logfile=None):
                     # The values below are popped from this dictionary and
                     # used to create the handler, set the handler's level and
                     # its formatter.
-                    '()': RotatingFileHandler,
+                    '()': ConcurrentRotatingFileHandler,
                     'level': logging.INFO,
                     'formatter': 'default',
                     # The values below are passed to the handler creator callable
@@ -58,10 +59,9 @@ def init_logging(loglevel=logging.INFO, logfile=None):
             },
             'root': {
                 'handlers': ['file'],
-                'level': logging.getLevelName(loglevel),
+                'level': logging.INFO,
             },
         }
-
         logging.config.dictConfig(LOGGING)
     
     try:
@@ -92,7 +92,7 @@ def init_logging(loglevel=logging.INFO, logfile=None):
     logger.setLevel(logging.DEBUG)
     
     tenMB = 10 * 1024 * 1024
-    logfile_handler = RotatingFileHandler(logfile_path, maxBytes=tenMB, backupCount=5)
+    logfile_handler = ConcurrentRotatingFileHandler(logfile_path, mode='a',maxBytes=tenMB, backupCount=5)
     logfile_handler.setLevel(loglevel)
     logfile_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
     
@@ -253,7 +253,7 @@ class ProviderConfig:
             try:
                 import jetpack
                 jetpack_config = jetpack.config 
-            except ImportError:
+            except (ModuleNotFoundError,ImportError) as ex:
                 jetpack_config = {}
         self.jetpack_config = jetpack_config
         
