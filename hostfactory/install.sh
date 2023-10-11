@@ -83,7 +83,9 @@ function Generate-Provider-Config {
             "nram" : [ "Numeric", "1024" ],
             "ncpus" : [ "Numeric", "1" ],
             "ncores" : [ "Numeric", "1" ],
-            "type" : [ "String", "X86_64" ]
+            "type" : [ "String", "X86_64" ],
+            "nodearray" : [ "String", "execute" ],
+            "machinetypefull" : ["String", "Standard_F2s_v2"]
         }
     } ]
     }'
