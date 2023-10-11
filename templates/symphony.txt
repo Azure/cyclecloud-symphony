@@ -50,10 +50,18 @@ Autoscale = $Autoscale
 
         [[[cluster-init symphony:master:3.0.0]]]
 
+        [[[volume boot]]]
+        Size = $MasterBootDiskSize
+        Ssd = $MasterBootDiskSSD
+
     [[nodearray management]]
     MachineType = $ManagementMachineType    
     InitialCoreCount = 0
     MaxCoreCount = 64
+        
+        [[[volume boot]]]
+        Size = $ExecuteBootDiskSize
+        Ssd = $ExecuteBootDiskSize
 
         [[[configuration]]]
         symphony.node_prefix = ${ifThenElse(NodeNamePrefix=="Cluster Prefix", StrJoin("-", toLower(ClusterName), ""), NodeNamePrefix)}
@@ -70,6 +78,10 @@ Autoscale = $Autoscale
     MaxCoreCount = $MaxExecuteCoreCount
     Interruptible = $UseLowPrio
     Priority = 10
+
+        [[[volume boot]]]
+        Size = $ExecuteBootDiskSize
+        Ssd = $ExecuteBootDiskSize
     
         [[[configuration]]]
         symphony.node_prefix = ${ifThenElse(NodeNamePrefix=="Cluster Prefix", StrJoin("-", toLower(ClusterName), ""), NodeNamePrefix)}
@@ -85,10 +97,18 @@ Autoscale = $Autoscale
     MaxCount = 400
     Priority = 100
 
+        [[[volume boot]]]
+        Size = $ExecuteBootDiskSize
+        Ssd = $ExecuteBootDiskSize
+
 
     [[nodearray persistent-execute]]
     InitialCoreCount= 0
     MaxCoreCount = 128
+
+        [[[volume boot]]]
+        Size = $ExecuteBootDiskSize
+        Ssd = $ExecuteBootDiskSize
 
         [[[configuration]]]
         symphony.node_prefix = ${ifThenElse(NodeNamePrefix=="Cluster Prefix", StrJoin("-", toLower(ClusterName), ""), NodeNamePrefix)}
@@ -234,6 +254,30 @@ Order = 20
         ParameterType = Cloud.Image
         Config.OS = linux
         DefaultValue = cycle.image.ubuntu20
+
+        [[[parameter MasterBootDiskSize]]]
+        Label = Master Boot Disk Size
+        Description = Size of the master boot disk in GB
+        ParameterType = Integer
+        DefaultValue = 128
+
+        [[[parameter MasterBootDiskSSD]]]
+        Label = Master Boot Disk SSD
+        Description = Use SSD for master boot disk
+        ParameterType = Boolean
+        DefaultValue = true
+
+        [[[parameter ExecuteBootDiskSize]]] 
+        Label = Exec Boot Disk Size
+        Description = Size of the execute boot disk in GB
+        ParameterType = Integer
+        DefaultValue = 128
+
+        [[[parameter ExecuteBootDiskSSD]]]
+        Label = Exec Boot Disk SSD
+        Description = Use SSD for execute boot disk
+        ParameterType = Boolean
+        DefaultValue = true
 
         [[[parameter DefaultClusterInitSpecs]]]
         Label = Default Cluster-Init Specs
