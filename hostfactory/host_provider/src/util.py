@@ -251,8 +251,10 @@ class ProviderConfig:
         self.logger = init_logging()
         if jetpack_config is None:
             try:
-                import jetpack
-                jetpack_config = jetpack.config 
+                with open("/opt/cycle/jetpack/config/node.json") as json_file:
+                    jetpack_config = json.load(json_file)
+                # import jetpack
+                # jetpack_config = jetpack.config 
             except (ModuleNotFoundError,ImportError) as ex:
                 jetpack_config = {}
         self.jetpack_config = jetpack_config
@@ -262,7 +264,8 @@ class ProviderConfig:
             return self.config
         
         keys = key.split(".")
-        top_value = self.config
+        #top_value = self.config
+        top_value = {**self.config, **self.jetpack_config}
         for n in range(len(keys)):
             if top_value is None:
                 break
