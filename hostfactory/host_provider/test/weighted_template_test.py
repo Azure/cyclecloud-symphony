@@ -1,19 +1,14 @@
-import os
-import json
-from collections import OrderedDict
-import math
 import unittest
-import cluster
-import logging
 from unittest.mock import MagicMock, patch
-import string
+import cluster
 import weighted_template_parse
 
 class TestWeightedTemplate(unittest.TestCase):
     
     def setUp(self):
-        self.weighted_template = weighted_template_parse.WeightedTemplates("symphony", {"cyclecloud.cluster.name": "symphony"}, None)
-    
+        cluster.new_node_manager = MagicMock(return_value=None)
+        self.weighted_template = weighted_template_parse.WeightedTemplates("symphony", {"cyclecloud.cluster.name": "symphony","cyclecloud.config.web_server": "http://localhost","cyclecloud.config.username":"cc_admin", "cyclecloud.config.password":"password" }, None)
+
     @patch('cluster.Cluster.status')
     def testInRangeMachineCount(self, mock_status):
         vmTypes = {" Standard_D2_v2 ":2, " Standard_D1_v2 ":1}
@@ -38,6 +33,22 @@ class TestWeightedTemplate(unittest.TestCase):
         input_json["template"]["machineCount"] = 25
         result = self.weighted_template.create_machines(input_json, azurecc_template)
         self.assertEqual( result, [(" Standard_D2_v2 ", 10), (" Standard_D1_v2 ", 5)])
+    
+    @patch('cluster.Cluster.status')
+    def testOutOfRangeMachineCount(self, mock_status):
+        vmTypes = {" Standard_D2_v2 ":2, " Standard_D1_v2 ":1}
+        vmTypePriority = {" Standard_D2_v2 ":1000, " Standard_D1_v2 ":100}
+        maxNumber = 2
+        azurecc_template = weighted_template_parse.azurecc_template_generate(vmTypes, vmTypePriority, maxNumber)
+        input_json = {
+            "template": {
+                "templateId": "execute",
+                "machineCount": 10       #Interpreted as request for 10 compute units
+            }
+        }
+        mock_status.return_value = {"nodearrays": [{"name": "execute", "buckets": [{"definition": {"machineType": " Standard_D2_v2 "}, "availableCount": 1}, {"definition": {"machineType": " Standard_D1_v2 "}, "availableCount": 2}]}]}
+        result = self.weighted_template.create_machines(input_json, azurecc_template)
+        self.assertEqual( result, [(" Standard_D2_v2 ", 1)])
     
     @patch('cluster.Cluster.status')
     def testNoVMPriority(self, mock_status):
