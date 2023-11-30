@@ -150,6 +150,9 @@ class RequestsStoreInMem:
     def read(self):
         return self.requests
     
+    def write(self, data):
+        self.requests = deepcopy(data)
+    
     def __enter__(self):
         return self.requests
     
@@ -290,7 +293,11 @@ class TestHostFactory(unittest.TestCase):
                                                "buckets": [a4bucket, a8bucket]}]})
         epoch_clock = MockClock((1970, 1, 1, 0, 0, 0))
         hostnamer = MockHostnamer()
-        provider = cyclecloud_provider.CycleCloudProvider(provider_config, cluster, hostnamer, json_writer, RequestsStoreInMem(), RequestsStoreInMem(), epoch_clock)
+        provider = cyclecloud_provider.CycleCloudProvider(provider_config, cluster, hostnamer, json_writer, 
+                                                          terminate_requests=RequestsStoreInMem(), 
+                                                          creation_requests=RequestsStoreInMem(), 
+                                                          templates=RequestsStoreInMem(), 
+                                                          clock=epoch_clock)
         provider.capacity_tracker.reset()
         return provider
     
@@ -387,7 +394,7 @@ class TestHostFactory(unittest.TestCase):
         
         status_response = provider.status({"requests": [{"requestId": "delete-missing"}]})
         # self.assertEqual({'status': 'running', 'requests': [{'status': 'running', "message": "Unknown termination request id.", 'requestId': 'delete-missing', 'machines': []}]}, status_response)
-        self.assertEqual({'status': 'running', 'requests': [{'status': 'complete_with_error', "message": "Unknown termination request id.", 'requestId': 'delete-missing', 'machines': []}]}, status_response)
+        self.assertEqual({'status': 'running', 'requests': [{'status': 'complete_with_error', "message": "Warning: Ignoring unknown termination request id.", 'requestId': 'delete-missing', 'machines': []}]}, status_response)
         
     def test_terminate_status(self):
         provider = self._new_provider()
@@ -467,6 +474,8 @@ class TestHostFactory(unittest.TestCase):
         
         a4bucket["maxCount"] = 100
         self.assertEqual(100, provider.templates()["templates"][0]["maxNumber"])
+
+
 
 
     def test_reprioritize_template(self):

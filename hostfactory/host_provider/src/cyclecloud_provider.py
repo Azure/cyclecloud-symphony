@@ -95,11 +95,8 @@ class CycleCloudProvider:
                 virtual_machine = bucket["virtualMachine"]
                 # Symphony hates special characters
                 nodearray_name = nodearray_root["name"]
-                max_count = self._max_count(nodearray_name, nodearray, virtual_machine.get("vcpuCount"), bucket)
                 is_paused = self.capacity_tracker.is_paused(nodearray_name, machine_type)
-                if is_paused:
-                    max_count = 0
-                at_least_one_available_bucket = at_least_one_available_bucket or max_count > 0
+                at_least_one_available_bucket = at_least_one_available_bucket or not is_paused
         return not at_least_one_available_bucket
     
     # Regenerate templates (and potentially reconfig HostFactory) without output, so 
@@ -174,6 +171,7 @@ class CycleCloudProvider:
                 machine_type_name = bucket["definition"]["machineType"]
                 machine_type_short = machine_type_name.lower().replace("standard_", "").replace("basic_", "").replace("_", "")
                 machine_type = bucket["virtualMachine"]
+                at_least_one_available_bucket = True
                 
                 # Symphony hates special characters
                 nodearray_name = nodearray_root["name"]
@@ -181,10 +179,9 @@ class CycleCloudProvider:
                 template_id = self._escape_id(template_id)
                 if bucket.get("valid", True):
                     currently_available_templates.add(template_id)
-                
-                max_count = self._max_count(nodearray_name, nodearray, machine_type.get("vcpuCount"), bucket)
 
-                at_least_one_available_bucket = at_least_one_available_bucket or max_count > 0
+                max_count = self._max_count(nodearray_name, nodearray, machine_type.get("vcpuCount"), bucket)
+                
                 memory = machine_type.get("memory") * 1024
                 is_low_prio = nodearray.get("Interruptible", False)
                 ngpus = 0
@@ -192,6 +189,14 @@ class CycleCloudProvider:
                     ngpus = int(nodearray.get("Configuration", {}).get("symphony", {}).get("ngpus", 0))
                 except ValueError:
                     logger.exception("Ignoring symphony.ngpus for nodearray %s" % nodearray_name)
+
+                # Check previous maxNumber setting - we NEVER lower maxNumber, only raise it.
+                previous_max_count = 0
+                if template_id in templates_store:
+                    previous_max_count = templates_store[template_id].get("maxNumber", max_count)
+                if max_count < previous_max_count:
+                    logger.info("Rejecting attempt to lower maxNumber from %s to %s for %s", previous_max_count, max_count, template_id)
+                    max_count = previous_max_count
                 
                 base_priority = bucket_priority(nodearrays, nodearray_root, b_index)
                 # Symphony
@@ -201,7 +206,8 @@ class CycleCloudProvider:
                 if ncpus_use_vcpus:
                     ncpus = machine_type.get("vcpuCount")
                 else:
-                    ncpus = machine_type.get("pcpuCount")       
+                    ncpus = machine_type.get("pcpuCount")
+
                 record = {
                     "maxNumber": max_count,
                     "templateId": template_id,
@@ -285,12 +291,12 @@ class CycleCloudProvider:
                     templates_store[record_mpi["templateId"]] = record_mpi
                     currently_available_templates.add(record_mpi["templateId"])
         
-        # for templates that are no longer available, advertise them but set maxNumber = 0
+        # for templates that are no longer available, advertise them but set priority = 0
+        # NOTE: do not modify "maxNumber" - Symphony HF does not respond well to lowering maxNumber while jobs may be runni
         for symphony_template in templates_store.values():
             if symphony_template["templateId"] not in currently_available_templates:
                 if self.fine:
                     logger.debug("Ignoring old template %s vs %s", symphony_template["templateId"], currently_available_templates)
-                symphony_template["maxNumber"] = 0
                 symphony_template["priority"] = 0
                 
         new_templates_str = json.dumps(templates_store, indent=2, sort_keys=True)
@@ -330,7 +336,8 @@ class CycleCloudProvider:
         except:
             logger.warning("Exiting Non-zero so that symphony will retry")
             logger.exception("Could not get template_json")
-            sys.exit(1)        
+            sys.exit(1)
+
     def generate_userdata(self, template):
         ret = {}
         
@@ -376,13 +383,13 @@ class CycleCloudProvider:
     
     def _max_count(self, nodearray_name, nodearray, machine_cores, bucket):
         if machine_cores < 0:
-            logger.error("Invalid number of machine cores - %s", machine_cores)
+            logger.error("Invalid number of machine cores - %s.", machine_cores)
             return -1
 
         max_count = bucket.get("maxCount")
         
         if max_count is not None:
-            logger.debug("Using maxCount %s for %s", max_count, bucket)
+            logger.debug("Using maxCount %s for nodearray %s and bucket %s", max_count, nodearray_name, bucket)
             max_count = max(-1, max_count)
         else:
             max_core_count = bucket.get("maxCoreCount")
@@ -390,8 +397,8 @@ class CycleCloudProvider:
                 if nodearray.get("maxCoreCount") is None:
                     logger.error("Need to define either maxCount or maxCoreCount! %s", pprint.pformat(bucket))
                     return -1
-                logger.debug("Using maxCoreCount")
                 max_core_count = nodearray.get("maxCoreCount")
+                logger.debug("Using maxCoreCount %s for nodearray %s and bucket %s", max_core_count, nodearray_name, bucket)
             
             max_core_count = max(-1, max_core_count)
         
@@ -400,17 +407,6 @@ class CycleCloudProvider:
         # We handle unexpected Capacity failures (Spot)  by zeroing out capacity for a timed duration
         machine_type_name = bucket["definition"]["machineType"]
         
-        
-        # Below code is commented out as a customer faced an issue where autoscaling was being limited
-        # by spot_increment_per_sku. 
-        # For Spot instances, quota and limits are not great indicators of capacity, so artificially limit 
-        # requests to single machine types to spread the load and find available skus for large workloads
-        # is_low_prio = nodearray.get("Interruptible", False)
-        # if is_low_prio:
-        #     # Allow up to N _additional_ VMs (need to keep increasing this or symphony will stop considering the sku)
-        #     active_count = bucket["activeCount"]
-        #     max_count = min(max_count, active_count+self.spot_maxnumber_increment_per_sku)
-
         return int(max_count)
     
     @failureresponse({"requests": [], "status": RequestStates.running})
