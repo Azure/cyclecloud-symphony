@@ -89,8 +89,11 @@ class CycleCloudProvider:
             autoscale_enabled = nodearray.get("Configuration", {}).get("autoscaling", {}).get("enabled", False)
             if not autoscale_enabled:
                 continue
-            
+            # if available count is 0 then set availablity to 0
             for bucket in nodearray_root.get("buckets"):
+                if bucket.get("availableCount") == 0:
+                    logger.warning("Bucket %s has 0 availableCount.", bucket)
+                    continue
                 machine_type =  bucket["definition"]["machineType"]
                 virtual_machine = bucket["virtualMachine"]
                 # Symphony hates special characters
