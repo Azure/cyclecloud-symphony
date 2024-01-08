@@ -1218,9 +1218,12 @@ class CycleCloudProvider:
                 request["lastUpdateTime"] = calendar.timegm(self.clock())
                 request["completed"] = True
 
-    def periodic_cleanup(self):
+    def periodic_cleanup(self, skip_templates=False):
         try:
-            self._update_templates(do_REST=True)
+            # skip_templates should always be true when HF calls getAvailableTemplates 
+            # To avoid an infinite loop / internal deadlock in HF caused if we do a REST call.
+            if not skip_templates:
+                self._update_templates(do_REST=True)
         except Exception:
             logger.exception("Could not update templates")
 
@@ -1329,7 +1332,8 @@ def main(argv=sys.argv, json_writer=simple_json_writer):  # pragma: no cover
 
         input_json = util.load_json(input_json_path)
         
-        logger.info("Arguments - %s %s %s", cmd, ignore, json.dumps(input_json))
+        logger.info("Arguments - %s %s %s", cmd, ignore, input_json_path)
+        logger.debug("Input: %s", json.dumps(input_json))
                 
         if cmd == "templates":
             provider.templates()
@@ -1353,7 +1357,7 @@ def main(argv=sys.argv, json_writer=simple_json_writer):  # pragma: no cover
             provider.debug_completed_nodes()
         
         # best effort cleanup.
-        provider.periodic_cleanup()
+        provider.periodic_cleanup(skip_templates=(cmd == "templates"))
             
     except ImportError as e:
         logger.exception(str(e))
@@ -1364,7 +1368,8 @@ def main(argv=sys.argv, json_writer=simple_json_writer):  # pragma: no cover
         else:
             import traceback
             traceback.print_exc()
-            
+    finally:
+        logger.info("End Arguments - %s %s %s", cmd, ignore, input_json_path)       
 
 if __name__ == "__main__":
     main()  # pragma: no cover
