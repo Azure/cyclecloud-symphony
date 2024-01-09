@@ -92,10 +92,9 @@ class CycleCloudProvider:
             # if available count is 0 then set availablity to 0
             for bucket in nodearray_root.get("buckets"):
                 if bucket.get("availableCount") == 0:
-                    logger.warning("Bucket %s has 0 availableCount.", bucket)
+                    logger.debug("Bucket %s has 0 availableCount.", bucket)
                     continue
                 machine_type =  bucket["definition"]["machineType"]
-                virtual_machine = bucket["virtualMachine"]
                 # Symphony hates special characters
                 nodearray_name = nodearray_root["name"]
                 is_paused = self.capacity_tracker.is_paused(nodearray_name, machine_type)
@@ -669,11 +668,10 @@ class CycleCloudProvider:
         
         response = {"requests": []}
         
-        unknown_state_count = 0
-        requesting_count = 0
-        
         for request_id, requested_nodes in nodes_by_request_id.items():
             request_status = RequestStates.complete
+            unknown_state_count = 0
+            requesting_count = 0
             if not requested_nodes:
                 # nothing to do.
                 logger.warning("No nodes found for request id %s.", request_id)
@@ -1261,7 +1259,8 @@ class CycleCloudProvider:
         print(incomplete_nodes)
 
 def bucket_priority(nodearrays, bucket_nodearray, b_index):
-    prio = bucket_nodearray.get("Priority")
+    nodearray = bucket_nodearray.get("nodearray")
+    prio = nodearray.get("Priority")
     if isinstance(prio, str):
         try:
             prio = int(float(prio))
