@@ -89,10 +89,12 @@ class CycleCloudProvider:
             autoscale_enabled = nodearray.get("Configuration", {}).get("autoscaling", {}).get("enabled", False)
             if not autoscale_enabled:
                 continue
-            
+            # if available count is 0 then set availablity to 0
             for bucket in nodearray_root.get("buckets"):
+                if bucket.get("availableCount") == 0:
+                    logger.debug("Bucket %s has 0 availableCount.", bucket)
+                    continue
                 machine_type =  bucket["definition"]["machineType"]
-                virtual_machine = bucket["virtualMachine"]
                 # Symphony hates special characters
                 nodearray_name = nodearray_root["name"]
                 is_paused = self.capacity_tracker.is_paused(nodearray_name, machine_type)
@@ -666,11 +668,10 @@ class CycleCloudProvider:
         
         response = {"requests": []}
         
-        unknown_state_count = 0
-        requesting_count = 0
-        
         for request_id, requested_nodes in nodes_by_request_id.items():
             request_status = RequestStates.complete
+            unknown_state_count = 0
+            requesting_count = 0
             if not requested_nodes:
                 # nothing to do.
                 logger.warning("No nodes found for request id %s.", request_id)
@@ -1215,9 +1216,12 @@ class CycleCloudProvider:
                 request["lastUpdateTime"] = calendar.timegm(self.clock())
                 request["completed"] = True
 
-    def periodic_cleanup(self):
+    def periodic_cleanup(self, skip_templates=False):
         try:
-            self._update_templates(do_REST=True)
+            # skip_templates should always be true when HF calls getAvailableTemplates 
+            # To avoid an infinite loop / internal deadlock in HF caused if we do a REST call.
+            if not skip_templates:
+                self._update_templates(do_REST=True)
         except Exception:
             logger.exception("Could not update templates")
 
@@ -1255,7 +1259,8 @@ class CycleCloudProvider:
         print(incomplete_nodes)
 
 def bucket_priority(nodearrays, bucket_nodearray, b_index):
-    prio = bucket_nodearray.get("Priority")
+    nodearray = bucket_nodearray.get("nodearray")
+    prio = nodearray.get("Priority")
     if isinstance(prio, str):
         try:
             prio = int(float(prio))
@@ -1326,7 +1331,8 @@ def main(argv=sys.argv, json_writer=simple_json_writer):  # pragma: no cover
 
         input_json = util.load_json(input_json_path)
         
-        logger.info("Arguments - %s %s %s", cmd, ignore, json.dumps(input_json))
+        logger.info("Arguments - %s %s %s", cmd, ignore, input_json_path)
+        logger.debug("Input: %s", json.dumps(input_json))
                 
         if cmd == "templates":
             provider.templates()
@@ -1350,7 +1356,7 @@ def main(argv=sys.argv, json_writer=simple_json_writer):  # pragma: no cover
             provider.debug_completed_nodes()
         
         # best effort cleanup.
-        provider.periodic_cleanup()
+        provider.periodic_cleanup(skip_templates=(cmd == "templates"))
             
     except ImportError as e:
         logger.exception(str(e))
@@ -1361,7 +1367,8 @@ def main(argv=sys.argv, json_writer=simple_json_writer):  # pragma: no cover
         else:
             import traceback
             traceback.print_exc()
-            
+    finally:
+        logger.info("End Arguments - %s %s %s", cmd, ignore, input_json_path)       
 
 if __name__ == "__main__":
     main()  # pragma: no cover
