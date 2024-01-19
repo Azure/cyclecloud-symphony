@@ -9,12 +9,12 @@ import pprint
 import sys
 import uuid
 from builtins import str
+import weighted_template_parse
 
 
 from symphony import RequestStates, MachineStates, MachineResults, SymphonyRestClient
 import cluster
-from cluster import OutOfCapacityError
-from capacity_tracking_db import CapacityTrackingDb
+from request_tracking_db import RequestTrackingDb
 from util import JsonStore, failureresponse
 import util
 import symphony
@@ -40,13 +40,12 @@ class InvalidCycleCloudVersionError(RuntimeError):
 
 class CycleCloudProvider:
     
-    def __init__(self, config, cluster, hostnamer, json_writer, terminate_requests, creation_requests, templates, clock):
+    def __init__(self, config, cluster, hostnamer, json_writer, terminate_requests, creation_requests, clock):
         self.config = config
         self.cluster = cluster
         self.hostnamer = hostnamer
         self.json_writer = json_writer
         self.terminate_json = terminate_requests
-        self.templates_json = templates
         self.creation_json = creation_requests
         self.exit_code = 0
         self.clock = clock
@@ -54,369 +53,57 @@ class CycleCloudProvider:
         self.creation_request_ttl = int(self.config.get("symphony.creation_request_ttl", 40 * 60))
         self.node_request_timeouts = float(self.config.get("cyclecloud.machine_request_retirement", 120) * 60)
         self.fine = False
-        self.capacity_tracker = CapacityTrackingDb(self.config, self.cluster.cluster_name, self.clock)
+        self.request_tracker = RequestTrackingDb(self.config, self.cluster.cluster_name, self.clock)
+        self.weighted_template = weighted_template_parse.WeightedTemplates(logger)
+        self.dry_run = False
         
     def _escape_id(self, name):
         return name.lower().replace("_", "")
     
-    def example_templates(self):
-        self._example_templates(self.templates()["templates"], [sys.stdout])
-        
-    def _example_templates(self, templates, writers):
-        
-        example = OrderedDict()
-        nodearrays = []
-        for template in templates["templates"]:
-            nodearray = template["attributes"]["nodearray"][1]
-            if nodearray not in nodearrays:
-                nodearrays.append(nodearray)
-        
-        for nodearray in nodearrays:
-            example[nodearray] = {"templateId": nodearray,
-                                  "attributes": {"custom": ["String", "custom_value"]}}
-            
-        for writer in writers:
-            json.dump(example, writer, indent=2, separators=(',', ': '))
-            
-    def _check_for_zero_capacity(self, buckets):
-        at_least_one_available_bucket = False
-        for bucket in buckets:
-            autoscale_enabled = bucket.software_configuration.get("autoscaling", {}).get("enabled", False)
-            if not autoscale_enabled:
-               continue
-            max_count = bucket.max_count
-            is_paused = self.capacity_tracker.is_paused(bucket.nodearray, bucket.vm_size)
-            if is_paused:
-                max_count = 0
-            at_least_one_available_bucket = at_least_one_available_bucket or max_count > 0  
-        return not at_least_one_available_bucket
-    
-    def _generate_templates(self):
-    def _generate_templates(self):
-        """
-        input (ignored):
-        []
-        
-        output:
-        {'templates': [{'attributes': {'azurecchost': ['Boolean', '1'],
-                               'mem': ['Numeric', '2048'],
-                               'ncores': ['Numeric', '4'],
-                               'ncpus': ['Numeric', '1'],
-                               'type': ['String', 'X86_64'],
-                               'zone': ['String', 'southeastus']},
-                'instanceTags': 'group=project1',
-                'maxNumber': 10,
-                'pgrpName': None,
-                'priority': 0,
-                'templateId': 'execute0'},
-               {'attributes': {'azurecchost': ['Boolean', '1'],
-                               'mem': ['Numeric', '4096'],
-                               'ncores': ['Numeric', '8'],
-                               'ncpus': ['Numeric', '1'],
-                               'rank': ['Numeric', '0'],
-                               'priceInfo': ['String', 'price:0.1,billingTimeUnitType:prorated_hour,billingTimeUnitNumber:1,billingRoundoffType:unit'],
-                               'type': ['String', 'X86_64'],
-                               'zone': ['String', 'southeastus']},
-                'instanceTags': 'group=project1',
-                'maxNumber': 10,
-                'pgrpName': None,
-                'priority': 0,
-                'templateId': 'execute1'}]}
-        """
-        at_least_one_available_bucket = False
-        templates_store = self.templates_json.read()
-        
-        # returns Cloud.Node records joined on MachineType - the array node only
-        response = self.cluster.status()
-
-        nodearrays = response["nodearrays"]
-        
-        if "nodeArrays" in nodearrays:
-            logger.error("Invalid CycleCloud version. Please upgrade your CycleCloud instance.")
-            raise InvalidCycleCloudVersionError("Invalid CycleCloud version. Please upgrade your CycleCloud instance.")
-        
-        if self.fine:
-            logger.debug("nodearrays response\n%s", json.dumps(nodearrays, indent=2))
-        
-        # We cannot report to Symphony that we have 0 capacity on all VMs. If we detect this we
-        # simply reset any temporary capacity constraints.
-        if self._check_for_zero_capacity(buckets):
-            logger.warning("All buckets have 0 capacity. Resetting capacity tracker.")
-            self.capacity_tracker.reset()
-        
-        currently_available_templates = set()
-            
-        for bucket in buckets:
-            autoscale_enabled = bucket.software_configuration.get("autoscaling", {}).get("enabled", False)
-            if not autoscale_enabled:
-                continue
-            # Symphony hates special characters
-            template_id = "%s%s" % (bucket.nodearray, bucket.vm_size)
-            template_id = self._escape_id(template_id)
-            currently_available_templates.add(template_id)
-            
-            max_count = bucket.max_count
-            is_low_prio = bucket.spot
-            at_least_one_available_bucket = at_least_one_available_bucket or max_count > 0
-            memory = bucket.memory.convert_to("m").value
-
-            ngpus = 0
-            try:
-                ngpus = int(bucket.software_configuration.get("symphony", {}).get("ngpus", bucket.gpu_count))
-            except ValueError:
-                logger.exception("Ignoring symphony.ngpus for nodearray %s" % bucket.nodearray)
-            
-            base_priority = bucket_priority(buckets, bucket)
-            # Symphony
-            # - uses nram rather than mem
-            # - uses strings for numerics         
-            record = {
-                "maxNumber": max_count,
-                "templateId": template_id,
-                "priority": base_priority,
-                "attributes": {
-                    "zone": ["String", bucket.location],
-                    "mem": ["Numeric", "%d" % memory],
-                    "nram": ["Numeric", "%d" % memory],
-                    # NOTE:
-                    #  ncpus == num_sockets == ncores / cores_per_socket
-                    #  Since we don't generally know the num_sockets,
-                    #      just set ncpus = 1 for all skus (1 giant CPU with N cores)
-                    #"ncpus": ["Numeric", "%d" % machine_type.get("???physical_socket_count???")],
-                    "ncpus": ["Numeric", "%d" % bucket.resources.get("ncpus", 1)],  
-                    "ncores": ["Numeric", "%d" % bucket.resources.get("ncores", bucket.vcpu_count)],
-                    "ngpus": ["Numeric", ngpus],                            
-                    "azurecchost": ["Boolean", "1"],
-                    'rank': ['Numeric', '0'],
-                    'priceInfo': ['String', 'price:0.1,billingTimeUnitType:prorated_hour,billingTimeUnitNumber:1,billingRoundoffType:unit'],                               'type': ['String', 'X86_64'],
-                    "type": ["String", "X86_64"],
-                    "machinetypefull": ["String", bucket.vm_size],
-                    "machinetype": ["String", bucket.vm_size],
-                    "nodearray": ["String", bucket.nodearray],
-                    "azureccmpi": ["Boolean", "0"],
-                    "azurecclowprio": ["Boolean", "1" if is_low_prio else "0"]
-                }
-            }
-            
-            # deepcopy so we can pop attributes
-            
-            for override_sub_key in ["default", bucket.nodearray]:
-                overrides = deepcopy(self.config.get("templates.%s" % override_sub_key, {}))
-                attribute_overrides = overrides.pop("attributes", {})
-                record.update(overrides)
-                record["attributes"].update(attribute_overrides)
-            
-            attributes = self.generate_userdata(record)
-            
-            custom_env = self._parse_UserData(record.pop("UserData", "") or "")
-            record["UserData"] = {"symphony": {}}
-            
-            if custom_env:
-                record["UserData"]["symphony"] = {"custom_env": custom_env,
-                                                "custom_env_names": " ".join(sorted(custom_env))}
-            
-            record["UserData"]["symphony"]["attributes"] = attributes
-            record["UserData"]["symphony"]["attribute_names"] = " ".join(sorted(attributes))
-
-            record["pgrpName"] = None
-            
-            is_paused_capacity = self.capacity_tracker.is_paused(bucket.nodearray, bucket.vm_size)
-
-            if is_paused_capacity:
-                record["priority"] = 0
-                
-            templates_store[template_id] = record
-        
-        # for templates that are no longer available, advertise them but set maxNumber = 0
-        for symphony_template in templates_store.values():
-            if symphony_template["templateId"] not in currently_available_templates:
-                if self.fine:
-                    logger.debug("Ignoring old template %s vs %s", symphony_template["templateId"], currently_available_templates)
-                symphony_template["maxNumber"] = 0
-                symphony_template["priority"] = 0
-                
-        symphony_templates = list(templates_store.values())
-        symphony_templates = sorted(symphony_templates, key=lambda x: -x["priority"])
-    
-        # Note: we aren't going to store this, so it will naturally appear as an error during allocation.
-        if not at_least_one_available_bucket:
-            symphony_templates.insert(0, PLACEHOLDER_TEMPLATE)
-        self.templates_json.write(templates_store)
-        return symphony_templates
-        
-    # Regenerate templates (and potentially reconfig HostFactory) without output, so 
-    #  this method is safe to call from other API calls
-    def _update_templates(self):
-        """
-        input (ignored):
-        []
-        
-        output:
-        {'templates': [{'attributes': {'azurecchost': ['Boolean', '1'],
-                               'mem': ['Numeric', '2048'],
-                               'ncores': ['Numeric', '4'],
-                               'ncpus': ['Numeric', '1'],
-                               'type': ['String', 'X86_64'],
-                               'zone': ['String', 'southeastus']},
-                'instanceTags': 'group=project1',
-                'maxNumber': 10,
-                'pgrpName': None,
-                'priority': 0,
-                'templateId': 'execute0'},
-               {'attributes': {'azurecchost': ['Boolean', '1'],
-                               'mem': ['Numeric', '4096'],
-                               'ncores': ['Numeric', '8'],
-                               'ncpus': ['Numeric', '1'],
-                               'rank': ['Numeric', '0'],
-                               'priceInfo': ['String', 'price:0.1,billingTimeUnitType:prorated_hour,billingTimeUnitNumber:1,billingRoundoffType:unit'],
-                               'type': ['String', 'X86_64'],
-                               'zone': ['String', 'southeastus']},
-                'instanceTags': 'group=project1',
-                'maxNumber': 10,
-                'pgrpName': None,
-                'priority': 0,
-                'templateId': 'execute1'}]}
-        """
-        templates_store = self.templates_json.read()
-        
-        prior_templates_str = json.dumps(templates_store, indent=2, sort_keys=True) 
-        logger.info("Prior templates:\n%s", prior_templates_str) 
-        
-        symphony_templates = self._generate_templates()
-        
-        templates_store = self.templates_json.read()
-        new_templates_str = json.dumps(templates_store, indent=2, sort_keys=True)
-        logger.info("new templates:\n%s", new_templates_str)
-        #if new_templates_str != prior_templates_str and len(prior_templates) > 0: this probably was here to avoid a deadlock, but here we are avoiding with do_REST
-        if new_templates_str != prior_templates_str:
-            generator = difflib.context_diff(prior_templates_str.splitlines(), new_templates_str.splitlines())
-            difference = "\n".join([str(x) for x in generator])
-            new_template_order = ", ".join(["%s:%s" % (x.get("templateId", "?"), x.get("maxNumber", "?")) for x in symphony_templates])
-            logger.warning("Templates have changed - new template priority order: %s", new_template_order)
-            logger.warning("Diff:\n%s", str(difference))
-
-            try:
-                rest_client = SymphonyRestClient(self.config, logger)  
-                rest_client.update_hostfactory_templates({"templates": symphony_templates, "message": "Get available templates success."})
-                persist_templates = True
-            except:
-                logger.exception("Ignoring failure to update cluster templates via Symphony REST API. (Is REST service running?)")
-            if persist_templates:        
-                self.templates_json.write(templates_store)
-
-        return symphony_templates
      
-    # TODO: method to generate templates in memory and methods for returning it for getAvailableTemplates or REST call.   
     # If we return an empty list or templates with 0 hosts, it removes us forever and ever more, so _always_
     # return at least one machine.
     # BUGFIX: exiting non-zero code will make symphony retry.
     def templates(self): 
-    def templates(self): 
         try:
-            if not self.config.get("symphony.enable_template_creation", False):
-                pro_conf_dir=os.getenv('PRO_CONF_DIR', os.getcwd())
-                conf_path = os.path.join(pro_conf_dir, "conf", "azureccprov_templates.json")
-                with open(conf_path, 'r') as json_file:
-                    template_json = json.load(json_file)
-                symphony_templates = template_json["templates"]
-                templates_store = {}
-                for template in symphony_templates:
-                    key = template["templateId"]
-                    templates_store[key] = template
-                self.templates_json.write(templates_store)
-                logger.info("Symphony tempolates")
-                logger.info(symphony_templates)
-            else:
-                symphony_templates = self._generate_templates()
-                
-            return self.json_writer({"templates": symphony_templates, "message": "Get available templates success."}, debug_output=False)
+            pro_conf_dir=os.getenv('PRO_CONF_DIR', os.getcwd())
+            conf_path = os.path.join(pro_conf_dir, "conf", "azureccprov_templates.json")
+            with open(conf_path, 'r') as json_file:
+                templates_json = json.load(json_file)
+            templates_json["message"] = "Get available templates success."   
+            return self.json_writer(templates_json, debug_output=False)
         except:
             logger.warning("Exiting Non-zero so that symphony will retry")
-            logger.exception("Could not get template_json")
+            logger.exception("Could not get templates_json")
             sys.exit(1) 
-                   
-    def generate_userdata(self, template):
-        ret = {}
-        
-        for key, value_array in template.get("attributes", {}).items():
-            if len(value_array) != 2:
-                logger.error("Invalid attribute %s %s", key, value_array)
-                continue
-            if value_array[0].lower() == "boolean":
-                ret[key] = str(value_array[1] != "0").lower()
+    
+    def generate_sample_template(self):
+        buckets = self.cluster.get_buckets()  
+        template_dict = {}
+        for bucket in buckets:
+            autoscale_enabled = bucket.software_configuration.get("autoscaling", {}).get("enabled", False)
+            if not autoscale_enabled:
+                #print("Autoscaling is disabled in CC for nodearray %s" % bucket.nodearray)
+                continue    
+            if template_dict.get(bucket.nodearray) is None:
+                template_dict[bucket.nodearray] = {}
+                template_dict[bucket.nodearray]["templateId"] = bucket.nodearray
+                template_dict[bucket.nodearray]["maxNumber"] = bucket.max_count
+                template_dict[bucket.nodearray]["attributes"] = {}
+                template_dict[bucket.nodearray]["attributes"]["type"] = ["String", "X86_64"]
+                template_dict[bucket.nodearray]["attributes"]["nram"] = ["Numeric", "4096"] 
+                template_dict[bucket.nodearray]["attributes"]["ncpus"] = ["Numeric", "1"]
+                template_dict[bucket.nodearray]["attributes"]["ncores"] = ["Numeric", "1"]
+                template_dict[bucket.nodearray]["vmTypes"] = {}
+                weight = bucket.resources.get("ncores", bucket.vcpu_count)
+                template_dict[bucket.nodearray]["vmTypes"].update({bucket.vm_size: weight})
             else:
-                ret[key] = value_array[1]
-        
-        if template.get("customScriptUri"):
-            ret["custom_script_uri"] = template.get("customScriptUri")
+                weight = bucket.resources.get("ncores", bucket.vcpu_count)
+                template_dict[bucket.nodearray]["vmTypes"].update({bucket.vm_size: weight})
+        templates = {"templates": list(template_dict.values())}
+        print(json.dumps(templates, indent=4))
+
             
-        return ret
-        
-    def _parse_UserData(self, user_data):
-        ret = {}
-        
-        user_data = (user_data or "").strip()
-        
-        if not user_data:
-            return ret
-        
-        key_values = user_data.split(";")
-        
-        # kludge: this can be overridden either at the template level
-        # or during a creation request. We always want it defined in userdata
-        # though.
-        
-        for kv in key_values:
-            try:
-                key, value = kv.split("=", 1)
-                ret[key] = value
-            except ValueError:
-                logger.error("Invalid UserData entry! '%s'", kv)
-        return ret
-
-
-    def is_capacity_limited(self, bucket):
-        return False
-    
-    def _max_count(self, nodearray_name, nodearray, machine_cores, bucket):
-        if machine_cores < 0:
-            logger.error("Invalid number of machine cores - %s", machine_cores)
-            return -1
-
-        max_count = bucket.get("maxCount")
-        
-        if max_count is not None:
-            max_count = max(-1, max_count)
-            logger.debug("Using maxCount %s for %s", max_count, bucket)
-        else:
-            max_core_count = bucket.get("maxCoreCount")
-            if max_core_count is None:
-                if nodearray.get("maxCoreCount") is None:
-                    logger.error("Need to define either maxCount or maxCoreCount! %s", pprint.pformat(bucket))
-                    return -1
-               
-                max_core_count = nodearray.get("maxCoreCount")
-                logger.debug("Using maxCoreCount %s",max_core_count)
-            max_core_count = max(-1, max_core_count)
-        
-            max_count = max_core_count / machine_cores
-
-        # We handle unexpected Capacity failures (Spot)  by zeroing out capacity for a timed duration
-        # machine_type_name = bucket["definition"]["machineType"]
-        
-        
-        # Below code is commented out as a customer faced an issue where autoscaling was being limited
-        # by spot_increment_per_sku. 
-        # For Spot instances, quota and limits are not great indicators of capacity, so artificially limit 
-        # requests to single machine types to spread the load and find available skus for large workloads
-        # is_low_prio = nodearray.get("Interruptible", False)
-        # if is_low_prio:
-        #     # Allow up to N _additional_ VMs (need to keep increasing this or symphony will stop considering the sku)
-        #     active_count = bucket["activeCount"]
-        #     max_count = min(max_count, active_count+self.spot_maxnumber_increment_per_sku)
-
-        return int(max_count)
-    
     @failureresponse({"requests": [], "status": RequestStates.running})
     def create_machines(self, input_json):
         """
@@ -428,73 +115,49 @@ class CycleCloudProvider:
         output:
         {'message': 'Request VM from Azure CycleCloud successful.',
          'requestId': 'req-123'}
-        """
+        """ 
         request_id = str(uuid.uuid4())
         logger.info("Creating requestId %s", request_id)
-        try:
-            # save the request so we can time it out
-            with self.creation_json as requests_store:
-                requests_store[request_id] = {"requestTime": calendar.timegm(self.clock()),
-                                            "completedNodes": [],
-                                            "allNodes": None,
-                                            "completed": False,
-                                            "lastNumNodes": input_json["template"]["machineCount"]}
-        except:
-            logger.exception("Could not open creation_json")
-            sys.exit(1)    
-        try:
-            template_store = self.templates_json.read()
-        
-            # same as nodearrays - Cloud.Node joined with MachineType
-            template_id = input_json["template"]["templateId"]
-            template = template_store.get(template_id)
+        if not self.dry_run:
+            try:
+                # save the request so we can time it out
+                with self.creation_json as requests_store:
+                    requests_store[request_id] = {"requestTime": calendar.timegm(self.clock()),
+                                                "completedNodes": [],
+                                                "allNodes": None,
+                                                "completed": False,
+                                                "lastNumNodes": input_json["template"]["machineCount"]}
+            except:
+                logger.exception("Could not open creation_json")
+                sys.exit(1)    
+        try:            
+            use_weighted_templates = False
+            vmTypes = {}
+            if self.config.get("symphony.enable_weighted_templates", True):
+                pro_conf_dir=os.getenv('PRO_CONF_DIR', os.getcwd())
+                conf_path = os.path.join(pro_conf_dir, "conf", "azureccprov_templates.json")
+                with open(conf_path, 'r') as json_file:
+                    templates_json = json.load(json_file)
+                vmTypes = self.weighted_template.parse_weighted_template(input_json, templates_json["templates"])
+                logger.debug("vmTypes %s", vmTypes) 
+                use_weighted_templates = True 
+                request_set = { 'count': input_json["template"]["machineCount"],
+                                 'definition':{'templateId':input_json["template"]["templateId"]}} 
             
-            if not template:
-                available_templates = template_store.keys()
-                return self.json_writer({"requestId": request_id, "status": RequestStates.complete_with_error, 
-                                        "message": "Unknown templateId %s. Available %s" % (template_id, available_templates)})
-                
-            machine_count = input_json["template"]["machineCount"]
-            
-            def _get(name):
-                return template["attributes"].get(name, [None, None])[1]
-            
-            # rc_account = input_json.get("rc_account", "default")
-            
-            # user_data = template.get("UserData")
-
-            # if rc_account != "default":
-            #     if "symphony" not in user_data:
-            #         user_data["symphony"] = {}
-                
-            #     if "custom_env" not in user_data["symphony"]:
-            #         user_data["symphony"]["custom_env"] = {}
-                    
-            #     user_data["symphony"]["custom_env"]["rc_account"] = rc_account
-            #     user_data["symphony"]["custom_env_names"] = " ".join(sorted(user_data["symphony"]["custom_env"].keys()))
-            
-            nodearray = _get("nodearray")
-            
-            machinetype_name = _get("machinetypefull")
-            
-            request_set = { 'count': machine_count,                       
-                            'definition': {'machineType': machinetype_name},
-                            # 'nodeAttributes': {'Tags': {"rc_account": rc_account},
-                            #                     'Configuration': user_data},
-                            'nodearray': nodearray }
-            # if template["attributes"].get("placementgroup"):
-            #     request_set["placementGroupId"] = template["attributes"].get("placementgroup")[1]
-            
+            if self.dry_run:
+                add_nodes_response = self.cluster.add_nodes({'requestId': request_id,
+                                                        'sets': [request_set]},use_weighted_templates, vmTypes, self.dry_run)
+                if add_nodes_response:
+                    print("Dry run succeeded")
+                    exit(0)
             # We are grabbing the lock to serialize this call.
             try:
                 with self.creation_json as requests_store:                   
                         add_nodes_response = self.cluster.add_nodes({'requestId': request_id,
-                                                        'sets': [request_set]}, template.get("maxNumber"))
+                                                        'sets': [request_set]},use_weighted_templates, vmTypes)
             finally:
                 request_set['requestId'] = request_id
-                self.capacity_tracker.add_request(request_set)
-        
-            
+                self.request_tracker.add_request(request_set) 
             
             if not add_nodes_response:
                 raise ValueError("No nodes were created")
@@ -503,14 +166,10 @@ class CycleCloudProvider:
             
             with self.creation_json as requests_store:
                  requests_store[request_id]["allNodes"] = [self.cluster.get_node_id(x) for x in add_nodes_response.nodes]
-
-            if template["attributes"].get("placementgroup"):
-                logger.info("Requested %s instances of machine type %s in placement group %s for nodearray %s.", machine_count, machinetype_name, _get("placementgroup"), _get("nodearray"))
-            else:
-                logger.info("Requested %s instances of machine type %s in nodearray %s.", machine_count, machinetype_name, _get("nodearray"))
             
             return self.json_writer({"requestId": request_id, "status": RequestStates.running,
                                      "message": "Request instances success from Azure CycleCloud."})
+
         except UserError as e:
             logger.exception("Azure CycleCloud experienced an error and the node creation request failed. %s", e)
             return self.json_writer({"requestId": request_id, "status": RequestStates.complete_with_error,
@@ -519,10 +178,6 @@ class CycleCloudProvider:
             logger.exception("Azure CycleCloud experienced an error and the node creation request failed. %s", e)
             return self.json_writer({"requestId": request_id, "status": RequestStates.complete_with_error,
                                      "message": "Azure CycleCloud experienced an error: %s" % str(e)})
-        except OutOfCapacityError as e:
-            logger.warning("Request Id %s failed with out of capacity %s", request_id, e)
-            return self.json_writer({"requestId": request_id, "status": RequestStates.running,
-                                     "message": "Azure CycleCloud does not currently have capacity %s" % str(e)})
         except Exception as e:
             logger.exception("Azure CycleCloud experienced an error, though it may have succeeded: %s", e)
             return self.json_writer({"requestId": request_id, "status": RequestStates.running,
@@ -812,25 +467,6 @@ class CycleCloudProvider:
                     requests_store[request_id] = {"requestTime": calendar.timegm(self.clock())}
                 #set default
                 requests_store[request_id]["lastUpdateTime"] = calendar.timegm(self.clock())
-                actual_machine_cnt = len(valid_nodes)
-                if not requests_store[request_id].get("lastNumNodes") :
-                    requests_store[request_id]["lastNumNodes"] = actual_machine_cnt
-                if actual_machine_cnt < requests_store[request_id]["lastNumNodes"]:
-                    request_envelope = self.capacity_tracker.get_request(request_id)
-                    if not request_envelope:
-                        logger.warning("No request envelope maybe all buckets have hit capacity issue")
-                        logger.debug("No request envelope found for request id %s", request_id)
-                    else:
-                        reqs = request_envelope.get('sets', [])
-                        if not reqs:
-                            continue
-                        assert len(reqs) == 1
-                        req = reqs[0]
-                        nodearray_name = req['nodearray']
-                        machine_type = req['definition']['machineType']
-                        logger.warning("Out-of-capacity condition detected for machine_type %s in nodearray %s", machine_type, nodearray_name)
-                        self.capacity_tracker.pause_capacity(nodearray_name=nodearray_name, machine_type=machine_type)
-                        requests_store[request_id]["lastNumNodes"] = actual_machine_cnt
                         
                 requests_store[request_id]["completedNodes"] = completed_nodes
                 if requests_store[request_id].get("allNodes") is None:
@@ -1119,11 +755,11 @@ class CycleCloudProvider:
             delete_response = self._deperecated_terminate_status({"requests": deletes})
             assert "status" in delete_response
 
-        # Update capacity tracking
+        # Update request tracking
         if 'requests' in create_response:
             for cr in create_response['requests']:
                 if cr['status'] in [ RequestStates.complete ]:
-                    self.capacity_tracker.request_completed(cr)
+                    self.request_tracker.request_completed(cr)
 
         create_status = create_response.get("status", RequestStates.complete)
         delete_status = delete_response.get("status", RequestStates.complete)
@@ -1137,9 +773,6 @@ class CycleCloudProvider:
             combined_status = RequestStates.complete_with_error
         else:
             combined_status = RequestStates.complete
-        
-        # if the Capacity limits have changed, templates will be updated at the end of this call.
-        # -> HostFactory rarely  (if ever) calls getAvailableTemplates after startup
 
         response = {"status": combined_status,
                     "requests": create_response.get("requests", []) + delete_response.get("requests", [])
@@ -1228,12 +861,6 @@ class CycleCloudProvider:
 
     def periodic_cleanup(self):
         try:
-            if self.config.get("symphony.enable_template_creation", False):
-                self._update_templates()
-        except Exception:
-            logger.exception("Could not update templates")
-
-        try:
             self._retry_termination_requests()
         except Exception:
             logger.exception("Could not retry termination")
@@ -1265,28 +892,32 @@ class CycleCloudProvider:
                 internal_completed_nodes.update(set(request.get("completedNodes")))
         incomplete_nodes = actual_completed_nodes - internal_completed_nodes
         print(incomplete_nodes)
-
-def bucket_priority(nodearrays, bucket_nodearray, b_index):
-    nodearray = bucket_nodearray.get("nodearray")
-    prio = nodearray.get("Priority")
-    if isinstance(prio, str):
-        try:
-            prio = int(float(prio))
-        except Exception:
-            prio = None
-    if isinstance(prio, float):
-        prio = int(prio)
-    if isinstance(prio, int):
-        if prio < 0:
-            prio = None
-    if prio is not None and not isinstance(prio, int):
-        prio = None    
-    if prio is None:
-        prio = (nodearrays.index(bucket_nodearray.nodearray) + 1) * 10
-    if prio > 0:
-        return prio * 1000 - b_index
-    assert prio == 0, f'Unexpected prio {prio} - should ALWAYS be >= 0.'
-    return prio   
+    
+    def validate_template(self):
+        cluster_status = self.cluster.status()
+        nodearrays = cluster_status["nodearrays"]
+        pro_conf_dir=os.getenv('PRO_CONF_DIR', os.getcwd())
+        conf_path = os.path.join(pro_conf_dir, "conf", "azureccprov_templates.json")
+        with open(conf_path, 'r') as json_file:
+            templates_json = json.load(json_file)
+        templates_json = templates_json["templates"]
+        for template in templates_json:
+           for nodearray_root in nodearrays:
+               if template["templateId"] == nodearray_root.get("name"):
+                   for key,value in template["vmTypes"].items():
+                       vmTypeExist = False
+                       for bucket in nodearray_root.get("buckets"):
+                            if key == bucket.get("definition")["machineType"]:
+                                vmTypeExist = True
+                                break
+                       if not vmTypeExist:
+                           print("Template validation failed")
+                           print("vmType %s does not exist in nodearray %s" % (key, template["templateId"]))
+                           return False
+        print("Template validation passed")
+        return True
+    
+    #generate_template as a stdout
 
 def simple_json_writer(data, debug_output=True):  # pragma: no cover
     data_str = json.dumps(data)
@@ -1308,6 +939,7 @@ def main(argv=sys.argv, json_writer=simple_json_writer):  # pragma: no cover
         provider_config, logger, fine = util.provider_config_from_environment()
         
         data_dir = os.getenv('PRO_DATA_DIR', os.getcwd())
+        conf_dir = os.getenv('PRO_CONF_DIR', os.getcwd())
         hostnamer = util.Hostnamer(provider_config.get("cyclecloud.hostnames.use_fqdn", True))
         cluster_name = provider_config.get("cyclecloud.cluster.name")
         
@@ -1317,17 +949,22 @@ def main(argv=sys.argv, json_writer=simple_json_writer):  # pragma: no cover
                                       json_writer=json_writer,
                                       terminate_requests=JsonStore("terminate_requests.json", data_dir),
                                       creation_requests=JsonStore("create_requests.json", data_dir),
-                                      templates=JsonStore("templates.json", data_dir, formatted=True),
                                       clock=true_gmt_clock)
+        
         provider.fine = fine
 
         # every command has the format cmd -f input.json        
         cmd, ignore, input_json_path = argv[1:]
-
+        
         input_json = util.load_json(input_json_path)
         
         logger.info("Arguments - %s %s %s", cmd, ignore, json.dumps(input_json))
-                
+        
+        if input_json.get("dry-run"):
+            provider.validate_template()
+            provider.dry_run = True  
+        if cmd == "generate_template":
+            provider.generate_sample_template()     
         if cmd == "templates":
             provider.templates()
         elif cmd == "create_machines":
@@ -1348,6 +985,8 @@ def main(argv=sys.argv, json_writer=simple_json_writer):  # pragma: no cover
             provider.terminate_machines(input_json)
         elif cmd == "debug_completed_nodes":
             provider.debug_completed_nodes()
+        
+
         
         # best effort cleanup.
         provider.periodic_cleanup()
