@@ -255,7 +255,7 @@ class ProviderConfig:
                     jetpack_config = json.load(json_file)
                 # import jetpack
                 # jetpack_config = jetpack.config 
-            except (ModuleNotFoundError,ImportError) as ex:
+            except (ModuleNotFoundError,ImportError,FileNotFoundError) as ex:
                 jetpack_config = {}
         self.jetpack_config = jetpack_config
         
