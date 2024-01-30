@@ -88,7 +88,6 @@ class CycleCloudProvider:
             if template_dict.get(bucket.nodearray) is None:
                 template_dict[bucket.nodearray] = {}
                 template_dict[bucket.nodearray]["templateId"] = bucket.nodearray
-                template_dict[bucket.nodearray]["maxNumber"] = bucket.max_count
                 template_dict[bucket.nodearray]["attributes"] = {}
                 template_dict[bucket.nodearray]["attributes"]["type"] = ["String", "X86_64"]
                 template_dict[bucket.nodearray]["attributes"]["nram"] = ["Numeric", "4096"] 
@@ -96,6 +95,7 @@ class CycleCloudProvider:
                 template_dict[bucket.nodearray]["attributes"]["ncores"] = ["Numeric", "1"]
                 template_dict[bucket.nodearray]["vmTypes"] = {}
                 weight = bucket.resources.get("ncores", bucket.vcpu_count)
+                template_dict[bucket.nodearray]["maxNumber"] = (bucket.max_count * weight) 
                 template_dict[bucket.nodearray]["vmTypes"].update({bucket.vm_size: weight})
             else:
                 weight = bucket.resources.get("ncores", bucket.vcpu_count)
@@ -125,15 +125,14 @@ class CycleCloudProvider:
                     requests_store[request_id] = {"requestTime": calendar.timegm(self.clock()),
                                                 "completedNodes": [],
                                                 "allNodes": None,
-                                                "completed": False,
-                                                "lastNumNodes": input_json["template"]["machineCount"]}
+                                                "completed": False}
             except:
                 logger.exception("Could not open creation_json")
                 sys.exit(1)    
         try:            
             use_weighted_templates = False
             vmTypes = {}
-            if self.config.get("symphony.enable_weighted_templates", True):
+            if self.config.get("symphony.enable_weighted_templates", False):
                 pro_conf_dir=os.getenv('PRO_CONF_DIR', os.getcwd())
                 conf_path = os.path.join(pro_conf_dir, "conf", "azureccprov_templates.json")
                 with open(conf_path, 'r') as json_file:
