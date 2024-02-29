@@ -12,7 +12,7 @@ from builtins import str
 import weighted_template_parse
 
 
-from symphony import RequestStates, MachineStates, MachineResults, SymphonyRestClient
+from symphony import RequestStates, MachineStates, MachineResults
 import cluster
 from request_tracking_db import RequestTrackingDb
 from util import JsonStore, failureresponse
@@ -83,18 +83,23 @@ class CycleCloudProvider:
         for bucket in buckets:
             autoscale_enabled = bucket.software_configuration.get("autoscaling", {}).get("enabled", False)
             if not autoscale_enabled:
-                #print("Autoscaling is disabled in CC for nodearray %s" % bucket.nodearray)
+                print("Autoscaling is disabled in CC for nodearray %s" % bucket.nodearray)
                 continue    
             if template_dict.get(bucket.nodearray) is None:
                 template_dict[bucket.nodearray] = {}
                 template_dict[bucket.nodearray]["templateId"] = bucket.nodearray
                 template_dict[bucket.nodearray]["attributes"] = {}
+                # Assuming slot size with ncpus=1 and nram=4096
                 template_dict[bucket.nodearray]["attributes"]["type"] = ["String", "X86_64"]
                 template_dict[bucket.nodearray]["attributes"]["nram"] = ["Numeric", "4096"] 
                 template_dict[bucket.nodearray]["attributes"]["ncpus"] = ["Numeric", "1"]
                 template_dict[bucket.nodearray]["attributes"]["ncores"] = ["Numeric", "1"]
                 template_dict[bucket.nodearray]["vmTypes"] = {}
-                weight = bucket.resources.get("ncores", bucket.vcpu_count)
+                if self.config.get("symphony.ncpus_use_vcpus", True):
+                    weight = bucket.resources.get("ncores", bucket.vcpu_count)
+                else:
+                    weight = bucket.resources.get("ncores", bucket.pcpu_count)
+                # Here maxNumber is defined based on SKU with lowest weight.
                 template_dict[bucket.nodearray]["maxNumber"] = (bucket.max_count * weight) 
                 template_dict[bucket.nodearray]["vmTypes"].update({bucket.vm_size: weight})
             else:
@@ -132,7 +137,7 @@ class CycleCloudProvider:
         try:            
             use_weighted_templates = False
             vmTypes = {}
-            if self.config.get("symphony.enable_weighted_templates", False):
+            if self.config.get("symphony.enable_weighted_templates", True):
                 pro_conf_dir=os.getenv('PRO_CONF_DIR', os.getcwd())
                 conf_path = os.path.join(pro_conf_dir, "conf", "azureccprov_templates.json")
                 with open(conf_path, 'r') as json_file:
@@ -335,6 +340,8 @@ class CycleCloudProvider:
         
         for request_id, requested_nodes in nodes_by_request_id.items():
             request_status = RequestStates.complete
+            unknown_state_count = 0
+            requesting_count = 0
             if not requested_nodes:
                 # nothing to do.
                 logger.warning("No nodes found for request id %s.", request_id)
@@ -795,7 +802,8 @@ class CycleCloudProvider:
                 response = self._create_status({"requests": [{"requestId": r} for r in never_queried_requests]}, lambda input_json, **ignore: input_json)
 
                 for request in response["requests"]:
-                    if request["status"] == RequestStates.complete_with_error and not request.get("_recoverable_", True):
+                    #setting _recoverable_ to false so we don't retry indefinitely
+                    if request["status"] == RequestStates.complete_with_error and not request.get("_recoverable_", False):
                         unrecoverable_request_ids.append(request["requestId"])
 
                 # if we got a 404 on the request_id (a failed nodes/create call), set allNodes to an empty list so that we don't retry indefinitely. 
@@ -899,24 +907,39 @@ class CycleCloudProvider:
         conf_path = os.path.join(pro_conf_dir, "conf", "azureccprov_templates.json")
         with open(conf_path, 'r') as json_file:
             templates_json = json.load(json_file)
+        if "templates" not in templates_json:
+            print("List templates not present in azureccprov_templates.json")
+            return False
         templates_json = templates_json["templates"]
+        if len(templates_json) == 0:
+            print("Length of list templates is 0")
+            return False
         for template in templates_json:
            for nodearray_root in nodearrays:
-               if template["templateId"] == nodearray_root.get("name"):
-                   for key,value in template["vmTypes"].items():
-                       vmTypeExist = False
-                       for bucket in nodearray_root.get("buckets"):
-                            if key == bucket.get("definition")["machineType"]:
-                                vmTypeExist = True
-                                break
-                       if not vmTypeExist:
-                           print("Template validation failed")
-                           print("vmType %s does not exist in nodearray %s" % (key, template["templateId"]))
-                           return False
+               template_name_found = False
+               if template["templateId"].strip() == nodearray_root.get("name").strip():
+                   template_name_found = True
+                   bucket_machineType = [bucket.get("definition")["machineType"].strip() for bucket in nodearray_root.get("buckets")]
+                   if "vmTypes" not in template:
+                       print("Template validation failed")  
+                       print("vmTypes not present in template %s" % template["templateId"])
+                       return False
+                   vmTypes = [key.strip() for key in template["vmTypes"].keys()]
+                   bucket_machineType = set(bucket_machineType)
+                   vmTypes = set(vmTypes)
+                   diff = bucket_machineType.symmetric_difference(vmTypes)
+                   if len(diff) > 0:
+                       print("Template validation failed")   
+                       print(f"Difference in vmTypes and buckets {diff} for template {template['templateId']}")
+                       return False
+                   break
+           if not template_name_found:
+               print("Template validation failed")
+               print("Template %s does not exist in nodearray" % template["templateId"])
+               return False
         print("Template validation passed")
         return True
     
-    #generate_template as a stdout
 
 def simple_json_writer(data, debug_output=True):  # pragma: no cover
     data_str = json.dumps(data)
@@ -957,7 +980,8 @@ def main(argv=sys.argv, json_writer=simple_json_writer):  # pragma: no cover
         
         input_json = util.load_json(input_json_path)
         
-        logger.info("Arguments - %s %s %s", cmd, ignore, json.dumps(input_json))
+        logger.info("BEGIN - %s %s %s", cmd, ignore, input_json_path)
+        logger.debug("Input: %s", json.dumps(input_json))
         
         if input_json.get("dry-run"):
             provider.validate_template()
@@ -999,7 +1023,8 @@ def main(argv=sys.argv, json_writer=simple_json_writer):  # pragma: no cover
         else:
             import traceback
             traceback.print_exc()
-            
+    finally:
+        logger.info("END - %s %s %s", cmd, ignore, input_json_path)         
 
 if __name__ == "__main__":
     main()  # pragma: no cover

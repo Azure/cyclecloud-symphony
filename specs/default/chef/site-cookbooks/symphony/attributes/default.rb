@@ -90,3 +90,6 @@ default['symphony']['hostfactory']['requestors']['symA']['host_return_policy']['
 #attributes for sethostname
 default[:symphony][:ensure_waagent_monitor_hostname] = true
 default[:symphony][:use_nodename_as_hostname] = false
+
+default[:symphony][:enable_weighted_templates] = true
+default[:symphony][:ncpus_use_vcpus] = true

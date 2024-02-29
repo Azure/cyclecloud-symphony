@@ -60,14 +60,14 @@ set -e
 #             j["allocated_hosts"] = []' ${EGO_TOP}/${EGO_VERSION}/hostfactory/requestors/symA/scripts/Main.py
 
 
-# echo "Starting HostFactory..."
-# sudo -i -u egoadmin bash << EOF
-# . /etc/profile.d/symphony.sh
-# egosh user logon -u ${SOAM_USER} -x ${SOAM_PASSWORD}
-# egosh service stop HostFactory
-# egosh service start HostFactory
-# egosh service view HostFactory
-# EOF
+echo "Starting HostFactory..."
+sudo -i -u egoadmin bash << EOF
+. /etc/profile.d/symphony.sh
+egosh user logon -u ${SOAM_USER} -x ${SOAM_PASSWORD}
+egosh service stop HostFactory
+egosh service start HostFactory
+egosh service view HostFactory
+EOF
 
 
 

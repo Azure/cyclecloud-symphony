@@ -24,54 +24,52 @@ except ImportError:
 
 _logging_init = False
 
+class CustomFormatter(logging.Formatter):
+    def format(self, record):
+        record.operation_id = int(time.time())
+        return super().format(record)
 
+ 
 def init_logging(loglevel=logging.INFO, logfile=None):
     global _logging_init
     if logfile is None:
         logfile = "azurecc_prov.log"
     logfile_path = os.path.join(os.getenv("PRO_LOG_DIR", "."), logfile)
     
-    try:
-        import jetpack
-        jetpack.util.setup_logging()
-    except (ModuleNotFoundError,ImportError) as ex:
-        LOGGING = {
-            'version': 1,
-            'disable_existing_loggers': False,
-            'formatters': {
-                'default': {
-                    'format': '%(asctime)s %(levelname)-8s %(message)s'
-                },
+    LOGGING = {
+        'version': 1,
+        'disable_existing_loggers': False,
+        'formatters': {
+            'default': {
+                'format': '%(operation_id)s - %(asctime)s %(levelname)-8s %(message)s'
             },
-            'handlers': {
-                'file': {
-                    # The values below are popped from this dictionary and
-                    # used to create the handler, set the handler's level and
-                    # its formatter.
-                    '()': ConcurrentRotatingFileHandler,
-                    'level': logging.INFO,
-                    'formatter': 'default',
-                    # The values below are passed to the handler creator callable
-                    # as keyword arguments.
-                    # 'owner': ['root', 'cyclecloud'],
-                    'filename': logfile_path,
-                },
-            },
-            'root': {
-                'handlers': ['file'],
+        },
+        'handlers': {
+            'file': {
+                # The values below are popped from this dictionary and
+                # used to create the handler, set the handler's level and
+                # its formatter.
+                '()': ConcurrentRotatingFileHandler,
                 'level': logging.INFO,
+                'formatter': 'default',
+                # The values below are passed to the handler creator callable
+                # as keyword arguments.
+                # 'owner': ['root', 'cyclecloud'],
+                'filename': logfile_path,
             },
-        }
-        logging.config.dictConfig(LOGGING)
+        },
+        'root': {
+            'handlers': ['file'],
+            'level': logging.INFO,
+            
+        },
+    }
+    logging.config.dictConfig(LOGGING)
     
     try:
         root_logger = logging.getLogger()
         filtered_handlers = []
         for handler in root_logger.handlers:
-            if hasattr(handler, "baseFilename"):
-                bfn = getattr(handler, "baseFilename")
-                if bfn and bfn.endswith("jetpack.log"):
-                    continue
             filtered_handlers.append(handler)
             
         root_logger.handlers = filtered_handlers
@@ -94,13 +92,13 @@ def init_logging(loglevel=logging.INFO, logfile=None):
     tenMB = 10 * 1024 * 1024
     logfile_handler = ConcurrentRotatingFileHandler(logfile_path, mode='a',maxBytes=tenMB, backupCount=5)
     logfile_handler.setLevel(loglevel)
-    logfile_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+    logfile_handler.setFormatter(CustomFormatter('%(operation_id)s - %(asctime)s - %(name)s - %(levelname)s - %(message)s'))
     
     logger.addHandler(logfile_handler)
     
     stderr_handler = logging.StreamHandler(stream=sys.stderr)
     stderr_handler.setLevel(logging.DEBUG)
-    stderr_handler.setFormatter(logging.Formatter('%(levelname)s - %(message)s'))
+    stderr_handler.setFormatter(CustomFormatter('%(operation_id)s - %(levelname)s - %(message)s'))
     
     logger.addHandler(stderr_handler)
     
@@ -253,9 +251,7 @@ class ProviderConfig:
             try:
                 with open("/opt/cycle/jetpack/config/node.json") as json_file:
                     jetpack_config = json.load(json_file)
-                # import jetpack
-                # jetpack_config = jetpack.config 
-            except (ModuleNotFoundError,ImportError,FileNotFoundError) as ex:
+            except (FileNotFoundError) as ex:
                 jetpack_config = {}
         self.jetpack_config = jetpack_config
         
@@ -264,7 +260,6 @@ class ProviderConfig:
             return self.config
         
         keys = key.split(".")
-        #top_value = self.config
         top_value = {**self.config, **self.jetpack_config}
         for n in range(len(keys)):
             if top_value is None:

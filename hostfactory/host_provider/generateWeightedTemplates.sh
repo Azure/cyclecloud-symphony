@@ -18,10 +18,8 @@ scriptDir=`dirname $0`
 export PYTHONPATH=$PYTHONPATH:$scriptDir/src
 # $scriptDir/./invoke_provider.sh generate_template $@
 . $venv_path/activate
-$venv_path/python3 -m cyclecloud_provider generate_template -f /tmp/input.json 1> /tmp/azureccprov_templates.json 2>> /tmp/template_generate.out
-if [ $? == 0 ]; then
-    echo "Template generated successfully can be found in /tmp/azureccprov_templates.json"
-else
+$venv_path/python3 -m cyclecloud_provider generate_template -f /tmp/input.json 2>> /tmp/template_generate.out
+if [ $? != 0 ]; then
     echo "Template generation failed check logs in /tmp/template_generate.out"
 fi
 rm -rf $HF_LOGDIR
