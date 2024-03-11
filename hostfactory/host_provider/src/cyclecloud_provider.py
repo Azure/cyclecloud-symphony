@@ -8,6 +8,7 @@ import os
 import pprint
 import sys
 import uuid
+import requests
 from builtins import str
 
 
@@ -18,6 +19,7 @@ from capacity_tracking_db import CapacityTrackingDb
 from util import JsonStore, failureresponse
 import util
 import symphony
+import version
 from cyclecliwrapper import UserError
 
 
@@ -654,6 +656,12 @@ class CycleCloudProvider:
             except Exception as e:
                 if "No operation found for request id" in str(e):
                     nodes_by_request_id[request_id] = {"nodes": []}
+                elif isinstance(e, requests.exceptions.ConnectionError):
+                    # send HF request is still running so that it remembers request.
+                    logger.warning(f"Connection error occured during create_status call {request_id} reported as running")
+                    return json_writer({"status": RequestStates.running,
+                                        "requests": [{"requestId": request_id, "status": RequestStates.running} for request_id in request_ids],
+                                        "message": "Azure CycleCloud is still requesting nodes"})
                 else:
                     exceptions.append(e)
                     logger.exception("Azure CycleCloud experienced an error and the node creation request failed for request_id %s. %s", request_id, e)
@@ -868,7 +876,31 @@ class CycleCloudProvider:
                 
                 if machines_to_terminate:
                     logger.warning("Re-attempting termination of nodes %s", machines_to_terminate)
-                    self.cluster.terminate(machines_to_terminate)
+                    try:
+                       self.cluster.terminate(machines_to_terminate)
+                    except requests.exceptions.ConnectionError:
+                       logger.warning("Could not terminate machines %s due to connection exception, sending status as running", machines_to_terminate)
+                       request_status = RequestStates.running
+                       response["status"] = request_status
+                       response_machines = []
+
+                       for termination_id in termination_ids:
+                            # if we don't know the termination_id then we report an empty list of machines
+                            request = {"requestId": termination_id,
+                                       "machines": response_machines}
+                            # report machines are in deleting state so HF remembers the request 
+                            if termination_id in terminate_requests:
+                                 termination_request = terminate_requests.get(termination_id)
+                                 machines = termination_request.get("machines", {})
+                                 if machines:
+                                    for machine_id, hostname in machines.items():
+                                        response_machines.append({"name": hostname,
+                                                    "status": MachineStates.deleting,
+                                                    "result": MachineResults.executing,
+                                                    "machineId": machine_id})  
+                            response["requests"].append(request) 
+                       return self.json_writer(response)
+                       
                     
                 for termination_id in termination_ids:
                     if termination_id in terminate_requests:
@@ -1335,6 +1367,7 @@ def main(argv=sys.argv, json_writer=simple_json_writer):  # pragma: no cover
         logger.debug("Input: %s", json.dumps(input_json))
                 
         if cmd == "templates":
+            logger.info("Using azurecc version %s", version.get_version())
             provider.templates()
         elif cmd == "create_machines":
             provider.create_machines(input_json)
