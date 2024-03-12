@@ -45,6 +45,7 @@ class MockCluster:
         self._nodes = {}
         self.raise_during_termination = False
         self.raise_during_add_nodes = False
+        self.raise_during_nodes = False
 
         # {<MachineType>: <ActualCapacity != MaxCount>} 
         # {'standard_a8': 1} => max of 1 VM will be returned by add_nodes regardless of requested count
@@ -100,9 +101,12 @@ class MockCluster:
         for node in self.inodes(RequestId=request_ids):
             node['InstanceId'] = '%s_%s' % (node["RequestId"], instance_count)
             node['State'] = 'Started'
+            node['Status'] = 'Started'
             node['PrivateIp'] =  '10.0.0.%s' % instance_count
             
     def nodes(self, request_ids=[]):
+        if self.raise_during_nodes:
+           raise RuntimeError("raise_during_nodes")
         ret = {}
         
         for request_id in request_ids:
@@ -333,9 +337,19 @@ class TestHostFactory(unittest.TestCase):
         self.assertEqual(0, len(request_status1["machines"]))
         self.assertEqual(RequestStates.running, request_status2["status"])
         self.assertEqual(0, len(request_status2["machines"]))
-
+        
+        # Test for a case when exception raised during status call.
+        provider.cluster.raise_during_nodes = True
+        request_status = provider.status({'requests': [request1, request2]})
+        self.assertEqual(RequestStates.running, request_status["status"])
+        request_status1 = find_request_status(request_status, request1)
+        request_status2 = find_request_status(request_status, request2)
+        self.assertEqual(RequestStates.running, request_status1["status"])
+        self.assertEqual(RequestStates.running, request_status2["status"])
+        
         provider.cluster.complete_node_startup([request1['requestId'], request2['requestId']])
-
+        
+        provider.cluster.raise_during_nodes = False
         request_status = provider.status({'requests': [request1, request2]})
         self.assertEqual(RequestStates.complete, request_status["status"])
         request_status1 = find_request_status(request_status, request1)
@@ -411,6 +425,14 @@ class TestHostFactory(unittest.TestCase):
         
         status_response = provider.terminate_status({"machines": [{"machineId": "missing", "name": "missing-123"}]})
         self.assertEqual({'requests': [], 'status': 'complete'}, status_response)
+        
+        # test status is reported as running so that HF keeps requesting status of request.
+        provider.cluster.raise_during_termination = True
+        term_response = provider.terminate_machines({"machines": [{"name": "host-123", "machineId": "id-123"}]})
+        failed_request_id = term_response["requestId"]
+        status_response = provider.status({"requests": [{"requestId": failed_request_id}]})
+        self.assertEqual(status_response["status"], "running")
+        
         
     def test_terminate_error(self):
         provider = self._new_provider()
