@@ -303,11 +303,9 @@ class ProviderConfig:
 
 def provider_config_from_environment(pro_conf_dir=os.getenv('PRO_CONF_DIR', os.getcwd())):    
     config_file = os.path.join(pro_conf_dir, "conf", "azureccprov_config.json")
-    templates_file = os.path.join(pro_conf_dir, "conf", "azureccprov_templates.json")
     if os.name == 'nt':
         # TODO: Why does the path matter?   Can we use one or the other for both OSs?
         config_file = os.path.join(pro_conf_dir, "azureccprov_config.json")
-        templates_file = os.path.join(pro_conf_dir, "azureccprov_templates.json")
 
 
     hf_conf_dir = os.getenv('HF_CONFDIR', os.path.join(pro_conf_dir, "..", "..", ".."))
@@ -353,43 +351,7 @@ def provider_config_from_environment(pro_conf_dir=os.getenv('PRO_CONF_DIR', os.g
     logger = init_logging(log_levels[log_level_name.lower()])
     
     for level, message in delayed_log_statements:
-        logger.log(level, message)
-    
-    # on disk per-nodearray template override
-    customer_templates = {}
-    if os.path.exists(templates_file):
-        logger.debug("Loading template overrides: %s" % templates_file)
-        customer_templates = load_json(templates_file)
-    else:
-        try:
-            with open(templates_file, "w") as fw:
-                json.dump({}, fw)
-            logger.info("Template overrides file does not exist, wrote an empty one: %s" % templates_file)
-        except IOError:
-            logger.debug("Template overrides file does not exist and can't write a default one: %s" % templates_file)
-    
-    # don't let the user define these in two places
-    if config.pop("templates", {}):
-        logger.warning("Please define template overrides in %s, not the azureccprov_config.json" % templates_file)
-    
-    # and merge them so it is transparent to the code
-    flattened_templates = {}
-    for template in customer_templates.get("templates", []):
-        
-        if "templateId" not in template:
-            logger.warning("Skipping template because templateId is not defined: %s", template)
-            continue
-        
-        nodearray = template.pop("templateId")  # definitely don't want to rename them as machineId
-        
-        if nodearray in flattened_templates:
-            logger.warning("Ignoring redefinition of templateId %s", nodearray)
-            continue
-        
-        flattened_templates[nodearray] = template
-        
-    config["templates"] = flattened_templates
-    
+        logger.log(level, message)    
     return ProviderConfig(config), logger, fine
 
 

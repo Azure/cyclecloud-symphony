@@ -59,8 +59,10 @@ class Cluster:
             self.node_mgr.add_default_resource(selection={}, resource_name="template_id", 
                                         default_value=lambda node: "{node.nodearray + node.vm_size.replace('_', '')}".lower())
             self.node_mgr.add_default_resource(selection={}, resource_name="weight", default_value=1)
-
-        result = self.node_mgr.allocate({"weight": 1, "template_id": template_id, "capacity-failure-backoff": 300},
+        
+        # Time in seconds to check waiting period after last capacity failure
+        capacity_failure_backoff = self.provider_config.get("capacity-failure-backoff", 300)
+        result = self.node_mgr.allocate({"weight": 1, "template_id": template_id, "capacity-failure-backoff": capacity_failure_backoff},
                                 slot_count=request['sets'][0]['count'],
                                 allow_existing=False)
         self.logger.debug("Result of allocation %s", result)

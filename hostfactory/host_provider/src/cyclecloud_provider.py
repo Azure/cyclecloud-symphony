@@ -983,10 +983,10 @@ def main(argv=sys.argv, json_writer=simple_json_writer):  # pragma: no cover
         logger.info("BEGIN - %s %s %s", cmd, ignore, input_json_path)
         logger.debug("Input: %s", json.dumps(input_json))
         
-        if input_json.get("dry-run"):
+        if cmd == "validate_templates" or input_json.get("dry-run"):
             provider.validate_template()
             provider.dry_run = True  
-        if cmd == "generate_template":
+        if cmd == "generate_templates":
             provider.generate_sample_template()     
         if cmd == "templates":
             provider.templates()

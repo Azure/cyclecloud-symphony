@@ -126,7 +126,6 @@ function Update-Requestors-Config
     then
       mkdir -p  $requestorConfPath
     fi
-    echo "Expected default host requestors conf file!   Will generate, but this may indicate a failure..."
     hostRequestorsJson="{
     \"version\": 2,
     \"requestors\":[
@@ -163,12 +162,15 @@ echo "$hostRequestorsJson" > "$requestorConfPath/hostRequestors.json"
 }
 function Install-Python-Packages
 {
+    echo "Installing python packages..."
     PKG_NAME=$( jetpack config symphony.pkg_plugin )
     cd /tmp
     pluginSrcPath=$HF_TOP/$HF_VERSION/providerplugins/azurecc
+    mkdir -p $pluginSrcPath
     VENV=$pluginSrcPath/venv
-    # export PATH=$(echo $PATH | sed -e 's/\/opt\/cycle\/jetpack\/system\/embedded\/bin://g' | sed -e 's/:\/opt\/cycle\/jetpack\/system\/embedded\/bin//g')
-    # export PATH=$PATH:/root/bin:/usr/bin
+    # remove jetpack python from PATH so default python3 is used.
+    export PATH=$(echo $PATH | sed -e 's/\/opt\/cycle\/jetpack\/system\/embedded\/bin://g' | sed -e 's/:\/opt\/cycle\/jetpack\/system\/embedded\/bin//g')
+    export PATH=$PATH:/root/bin:/usr/bin
 
     python3 -m virtualenv --version 2>&1 > /dev/null
     if [ $? != 0 ]; then
@@ -186,8 +188,17 @@ function Install-Python-Packages
         rm -rf packages
         rm -rf hostfactory
     fi
+    echo "Python plugin virtualenv created at $VENV"
 }
-Generate-Provider-Config
-Generate-Provider-Plugins-Config
-Update-Requestors-Config
-Install-Python-Packages
+#check for command line argument for generate_config
+if [ $# -eq 1 ]; then
+    if [ $1 == "generate_config" ]; then
+        Generate-Provider-Config
+        Generate-Provider-Plugins-Config
+        Update-Requestors-Config
+    else
+        echo "Argument $1 is invalid"
+    fi
+else
+    Install-Python-Packages
+fi

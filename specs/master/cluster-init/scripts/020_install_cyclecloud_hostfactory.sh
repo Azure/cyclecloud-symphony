@@ -24,9 +24,7 @@ if [ -z "${HF_TOP}" ]; then
 fi
 
 HF_VERSION=$( jetpack config symphony.hostfactory.version )
-if [ -z "${HF_VERSION}" ]; then
-    HF_VERSION="1.2"
-fi
+
 
 set -e
 set -x
@@ -48,9 +46,7 @@ else
 fi
 
 set +e
-# for jetpack log access
 usermod -a -G cyclecloud egoadmin
-chown root:cyclecloud /opt/cycle/jetpack/logs/jetpack.log
 set -e
 
 # echo "TEMPORARY: Patching symA Requestor..."
