@@ -885,9 +885,11 @@ class CycleCloudProvider:
                     response_machines = []
 
                     for termination_id in termination_ids:
+                        response_machines = []
                         # if we don't know the termination_id then we report an empty list of machines
                         request = {"requestId": termination_id,
                                     "machines": response_machines}
+                        request["status"] = request_status
                         # report machines are in deleting state so HF remembers the request 
                         if termination_id in terminate_requests:
                                 termination_request = terminate_requests.get(termination_id)

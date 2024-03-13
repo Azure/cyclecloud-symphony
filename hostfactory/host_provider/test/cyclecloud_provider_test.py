@@ -428,10 +428,22 @@ class TestHostFactory(unittest.TestCase):
         
         # test status is reported as running so that HF keeps requesting status of request.
         provider.cluster.raise_during_termination = True
-        term_response = provider.terminate_machines({"machines": [{"name": "host-123", "machineId": "id-123"}]})
+        term_response = provider.terminate_machines({"machines": [{"name": "host-123", "machineId": "id-123"}, {"name": "host-231", "machineId": "id-231"}]})
         failed_request_id = term_response["requestId"]
-        status_response = provider.status({"requests": [{"requestId": failed_request_id}]})
+        term_response = provider.terminate_machines({"machines": [{"name": "host-123", "machineId": "id-1234"}]})
+        failed_request_id2 = term_response["requestId"]
+        status_response = provider.status({"requests": [{"requestId": failed_request_id}, {"requestId": failed_request_id2}]})
         self.assertEqual(status_response["status"], "running")
+        self.assertEqual(len(status_response["requests"]), 2)
+        self.assertEqual(status_response["requests"][0]["requestId"], failed_request_id)
+        self.assertEqual(status_response["requests"][0]["machines"][0]["machineId"], "id-123")
+        self.assertEqual(status_response["requests"][0]["machines"][1]["machineId"], "id-231")
+        self.assertEqual(len(status_response["requests"][0]["machines"]), 2)
+        self.assertEqual(status_response["requests"][0]["status"], "running") 
+        self.assertEqual(status_response["requests"][1]["requestId"], failed_request_id2)
+        self.assertEqual(status_response["requests"][1]["machines"][0]["machineId"], "id-1234")
+        self.assertEqual(len(status_response["requests"][1]["machines"]), 1)
+        self.assertEqual(status_response["requests"][1]["status"], "running") 
         
         
     def test_terminate_error(self):
