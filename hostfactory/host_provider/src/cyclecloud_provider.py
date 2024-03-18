@@ -595,6 +595,8 @@ class CycleCloudProvider:
             except Exception as e:
                 if "No operation found for request id" in str(e):
                     nodes_by_request_id[request_id] = {"nodes": []}
+                elif "Could not find request id" in str(e):
+                    nodes_by_request_id[request_id] = []
                 else:
                     exceptions.append(e)
                     # send HF request is still running so that it remembers request.
