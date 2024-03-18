@@ -819,7 +819,7 @@ class CycleCloudProvider:
             if machines_to_terminate:
                 logger.warning("Re-attempting termination of nodes %s", machines_to_terminate)
                 try:
-                    self.cluster.terminate(machines_to_terminate)
+                    self.cluster.shutdown(machines_to_terminate)
                 except Exception:
                     # Send HF request status as running so it remembers the request
                     logger.exception("Could not terminate machines %s due to an exception, reported status as running", machines_to_terminate)
