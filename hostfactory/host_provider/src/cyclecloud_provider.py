@@ -18,6 +18,7 @@ from capacity_tracking_db import CapacityTrackingDb
 from util import JsonStore, failureresponse
 import util
 import symphony
+import version
 from cyclecliwrapper import UserError
 
 
@@ -84,6 +85,9 @@ class CycleCloudProvider:
             autoscale_enabled = bucket.software_configuration.get("autoscaling", {}).get("enabled", False)
             if not autoscale_enabled:
                continue
+            if bucket.available_count == 0:
+                logger.debug("Bucket %s has 0 availableCount.", bucket)
+                continue
             max_count = bucket.max_count
             is_paused = self.capacity_tracker.is_paused(bucket.nodearray, bucket.vm_size)
             if is_paused:
@@ -160,7 +164,13 @@ class CycleCloudProvider:
                 ngpus = int(bucket.software_configuration.get("symphony", {}).get("ngpus", bucket.gpu_count))
             except ValueError:
                 logger.exception("Ignoring symphony.ngpus for nodearray %s" % bucket.nodearray)
-            
+            # Check previous maxNumber setting - we NEVER lower maxNumber, only raise it.
+            previous_max_count = 0
+            if template_id in templates_store:
+                previous_max_count = templates_store[template_id].get("maxNumber", max_count)
+            if max_count < previous_max_count:
+                logger.info("Rejecting attempt to lower maxNumber from %s to %s for %s", previous_max_count, max_count, template_id)
+                max_count = previous_max_count
             base_priority = bucket_priority(buckets, bucket)
             # Symphony
             # - uses nram rather than mem
@@ -222,12 +232,12 @@ class CycleCloudProvider:
                 
             templates_store[template_id] = record
         
-        # for templates that are no longer available, advertise them but set maxNumber = 0
+        # for templates that are no longer available, advertise them but set priority = 0
+        # NOTE: do not modify "maxNumber" - Symphony HF does not respond well to lowering maxNumber while jobs may be runni
         for symphony_template in templates_store.values():
             if symphony_template["templateId"] not in currently_available_templates:
                 if self.fine:
                     logger.debug("Ignoring old template %s vs %s", symphony_template["templateId"], currently_available_templates)
-                symphony_template["maxNumber"] = 0
                 symphony_template["priority"] = 0
                 
         new_templates_str = json.dumps(templates_store, indent=2, sort_keys=True)
@@ -267,7 +277,8 @@ class CycleCloudProvider:
         except:
             logger.warning("Exiting Non-zero so that symphony will retry")
             logger.exception("Could not get template_json")
-            sys.exit(1)        
+            sys.exit(1)
+
     def generate_userdata(self, template):
         ret = {}
         
@@ -313,7 +324,7 @@ class CycleCloudProvider:
     
     def _max_count(self, nodearray_name, nodearray, machine_cores, bucket):
         if machine_cores < 0:
-            logger.error("Invalid number of machine cores - %s", machine_cores)
+            logger.error("Invalid number of machine cores - %s.", machine_cores)
             return -1
 
         max_count = bucket.get("maxCount")
@@ -327,9 +338,9 @@ class CycleCloudProvider:
                 if nodearray.get("maxCoreCount") is None:
                     logger.error("Need to define either maxCount or maxCoreCount! %s", pprint.pformat(bucket))
                     return -1
-               
                 max_core_count = nodearray.get("maxCoreCount")
-                logger.debug("Using maxCoreCount %s",max_core_count)
+                logger.debug("Using maxCoreCount %s for nodearray %s and bucket %s", max_core_count, nodearray_name, bucket)
+            
             max_core_count = max(-1, max_core_count)
         
             max_count = max_core_count / machine_cores
@@ -337,17 +348,6 @@ class CycleCloudProvider:
         # We handle unexpected Capacity failures (Spot)  by zeroing out capacity for a timed duration
         # machine_type_name = bucket["definition"]["machineType"]
         
-        
-        # Below code is commented out as a customer faced an issue where autoscaling was being limited
-        # by spot_increment_per_sku. 
-        # For Spot instances, quota and limits are not great indicators of capacity, so artificially limit 
-        # requests to single machine types to spread the load and find available skus for large workloads
-        # is_low_prio = nodearray.get("Interruptible", False)
-        # if is_low_prio:
-        #     # Allow up to N _additional_ VMs (need to keep increasing this or symphony will stop considering the sku)
-        #     active_count = bucket["activeCount"]
-        #     max_count = min(max_count, active_count+self.spot_maxnumber_increment_per_sku)
-
         return int(max_count)
     
     @failureresponse({"requests": [], "status": RequestStates.running})
@@ -597,7 +597,13 @@ class CycleCloudProvider:
                     nodes_by_request_id[request_id] = {"nodes": []}
                 else:
                     exceptions.append(e)
-                    logger.exception("Azure CycleCloud experienced an error and the node creation request failed for request_id %s. %s", request_id, e)
+                    # send HF request is still running so that it remembers request.
+                    logger.exception("Azure CycleCloud experienced an error but reporting status as running %s. %s", request_id, e)
+                    return json_writer({"status": RequestStates.running,
+                                        "requests": [{"requestId": request_id, "status": RequestStates.running} for request_id in request_ids],
+                                        "message": "Azure CycleCloud is still requesting nodes"})
+
+                    
 
         if not nodes_by_request_id:
             error_messages = " | ".join(list(set([str(e) for e in exceptions])))
@@ -609,11 +615,10 @@ class CycleCloudProvider:
         
         response = {"requests": []}
         
-        unknown_state_count = 0
-        requesting_count = 0
-        
         for request_id, requested_nodes in nodes_by_request_id.items():
             request_status = RequestStates.complete
+            unknown_state_count = 0
+            requesting_count = 0
             if not requested_nodes:
                 # nothing to do.
                 logger.warning("No nodes found for request id %s.", request_id)
@@ -794,6 +799,7 @@ class CycleCloudProvider:
         # executing is a terminal state.
         
         response = {"requests": []}
+        request_status = RequestStates.complete
         # needs to be a [] when we return
         with self.terminate_json as terminate_requests:
             
@@ -801,27 +807,50 @@ class CycleCloudProvider:
             
             termination_ids = [r["requestId"] for r in input_json["requests"] if r["requestId"]]
             machines_to_terminate = []
-            try:
-                for termination_id in termination_ids:
-                    if termination_id in terminate_requests:
-                        termination = terminate_requests[termination_id]
-                        if not termination.get("terminated"):
-                            for machine_id, name in termination["machines"].items():
-                                machines_to_terminate.append({"machineId": machine_id, "name": name})
-                
-                if machines_to_terminate:
-                    logger.warning("Re-attempting termination of nodes %s", machines_to_terminate)
-                    self.cluster.shutdown_nodes(machines_to_terminate)
-                    
-                for termination_id in termination_ids:
-                    if termination_id in terminate_requests:
-                        termination = terminate_requests[termination_id]
-                        termination["terminated"] = True
-                        
-            except Exception:
-                request_status = RequestStates.running
-                logger.exception("Could not terminate nodes with ids %s. Will retry", machines_to_terminate)
+            for termination_id in termination_ids:
+                if termination_id in terminate_requests:
+                    termination = terminate_requests[termination_id]
+                    if not termination.get("terminated"):
+                        for machine_id, name in termination["machines"].items():
+                            machines_to_terminate.append({"machineId": machine_id, "name": name})
             
+            if machines_to_terminate:
+                logger.warning("Re-attempting termination of nodes %s", machines_to_terminate)
+                try:
+                    self.cluster.terminate(machines_to_terminate)
+                except Exception:
+                    # Send HF request status as running so it remembers the request
+                    logger.exception("Could not terminate machines %s due to an exception, reported status as running", machines_to_terminate)
+                    request_status = RequestStates.running
+                    response["status"] = request_status
+                    response_machines = []
+
+                    for termination_id in termination_ids:
+                        response_machines = []
+                        # if we don't know the termination_id then we report an empty list of machines
+                        request = {"requestId": termination_id,
+                                    "machines": response_machines}
+                        request["status"] = request_status
+                        # report machines are in deleting state so HF remembers the request 
+                        if termination_id in terminate_requests:
+                                termination_request = terminate_requests.get(termination_id)
+                                machines = termination_request.get("machines", {})
+                                if machines:
+                                   for machine_id, hostname in machines.items():
+                                      response_machines.append({"name": hostname,
+                                                "status": MachineStates.deleting,
+                                                "result": MachineResults.executing,
+                                                "machineId": machine_id})  
+                        response["requests"].append(request) 
+                        
+                    return self.json_writer(response)
+                    
+                
+            for termination_id in termination_ids:
+                if termination_id in terminate_requests:
+                    termination = terminate_requests[termination_id]
+                    termination["terminated"] = True
+                                    
             for termination_id in termination_ids:
                
                 request_status = RequestStates.complete
@@ -990,8 +1019,9 @@ class CycleCloudProvider:
                     terminations[request_id] = {"id": request_id, "machines": machines, "requestTime": calendar.timegm(self.clock())}
                 request_id_persisted = True
             except:
+                # NOTE: Here we will not exit immediately but exit after an attempted shutdown
                 logger.exception("Could not open terminate.json")
-            #NOTE: Here we will not exit immediately but exit after an attempted shutdown
+            
             request_status = RequestStates.complete
             message = "CycleCloud is terminating the VM(s)"
 
@@ -1159,9 +1189,12 @@ class CycleCloudProvider:
                 request["lastUpdateTime"] = calendar.timegm(self.clock())
                 request["completed"] = True
 
-    def periodic_cleanup(self):
+    def periodic_cleanup(self, skip_templates=False):
         try:
-            self._update_templates(do_REST=True)
+            # skip_templates should always be true when HF calls getAvailableTemplates 
+            # To avoid an infinite loop / internal deadlock in HF caused if we do a REST call.
+            if not skip_templates:
+                self._update_templates(do_REST=True)
         except Exception:
             logger.exception("Could not update templates")
 
@@ -1263,10 +1296,12 @@ def main(argv=sys.argv, json_writer=simple_json_writer):  # pragma: no cover
         cmd, ignore, input_json_path = argv[1:]
 
         input_json = util.load_json(input_json_path)
-        
-        logger.info("Arguments - %s %s %s", cmd, ignore, json.dumps(input_json))
+        operation_id = int(time.time())
+        logger.info("BEGIN %s %s - %s %s", operation_id, cmd, ignore, input_json_path)
+        logger.debug("Input: %s", json.dumps(input_json))
                 
         if cmd == "templates":
+            logger.info("Using azurecc version %s", version.get_version())
             provider.templates()
         elif cmd == "create_machines":
             provider.create_machines(input_json)
@@ -1288,7 +1323,7 @@ def main(argv=sys.argv, json_writer=simple_json_writer):  # pragma: no cover
             provider.debug_completed_nodes()
         
         # best effort cleanup.
-        provider.periodic_cleanup()
+        provider.periodic_cleanup(skip_templates=(cmd == "templates"))
             
     except ImportError as e:
         logger.exception(str(e))
@@ -1299,7 +1334,8 @@ def main(argv=sys.argv, json_writer=simple_json_writer):  # pragma: no cover
         else:
             import traceback
             traceback.print_exc()
-            
+    finally:
+        logger.info("END %s %s - %s %s", operation_id, cmd, ignore, input_json_path)       
 
 if __name__ == "__main__":
     main()  # pragma: no cover
