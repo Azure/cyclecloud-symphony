@@ -196,6 +196,7 @@ if [ $# -eq 1 ]; then
         Generate-Provider-Config
         Generate-Provider-Plugins-Config
         Update-Requestors-Config
+        Install-Python-Packages
     else
         echo "Argument $1 is invalid"
     fi

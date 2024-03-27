@@ -139,7 +139,7 @@ bash 'Installing HostFactory Package...' do
   code <<-EOH
   cd /tmp/hostfactory
   chmod +x install.sh
-  ./install.sh
+  ./install.sh generate_config
   EOH
   user "root"
   group "root"

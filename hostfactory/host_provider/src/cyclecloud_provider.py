@@ -1047,7 +1047,7 @@ def main(argv=sys.argv, json_writer=simple_json_writer):  # pragma: no cover
 
         
         # best effort cleanup.
-        provider.periodic_cleanup(skip_templates=(cmd == "templates"))
+        provider.periodic_cleanup()
             
     except ImportError as e:
         logger.exception(str(e))
