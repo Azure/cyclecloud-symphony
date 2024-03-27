@@ -40,6 +40,8 @@ Autoscale = $Autoscale
         [[[configuration symphony]]]
         is_management = true
         is_master = true
+        enable_weighted_templates = true
+        
 
         [[[input-endpoint ganglia]]]
         PrivatePort = 8652
@@ -172,7 +174,7 @@ Order = 10
         Label = Execute VM Type
         Description = The machine type for the default Symphony Execute nodes
         ParameterType = Cloud.MachineType
-        DefaultValue = Standard_F2s_v2
+        DefaultValue = Standard_F2s_v2,Standard_D2_v5
         Config.Multiselect = true
 
 

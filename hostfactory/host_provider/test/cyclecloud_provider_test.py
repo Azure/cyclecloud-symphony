@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import MagicMock, patch
 
 import cyclecloud_provider
 from symphony import RequestStates, MachineStates, MachineResults
@@ -37,10 +38,12 @@ class MockHostnamer:
 
 class MockCluster:
     def __init__(self, nodearrays):
+        self.new_node_manager = MagicMock(return_value=None)
         self.cluster_name = "mock_cluster"
         self._nodearrays = nodearrays
-        self._nodearrays["nodearrays"].append({"name": "execute",
-                                               "nodearray": {"Configuration": {"run_list": ["recipe[symphony::execute]"]}}})
+        self.buckets = []
+        # self._nodearrays["nodearrays"].append({"name": "execute",
+        #                                        "nodearray": {"Configuration": {"run_list": ["recipe[symphony::execute]"]}}})
         # template -> requestI
         self._nodes = {}
         self.raise_during_termination = False
@@ -145,7 +148,12 @@ class MockCluster:
                     node["Status"] = "TerminationPreparation"
                     node["TargetState"] = "Terminated"
                 
-                
+    def set_buckets(self, buckets):
+        self.buckets = buckets
+        
+    def get_buckets(self):
+        return self.buckets
+               
 class RequestsStoreInMem:
     
     def __init__(self, requests=None):
@@ -164,10 +172,15 @@ class RequestsStoreInMem:
         pass
     
 class NodeBucket:
-    def __init__(self, nodearray, bucket_id, priority=None):
+    def __init__(self, nodearray, available, vm_size, id, resources, vcpu_count, max_count, software_configuration):
         self.nodearray = nodearray
-        self.bucket_id = bucket_id
-        self.priority = priority
+        self.available = available
+        self.vm_size = vm_size
+        self.id = id
+        self.resources = resources
+        self.vcpu_count = vcpu_count 
+        self.max_count = max_count   
+        self.software_configuration = software_configuration
             
 def json_writer(data, debug_output=False):
     return data
@@ -302,14 +315,27 @@ class TestHostFactory(unittest.TestCase):
                                                "buckets": [a4bucket, a8bucket]}]})
         epoch_clock = MockClock((1970, 1, 1, 0, 0, 0))
         hostnamer = MockHostnamer()
-        provider = cyclecloud_provider.CycleCloudProvider(provider_config, cluster, hostnamer, json_writer, 
-                                                          terminate_requests=RequestsStoreInMem(), 
-                                                          creation_requests=RequestsStoreInMem(), 
-                                                          templates=RequestsStoreInMem(), 
-                                                          clock=epoch_clock)
-        provider.capacity_tracker.reset()
+        provider = cyclecloud_provider.CycleCloudProvider(provider_config, cluster, hostnamer, json_writer, RequestsStoreInMem(), RequestsStoreInMem(), epoch_clock)
+        provider.request_tracker.reset()
         return provider
     
+    def _new_provider_scalelib(self, provider_config=None, UserData=""):
+        provider_config = provider_config or util.ProviderConfig({}, {})
+        a4bucket = {"maxCount": 2, "activeCount": 0, "definition": {"machineType": "A4"}, "virtualMachine": MACHINE_TYPES["A4"]}
+        a8bucket = {"maxCoreCount": 24, "activeCount": 0, "definition": {"machineType": "A8"}, "virtualMachine": MACHINE_TYPES["A8"]}
+        cluster = MockCluster({"nodearrays": [{"name": "execute",
+                                               "UserData": UserData,                                               
+                                               "nodearray": {"machineType": ["a4", "a8"], "Interruptible": False, "Configuration": {"autoscaling": {"enabled": True}, "symphony": {"autoscale": True}}},
+                                               "buckets": [a4bucket, a8bucket]},
+                                               {"name": "lp_execute",
+                                               "UserData": UserData,
+                                               "nodearray": {"machineType": ["a4", "a8"], "Interruptible": True, "Configuration": {"autoscaling": {"enabled": True}, "symphony": {"autoscale": True}}},
+                                               "buckets": [a4bucket, a8bucket]}]})
+        epoch_clock = MockClock((1970, 1, 1, 0, 0, 0))
+        hostnamer = MockHostnamer()
+        provider = cyclecloud_provider.CycleCloudProvider(provider_config, cluster, hostnamer, json_writer, RequestsStoreInMem(), RequestsStoreInMem(), epoch_clock)
+        provider.request_tracker.reset()
+        return provider
     def _make_request(self, template_id, machine_count, rc_account="default", user_data={}):
         return {"user_data": user_data,
                "rc_account": rc_account,
@@ -698,68 +724,98 @@ class TestHostFactory(unittest.TestCase):
         assert_no_user_data()
 
     def test_bucket_priority(self):
-        buckets = [NodeBucket(nodearray="n1", bucket_id="abcd2")]
-        self.assertEqual(10000, cyclecloud_provider.bucket_priority(buckets, buckets[0]))
+        nodearrays = [{"name": "n1","nodearray":{}}]
+        self.assertEqual(10000, cyclecloud_provider.bucket_priority(nodearrays, nodearrays[0], b_index=0))
+        self.assertEqual(9999, cyclecloud_provider.bucket_priority(nodearrays, nodearrays[0], b_index=1))
         
-        buckets = [NodeBucket(nodearray="n1", bucket_id="abcd2"), NodeBucket(nodearray="n1", bucket_id="abcd3")]
-        self.assertEqual(9999, cyclecloud_provider.bucket_priority(buckets, buckets[1]))
-
-        buckets = [NodeBucket(nodearray="n1", bucket_id="abcd2", priority=9)]
-        self.assertEqual(9000, cyclecloud_provider.bucket_priority(buckets, buckets[0]))
+        nodearrays = [{"name": "n1", "nodearray": {"Priority": None}}]
+        self.assertEqual(10000, cyclecloud_provider.bucket_priority(nodearrays, nodearrays[0], b_index=0))
+        self.assertEqual(9999, cyclecloud_provider.bucket_priority(nodearrays, nodearrays[0], b_index=1))
         
-        buckets = [NodeBucket(nodearray="n1", bucket_id="abcd2", priority=9), NodeBucket(nodearray="n1", bucket_id="abcd3", priority=9)]
-        self.assertEqual(8999, cyclecloud_provider.bucket_priority(buckets, buckets[1]))
-
-        buckets = [NodeBucket(nodearray="n1", bucket_id="abcd2", priority=9.9)]
-        self.assertEqual(9000, cyclecloud_provider.bucket_priority(buckets, buckets[0]))
+        nodearrays = [{"name": "n1", "nodearray": {"Priority": 9}}]
+        self.assertEqual(9000, cyclecloud_provider.bucket_priority(nodearrays, nodearrays[0], b_index=0))
+        self.assertEqual(8999, cyclecloud_provider.bucket_priority(nodearrays, nodearrays[0], b_index=1))
         
-        buckets = [NodeBucket(nodearray="n1", bucket_id="abcd2", priority=9.9), NodeBucket(nodearray="n1", bucket_id="abcd3", priority=9.9)]
-        self.assertEqual(8999, cyclecloud_provider.bucket_priority(buckets, buckets[1]))
-
-        buckets = [NodeBucket(nodearray="n1", bucket_id="abcd2", priority="9")]
-        self.assertEqual(9000, cyclecloud_provider.bucket_priority(buckets, buckets[0]))
-        
-        buckets = [NodeBucket(nodearray="n1", bucket_id="abcd2", priority="9"), NodeBucket(nodearray="n1", bucket_id="abcd3", priority=9.9)]
-        self.assertEqual(8999, cyclecloud_provider.bucket_priority(buckets, buckets[1]))
-        
-        buckets = [NodeBucket(nodearray="n1", bucket_id="abcd2", priority="9.9")]
-        self.assertEqual(9000, cyclecloud_provider.bucket_priority(buckets, buckets[0]))
+        nodearrays = [{"name": "n1", "nodearray": {"Priority": 9.9}}]
+        self.assertEqual(9000, cyclecloud_provider.bucket_priority(nodearrays, nodearrays[0], b_index=0))
+        self.assertEqual(8999, cyclecloud_provider.bucket_priority(nodearrays, nodearrays[0], b_index=1))
         
         buckets = [NodeBucket(nodearray="n1", bucket_id="abcd2", priority="9.9"), NodeBucket(nodearray="n1", bucket_id="abcd3", priority=9.9)]
         self.assertEqual(8999, cyclecloud_provider.bucket_priority(buckets, buckets[1]))
         
-        buckets = [NodeBucket(nodearray="n1", bucket_id="abcd2", priority=0)]
-        self.assertEqual(0, cyclecloud_provider.bucket_priority(buckets, buckets[0]))
+        nodearrays = [{"name": "n1", "nodearray": {"Priority": "9"}}]
+        self.assertEqual(9000, cyclecloud_provider.bucket_priority(nodearrays, nodearrays[0], b_index=0))
+        self.assertEqual(8999, cyclecloud_provider.bucket_priority(nodearrays, nodearrays[0], b_index=1))
         
-        buckets = [NodeBucket(nodearray="n1", bucket_id="abcd2", priority=0), NodeBucket(nodearray="n1", bucket_id="abcd3", priority=0)]
-        self.assertEqual(0, cyclecloud_provider.bucket_priority(buckets, buckets[1]))
+        nodearrays = [{"name": "n1", "nodearray": {"Priority": "9.9"}}]
+        self.assertEqual(9000, cyclecloud_provider.bucket_priority(nodearrays, nodearrays[0], b_index=0))
+        self.assertEqual(8999, cyclecloud_provider.bucket_priority(nodearrays, nodearrays[0], b_index=1))
         
-        buckets = [NodeBucket(nodearray="n1", bucket_id="abcd2", priority=-4)]
-        self.assertEqual(10000, cyclecloud_provider.bucket_priority(buckets, buckets[0]))
+        nodearrays = [{"name": "n1", "nodearray": {"Priority": 0}}]
+        self.assertEqual(0, cyclecloud_provider.bucket_priority(nodearrays, nodearrays[0], b_index=0))
+        self.assertEqual(0, cyclecloud_provider.bucket_priority(nodearrays, nodearrays[0], b_index=1))
         
-        buckets = [NodeBucket(nodearray="n1", bucket_id="abcd2", priority=-4), NodeBucket(nodearray="n1", bucket_id="abcd3", priority=-4)]
-        self.assertEqual(9999, cyclecloud_provider.bucket_priority(buckets, buckets[1]))
+        nodearrays = [{"name": "n1", "nodearray": {"Priority": -4}}]
+        self.assertEqual(10000, cyclecloud_provider.bucket_priority(nodearrays, nodearrays[0], b_index=0))
+        self.assertEqual(9999, cyclecloud_provider.bucket_priority(nodearrays, nodearrays[0], b_index=1))
         
-        buckets = [NodeBucket(nodearray="n1", bucket_id="abcd2", priority="-4")]
-        self.assertEqual(10000, cyclecloud_provider.bucket_priority(buckets, buckets[0]))
+        nodearrays = [{"name": "n1", "nodearray": {"Priority": "-4"}}]
+        self.assertEqual(10000, cyclecloud_provider.bucket_priority(nodearrays, nodearrays[0], b_index=0))
+        self.assertEqual(9999, cyclecloud_provider.bucket_priority(nodearrays, nodearrays[0], b_index=1))
         
-        buckets = [NodeBucket(nodearray="n1", bucket_id="abcd2", priority="-4"), NodeBucket(nodearray="n1", bucket_id="abcd3", priority="-4")]
-        self.assertEqual(9999, cyclecloud_provider.bucket_priority(buckets, buckets[1]))
-
-        buckets = [NodeBucket(nodearray="n1", bucket_id="abcd2", priority=[1,2,3])]
-        self.assertEqual(10000, cyclecloud_provider.bucket_priority(buckets, buckets[0]))
+        nodearrays = [{"name": "n1", "nodearray": {"Priority": [1,2,3]}}]
+        self.assertEqual(10000, cyclecloud_provider.bucket_priority(nodearrays, nodearrays[0], b_index=0))
+        self.assertEqual(9999, cyclecloud_provider.bucket_priority(nodearrays, nodearrays[0], b_index=1))
         
-        buckets = [NodeBucket(nodearray="n1", bucket_id="abcd2", priority=[1,2,3]), NodeBucket(nodearray="n1", bucket_id="abcd3", priority=[1,2,3])]
-        self.assertEqual(9999, cyclecloud_provider.bucket_priority(buckets, buckets[1]))
+        nodearrays = [{"name": "n1", "nodearray": {"Priority": "[1,2,3]"}}]
+        self.assertEqual(10000, cyclecloud_provider.bucket_priority(nodearrays, nodearrays[0], b_index=0))
+        self.assertEqual(9999, cyclecloud_provider.bucket_priority(nodearrays, nodearrays[0], b_index=1))
         
-        buckets = [NodeBucket(nodearray="n1", bucket_id="abcd2"), NodeBucket(nodearray="n2", bucket_id="abcd3")]
-        self.assertEqual(20000, cyclecloud_provider.bucket_priority(buckets, buckets[0]))
-        self.assertEqual(10000, cyclecloud_provider.bucket_priority(buckets, buckets[1]))
+        nodearrays = [{"name": "n1", "nodearray":{}}, {"name": "n2", "nodearray":{}}]
+        self.assertEqual(20000, cyclecloud_provider.bucket_priority(nodearrays, nodearrays[0], b_index=0))
+        self.assertEqual(10000, cyclecloud_provider.bucket_priority(nodearrays, nodearrays[1], b_index=0))
         
-        buckets = [NodeBucket(nodearray="n1", bucket_id="abcd2"), NodeBucket(nodearray="n2", bucket_id="abcd3", priority=20)]
-        self.assertEqual(20000, cyclecloud_provider.bucket_priority(buckets, buckets[0]))
-        self.assertEqual(20000, cyclecloud_provider.bucket_priority(buckets, buckets[1]))
-        
+        nodearrays = [{"name": "n1", "nodearray":{}}, {"name": "n2", "nodearray": {"Priority": 20}}]
+        self.assertEqual(20000, cyclecloud_provider.bucket_priority(nodearrays, nodearrays[0], b_index=0))
+        self.assertEqual(20000, cyclecloud_provider.bucket_priority(nodearrays, nodearrays[1], b_index=0))
+ 
+    
+    def test_validate_templates(self):
+        provider = self._new_provider()
+        with patch('builtins.open', create=True) as mock_open:
+            mock_open.return_value.__enter__.return_value.read.return_value = json.dumps({"templates":[]})
+            self.assertFalse(provider.validate_template())
+            mock_open.return_value.__enter__.return_value.read.return_value = json.dumps({})
+            self.assertFalse(provider.validate_template())
+            mock_open.return_value.__enter__.return_value.read.return_value = json.dumps({"templates":[{"templateId":"execute","attributes":{"ncores":["Numeric","1"],"ncpus":["Numeric","1"],"mem":["Numeric","1024"],"type":["String","X86_64"]},"maxNumber":100, "vmTypes":{"A4":2}}]})
+            self.assertFalse(provider.validate_template())
+            mock_open.return_value.__enter__.return_value.read.return_value = json.dumps({"templates":[{"templateId":"execute","attributes":{"ncores":["Numeric","1"],"ncpus":["Numeric","1"],"mem":["Numeric","1024"],"type":["String","X86_64"]},"maxNumber":100, "vmTypes":{"A4":2}}]})
+            self.assertFalse(provider.validate_template())
+            mock_open.return_value.__enter__.return_value.read.return_value = json.dumps({"templates":[{"templateId":"execute","attributes":{"ncores":["Numeric","1"],"ncpus":["Numeric","1"],"mem":["Numeric","1024"],"type":["String","X86_64"]},"maxNumber":100}]})
+            self.assertFalse(provider.validate_template())
+            mock_open.return_value.__enter__.return_value.read.return_value = json.dumps({"templates":[{"templateId":"execute","attributes":{"ncores":["Numeric","1"],"ncpus":["Numeric","1"],"mem":["Numeric","1024"],"type":["String","X86_64"]},"maxNumber":100, "vmTypes":{"A4":1, "A8":1}}, 
+                                                                                                       {"templateId":"lp_execute","attributes":{"ncores":["Numeric","1"],"ncpus":["Numeric","1"],"mem":["Numeric","1024"],"type":["String","X86_64"]},"maxNumber":100, "vmTypes":{"A4":1, "A8":1}}]})
+            self.assertTrue(provider.validate_template())
+            mock_open.return_value.__enter__.return_value.read.return_value = json.dumps({"templates":[{"templateId":"execute","attributes":{"ncores":["Numeric","1"],"ncpus":["Numeric","1"],"mem":["Numeric","1024"],"type":["String","X86_64"]},"maxNumber":100, "vmTypes":{"A4":1, "A8":1}}, 
+                                                                                                       {"templateId":"lp_execute","attributes":{"ncores":["Numeric","1"],"ncpus":["Numeric","1"],"mem":["Numeric","1024"],"type":["String","X86_64"]},"maxNumber":100, "vmTypes":{"A4":1}}]})
+            self.assertFalse(provider.validate_template())
+     
+  
+    def test_generate_sample_template(self):
+        saved_stdout = sys.stdout
+        from io import StringIO
+        capture_output = StringIO()
+        sys.stdout = capture_output
+        return_value = [NodeBucket("execute", 50, "A2", "cdcd4c31-3bbf-48af-b266-1c3de4b8a3d4", resources={"ncores":1}, vcpu_count=1, max_count=100, software_configuration={ "autoscaling": {"enabled": True}}),
+                        NodeBucket("execute", 50, "A4", "cdcd4c31-3bbf-48af-b266-1c3de4b8a3d4", resources={"ncores":2}, vcpu_count=2, max_count=50, software_configuration={ "autoscaling": {"enabled": True}})]
+        provider = self._new_provider()
+        provider.cluster.set_buckets(return_value)
+        provider.generate_sample_template()
+        json_data = json.loads(capture_output.getvalue())
+        self.assertEqual(1, len(json_data["templates"]))
+        assert json.loads(capture_output.getvalue())
+        sys.stdout = saved_stdout
+         
 
 if __name__ == "__main__":
     unittest.main()

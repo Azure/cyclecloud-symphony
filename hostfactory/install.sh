@@ -56,7 +56,7 @@ function Generate-Provider-Config {
     echo "$hostProvidersJson" > "$providerConfPath/hostProviders.json"
 
     azureccprov_config_json="{
-    \"log_level\": \"info\",
+    \"log_level\": \"debug\",
     \"cyclecloud\": {
         \"cluster\": {
             \"name\": \"$(jetpack config cyclecloud.cluster.name)\"
@@ -83,7 +83,9 @@ function Generate-Provider-Config {
             "nram" : [ "Numeric", "1024" ],
             "ncpus" : [ "Numeric", "1" ],
             "ncores" : [ "Numeric", "1" ],
-            "type" : [ "String", "X86_64" ]
+            "type" : [ "String", "X86_64" ],
+            "nodearray" : [ "String", "execute" ],
+            "machinetypefull" : ["String", "Standard_F2s_v2"]
         }
     } ]
     }'
@@ -124,7 +126,6 @@ function Update-Requestors-Config
     then
       mkdir -p  $requestorConfPath
     fi
-    echo "Expected default host requestors conf file!   Will generate, but this may indicate a failure..."
     hostRequestorsJson="{
     \"version\": 2,
     \"requestors\":[
@@ -159,6 +160,46 @@ function Update-Requestors-Config
 echo "$hostRequestorsJson" > "$requestorConfPath/hostRequestors.json"
 
 }
-Generate-Provider-Config
-Generate-Provider-Plugins-Config
-Update-Requestors-Config
+function Install-Python-Packages
+{
+    echo "Installing python packages..."
+    PKG_NAME=$( jetpack config symphony.pkg_plugin )
+    cd /tmp
+    pluginSrcPath=$HF_TOP/$HF_VERSION/providerplugins/azurecc
+    mkdir -p $pluginSrcPath
+    VENV=$pluginSrcPath/venv
+    # remove jetpack python from PATH so default python3 is used.
+    export PATH=$(echo $PATH | sed -e 's/\/opt\/cycle\/jetpack\/system\/embedded\/bin://g' | sed -e 's/:\/opt\/cycle\/jetpack\/system\/embedded\/bin//g')
+    export PATH=$PATH:/root/bin:/usr/bin
+
+    python3 -m virtualenv --version 2>&1 > /dev/null
+    if [ $? != 0 ]; then
+        python3 -m pip install virtualenv || exit 1
+    fi
+    set -e
+    echo "venv path"
+    echo $VENV
+    python3 -m virtualenv $VENV
+    source $VENV/bin/activate
+    pip install --upgrade packages/*
+
+    if [ -f $PKG_NAME ]; then
+        rm -f $PKG_NAME
+        rm -rf packages
+        rm -rf hostfactory
+    fi
+    echo "Python plugin virtualenv created at $VENV"
+}
+#check for command line argument for generate_config
+if [ $# -eq 1 ]; then
+    if [ $1 == "generate_config" ]; then
+        Generate-Provider-Config
+        Generate-Provider-Plugins-Config
+        Update-Requestors-Config
+        Install-Python-Packages
+    else
+        echo "Argument $1 is invalid"
+    fi
+else
+    Install-Python-Packages
+fi

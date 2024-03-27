@@ -24,9 +24,7 @@ if [ -z "${HF_TOP}" ]; then
 fi
 
 HF_VERSION=$( jetpack config symphony.hostfactory.version )
-if [ -z "${HF_VERSION}" ]; then
-    HF_VERSION="1.2"
-fi
+
 
 set -e
 set -x
@@ -48,9 +46,7 @@ else
 fi
 
 set +e
-# for jetpack log access
 usermod -a -G cyclecloud egoadmin
-chown root:cyclecloud /opt/cycle/jetpack/logs/jetpack.log
 set -e
 
 # echo "TEMPORARY: Patching symA Requestor..."
@@ -60,14 +56,14 @@ set -e
 #             j["allocated_hosts"] = []' ${EGO_TOP}/${EGO_VERSION}/hostfactory/requestors/symA/scripts/Main.py
 
 
-# echo "Starting HostFactory..."
-# sudo -i -u egoadmin bash << EOF
-# . /etc/profile.d/symphony.sh
-# egosh user logon -u ${SOAM_USER} -x ${SOAM_PASSWORD}
-# egosh service stop HostFactory
-# egosh service start HostFactory
-# egosh service view HostFactory
-# EOF
+echo "Starting HostFactory..."
+sudo -i -u egoadmin bash << EOF
+. /etc/profile.d/symphony.sh
+egosh user logon -u ${SOAM_USER} -x ${SOAM_PASSWORD}
+egosh service stop HostFactory
+egosh service start HostFactory
+egosh service view HostFactory
+EOF
 
 
 
