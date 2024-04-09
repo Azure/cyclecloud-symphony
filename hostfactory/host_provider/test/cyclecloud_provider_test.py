@@ -162,10 +162,6 @@ class RequestsStoreInMem:
     
     def __exit__(self, *args):
         pass
-    
-    
-def json_writer(data, debug_output=False):
-    return data
             
             
 class TestHostFactory(unittest.TestCase):
@@ -297,7 +293,8 @@ class TestHostFactory(unittest.TestCase):
                                                "buckets": [a4bucket, a8bucket]}]})
         epoch_clock = MockClock((1970, 1, 1, 0, 0, 0))
         hostnamer = MockHostnamer()
-        provider = cyclecloud_provider.CycleCloudProvider(provider_config, cluster, hostnamer, json_writer, 
+        output_handler = cyclecloud_provider.JsonOutputHandler(quiet=True)
+        provider = cyclecloud_provider.CycleCloudProvider(provider_config, cluster, hostnamer, output_handler,  
                                                           terminate_requests=RequestsStoreInMem(), 
                                                           creation_requests=RequestsStoreInMem(), 
                                                           templates=RequestsStoreInMem(), 
