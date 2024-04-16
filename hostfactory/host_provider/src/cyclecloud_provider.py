@@ -962,7 +962,7 @@ class CycleCloudProvider:
         
         response["status"] = request_status
         
-        return self.output_handler.handle(response)
+        return response
     
     @failureresponse({"status": RequestStates.running})
     def terminate_status(self, input_json):
@@ -1128,14 +1128,13 @@ class CycleCloudProvider:
         Kludge: can't seem to get provider.json to reliably call the correct request action.
         '''
         output_handler = self.output_handler
-        self.output_handler = lambda x: x
         creates = [x for x in input_json["requests"] if not x["requestId"].startswith("delete-")]
         deletes = [x for x in input_json["requests"] if x["requestId"].startswith("delete-")]
         create_response = {}
         delete_response = {}
-        
+        quiet_output = JsonOutputHandler(quiet=True)
         if creates:
-            create_response = self._create_status({"requests": creates})
+            create_response = self._create_status({"requests": creates}, quiet_output)
             assert "status" in create_response
 
         if deletes:
@@ -1178,12 +1177,11 @@ class CycleCloudProvider:
         for request_id, request in self.creation_json.read().items():
             if request["allNodes"] is None:
                 never_queried_requests.append(request_id)
-
+        quiet_output = JsonOutputHandler(quiet=True)
         if never_queried_requests:
             try:
                 unrecoverable_request_ids = []
-
-                response = self._create_status({"requests": [{"requestId": r} for r in never_queried_requests]}, lambda input_json, **ignore: input_json)
+                response = self._create_status({"requests": [{"requestId": r} for r in never_queried_requests]}, quiet_output)
 
                 for request in response["requests"]:
                     if request["status"] == RequestStates.complete_with_error and not request.get("_recoverable_", True):
@@ -1213,7 +1211,7 @@ class CycleCloudProvider:
             return
         
         self._create_status({"requests": [{"requestId": r} for r in to_update_status]},
-                              lambda input_json, **ignore: input_json)
+                              quiet_output)
 
         with self.creation_json as requests_store:
             to_shutdown = []
