@@ -40,11 +40,11 @@ class InvalidCycleCloudVersionError(RuntimeError):
 
 class CycleCloudProvider:
     
-    def __init__(self, config, cluster, hostnamer, output_handler, terminate_requests, creation_requests, templates, clock):
+    def __init__(self, config, cluster, hostnamer, stdout_handler, terminate_requests, creation_requests, templates, clock):
         self.config = config
         self.cluster = cluster
         self.hostnamer = hostnamer
-        self.output_handler = output_handler
+        self.stdout_handler = stdout_handler
         self.terminate_json = terminate_requests
         self.templates_json = templates
         self.creation_json = creation_requests
@@ -335,7 +335,7 @@ class CycleCloudProvider:
     def templates(self):
         try:
             symphony_templates = self._update_templates()
-            return self.output_handler.handle({"templates": symphony_templates, "message": "Get available templates success."}, debug_output=False)
+            return self.stdout_handler.handle({"templates": symphony_templates, "message": "Get available templates success."}, debug_output=False)
         except:
             logger.warning("Exiting Non-zero so that symphony will retry")
             logger.exception("Could not get template_json")
@@ -446,7 +446,7 @@ class CycleCloudProvider:
             
             if not template:
                 available_templates = template_store.keys()
-                return self.output_handler.handle({"requestId": request_id, "status": RequestStates.complete_with_error, 
+                return self.stdout_handler.handle({"requestId": request_id, "status": RequestStates.complete_with_error, 
                                         "message": "Unknown templateId %s. Available %s" % (template_id, available_templates)})
                 
             machine_count = input_json["template"]["machineCount"]
@@ -500,23 +500,23 @@ class CycleCloudProvider:
             else:
                 logger.info("Requested %s instances of machine type %s in nodearray %s.", machine_count, machinetype_name, _get("nodearray"))
             
-            return self.output_handler.handle({"requestId": request_id, "status": RequestStates.running,
+            return self.stdout_handler.handle({"requestId": request_id, "status": RequestStates.running,
                                      "message": "Request instances success from Azure CycleCloud."})
         except UserError as e:
             logger.exception("Azure CycleCloud experienced an error and the node creation request failed. %s", e)
-            return self.output_handler.handle({"requestId": request_id, "status": RequestStates.complete_with_error,
+            return self.stdout_handler.handle({"requestId": request_id, "status": RequestStates.complete_with_error,
                                      "message": "Azure CycleCloud experienced an error: %s" % str(e)})
         except ValueError as e:
             logger.exception("Azure CycleCloud experienced an error and the node creation request failed. %s", e)
-            return self.output_handler.handle({"requestId": request_id, "status": RequestStates.complete_with_error,
+            return self.stdout_handler.handle({"requestId": request_id, "status": RequestStates.complete_with_error,
                                      "message": "Azure CycleCloud experienced an error: %s" % str(e)})
         except OutOfCapacityError as e:
             logger.warning("Request Id %s failed with out of capacity %s", request_id, e)
-            return self.output_handler.handle({"requestId": request_id, "status": RequestStates.running,
+            return self.stdout_handler.handle({"requestId": request_id, "status": RequestStates.running,
                                      "message": "Azure CycleCloud does not currently have capacity %s" % str(e)})
         except Exception as e:
             logger.exception("Azure CycleCloud experienced an error, though it may have succeeded: %s", e)
-            return self.output_handler.handle({"requestId": request_id, "status": RequestStates.running,
+            return self.stdout_handler.handle({"requestId": request_id, "status": RequestStates.running,
                                      "message": "Azure CycleCloud experienced an error, though it may have succeeded: %s" % str(e)})
 
     @failureresponse({"requests": [], "status": RequestStates.complete_with_error})
@@ -556,12 +556,12 @@ class CycleCloudProvider:
             all_nodes = self.cluster.all_nodes()
         except UserError as e:
             logger.exception("Azure CycleCloud experienced an error and the get return request failed. %s", e)
-            return self.output_handler.handle({"status": RequestStates.complete_with_error,
+            return self.stdout_handler.handle({"status": RequestStates.complete_with_error,
                                      "requests": [],
                                      "message": "Azure CycleCloud experienced an error: %s" % str(e)})
         except ValueError as e:
             logger.exception("Azure CycleCloud experienced an error and the get return request failed. %s", e)
-            return self.output_handler.handle({"status": RequestStates.complete_with_error,
+            return self.stdout_handler.handle({"status": RequestStates.complete_with_error,
                                      "requests": [],
                                      "message": "Azure CycleCloud experienced an error: %s" % str(e)})
         
@@ -618,7 +618,7 @@ class CycleCloudProvider:
             
         response["message"] = message
         response["status"] = request_status
-        return self.output_handler.handle(response)
+        return self.stdout_handler.handle(response)
             
     @failureresponse({"requests": [], "status": RequestStates.running})
     def _create_status(self, input_json, output_handler=None):
@@ -643,7 +643,7 @@ class CycleCloudProvider:
          'status': 'complete'}
 
         """
-        output_handler = output_handler or self.output_handler
+        output_handler = output_handler or self.stdout_handler
         
         request_ids = [r["requestId"] for r in input_json["requests"]]
         
@@ -903,7 +903,7 @@ class CycleCloudProvider:
                                                 "machineId": machine_id})  
                         response["requests"].append(request) 
                         
-                    return self.output_handler.handle(response)
+                    return response
                     
                 
             for termination_id in termination_ids:
@@ -1062,7 +1062,7 @@ class CycleCloudProvider:
             "status": "complete"
         }
         """
-        output_handler = output_handler or self.output_handler
+        output_handler = output_handler or self.stdout_handler
         logger.info("Terminate_machines request for : %s", input_json)         
         request_id = "delete-%s" % str(uuid.uuid4())
         request_id_persisted = False
@@ -1127,7 +1127,6 @@ class CycleCloudProvider:
         '''
         Kludge: can't seem to get provider.json to reliably call the correct request action.
         '''
-        output_handler = self.output_handler
         creates = [x for x in input_json["requests"] if not x["requestId"].startswith("delete-")]
         deletes = [x for x in input_json["requests"] if x["requestId"].startswith("delete-")]
         create_response = {}
@@ -1166,7 +1165,7 @@ class CycleCloudProvider:
         response = {"status": combined_status,
                     "requests": create_response.get("requests", []) + delete_response.get("requests", [])
                     }
-        return output_handler.handle(response)
+        return self.stdout_handler.handle(response)
 
     def _terminate_expired_requests(self):
 
@@ -1352,12 +1351,11 @@ def main(argv=sys.argv):  # pragma: no cover
         data_dir = os.getenv('PRO_DATA_DIR', os.getcwd())
         hostnamer = util.Hostnamer(provider_config.get("cyclecloud.hostnames.use_fqdn", True))
         cluster_name = provider_config.get("cyclecloud.cluster.name")
-        output_handler = JsonOutputHandler()
         
         provider = CycleCloudProvider(config=provider_config,
                                       cluster=cluster.Cluster(cluster_name, provider_config, logger),
                                       hostnamer=hostnamer,
-                                      output_handler=output_handler,
+                                      stdout_handler=JsonOutputHandler(quiet=False),
                                       terminate_requests=JsonStore("terminate_requests.json", data_dir),
                                       creation_requests=JsonStore("create_requests.json", data_dir),
                                       templates=JsonStore("templates.json", data_dir, formatted=True),
