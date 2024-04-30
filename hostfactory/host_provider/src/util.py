@@ -27,8 +27,9 @@ _logging_init = False
 
 def init_logging(loglevel=logging.INFO, logfile=None):
     global _logging_init
+    pro_name = os.getenv("PRO_NAME", "azurecc")
     if logfile is None:
-        logfile = "azurecc_prov.log"
+        logfile = pro_name + "_prov.log"
     logfile_path = os.path.join(os.getenv("PRO_LOG_DIR", "."), logfile)
     
     try:
@@ -305,12 +306,13 @@ class ProviderConfig:
 
 
 def provider_config_from_environment(pro_conf_dir=os.getenv('PRO_CONF_DIR', os.getcwd())):    
-    config_file = os.path.join(pro_conf_dir, "conf", "azureccprov_config.json")
-    templates_file = os.path.join(pro_conf_dir, "conf", "azureccprov_templates.json")
+    pro_name = os.getenv("PRO_NAME", "azurecc")
+    config_file = os.path.join(pro_conf_dir, "conf", pro_name + "prov_config.json")
+    templates_file = os.path.join(pro_conf_dir, "conf", pro_name + "prov_templates.json")
     if os.name == 'nt':
         # TODO: Why does the path matter?   Can we use one or the other for both OSs?
-        config_file = os.path.join(pro_conf_dir, "azureccprov_config.json")
-        templates_file = os.path.join(pro_conf_dir, "azureccprov_templates.json")
+        config_file = os.path.join(pro_conf_dir, pro_name + "prov_config.json")
+        templates_file = os.path.join(pro_conf_dir, pro_name + "prov_templates.json")
 
 
     hf_conf_dir = os.getenv('HF_CONFDIR', os.path.join(pro_conf_dir, "..", "..", ".."))
