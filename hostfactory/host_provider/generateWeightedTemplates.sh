@@ -1,10 +1,12 @@
 #!/bin/bash -e
-export HF_LOGDIR=/tmp/log
+TEMP_HF_LOGDIR=/tmp/log
+export HF_LOGDIR=$TEMP_HF_LOGDIR
 export HF_CONFDIR=$HF_TOP/conf
-export HF_WORKDIR=/tmp/work
+TEMP_HF_WORKDIR=/tmp/work
+export HF_WORKDIR=$TEMP_HF_WORKDIR
 mkdir -p $HF_LOGDIR
 mkdir -p $HF_WORKDIR
-cat <<EOF >/tmp/input.json
+cat <<EOF >/tmp/genTemplates.input.json
 {}
 EOF
 export PRO_LOG_DIR=${HF_LOGDIR}
@@ -17,7 +19,8 @@ venv_path=$HF_TOP/$HF_VERSION/providerplugins/azurecc/venv/bin
 scriptDir=`dirname $0`
 export PYTHONPATH=$PYTHONPATH:$scriptDir/src
 . $venv_path/activate
-$venv_path/python3 -m cyclecloud_provider generate_templates -f /tmp/input.json 2>> /tmp/template_generate.out
-rm -rf $HF_LOGDIR
-rm -rf $HF_WORKDIR
-exit 0
+$venv_path/python3 -m cyclecloud_provider generate_templates -f /tmp/genTemplates.input.json
+exit_status=$?
+rm -rf $TEMP_HF_LOGDIR
+rm -rf $TEMP_HF_WORKDIR
+exit $exit_status

@@ -139,7 +139,7 @@ bash 'Installing HostFactory Package...' do
   code <<-EOH
   cd /tmp/hostfactory
   chmod +x install.sh
-  ./install.sh generate_config
+  ./install.sh generate_config --cluster #{node['cyclecloud']['cluster']['name']} --username #{node['cyclecloud']['config']['username']} --password #{node['cyclecloud']['config']['password']} --web_server #{node['cyclecloud']['config']['web_server']}
   EOH
   user "root"
   group "root"

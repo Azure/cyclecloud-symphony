@@ -17,41 +17,26 @@ venv_path=$HF_TOP/$HF_VERSION/providerplugins/azurecc/venv/bin
 
 if [ -e $venv_path ]; then
    # Check group membership
-	touch /opt/cycle/jetpack/logs/jetpack.log 1>&2 2> /dev/null
-	
+	groups $(whoami) | grep -q cyclecloud
 	if [ $? != 0 ]; then
-	    . $venv_path/activate
-		$venv_path/python3 -m cyclecloud_provider $@ 2>>$STDERR_FILE
+		echo $(whoami) must be added to the cyclecloud group.
+		exit 1
+	else 
+		args=$@
+		sg cyclecloud ". $venv_path/activate"
+		sg cyclecloud "$venv_path/python3 -m cyclecloud_provider $args 2>>$STDERR_FILE"
 		exit $?
-	else
-		groups $(whoami) | grep -q cyclecloud
-		if [ $? != 0 ]; then
-			echo $(whoami) must be added to the cyclecloud group.
-			exit 1
-		else 
-			args=$@
-			sg cyclecloud ". $venv_path/activate"
-			sg cyclecloud "$venv_path/python3 -m cyclecloud_provider $args 2>>$STDERR_FILE"
-			exit $?
-		fi
 	fi
 elif [ -e $embedded_python ]; then
    # Check group membership
-	touch /opt/cycle/jetpack/logs/jetpack.log 1>&2 2> /dev/null
-	
-	if [ $? == 0 ]; then
-		$embedded_python -m cyclecloud_provider $@ 2>>$STDERR_FILE
+	groups $(whoami) | grep -q cyclecloud
+	if [ $? != 0 ]; then
+		echo $(whoami) must be added to the cyclecloud group.
+		exit 1
+	else 
+		args=$@
+		sg cyclecloud "/opt/cycle/jetpack/system/embedded/bin/python -m cyclecloud_provider $args 2>>$STDERR_FILE"
 		exit $?
-	else
-		groups $(whoami) | grep -q cyclecloud
-		if [ $? != 0 ]; then
-			echo $(whoami) must be added to the cyclecloud group.
-			exit 1
-		else 
-			args=$@
-			sg cyclecloud "/opt/cycle/jetpack/system/embedded/bin/python -m cyclecloud_provider $args 2>>$STDERR_FILE"
-			exit $?
-		fi
 	fi
 else
 	# you'll need requests==2.5.1 installed.

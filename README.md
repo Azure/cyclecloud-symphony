@@ -154,18 +154,19 @@ Please contact azure support for help with this configuration.
     You can run install.sh within the folder and it will install python virtual environment at
     plugin path like below:
     $HF_TOP/$HF_VERSION/providerplugins/azurecc/scripts/venv
-    If you also need to generate symphony configuration then you can run install.sh with argument generate_config. This will set all the configurations assuming you have only azurecc provider and enable it.
+    If you also need to generate symphony configuration then you can run install.sh with argument generate_config and other required arguments. This will set all the configurations assuming you have only azurecc provider and enable it.Example:
+    ./install.sh generate_config --cluster <cluster_name> --username <username> --password <password> --web_server <webserver>
 
 
 ## Guide to using scripts
 
- These scripts can be found under $HF_TOP/$HF_VERSION/providerplugins/azurecc/scripts
+ These scripts can be found under $HF_TOP/$HF_VERSION/providerplugins/azurecc/scripts. 
    1. generateWeightedTemplates.sh 
       This script is used to generated weighted template. You need to run this script as root.
       ./generateWeightedTemplates.sh
       This will create a template based on current cyclecloud template selections and print it.
       If there are errors please check in /tmp/template_generate.out
-      You must then store template in $HF_TOP/$HF_VERSION/hostfactory/providers/conf/azurecc_templates.json file.
+      You must then store template in $HF_TOP/$HF_VERSION/hostfactory/providers/conf/azurecc_templates.json file. After storing the file the change will take effect only after you stop and start HostFactory.
    2. testDryRunWeightedTemplates.sh 
       These are test scripts which has 2 options:
          a. validate_templates - this will check the template in default path where azurecc_templates.json is stored
@@ -182,31 +183,36 @@ Please contact azure support for help with this configuration.
 ## Testing capacity issues
 
 You can trigger a capacity issue using following python script. 
-
 Run LastFailureTime.py under hostfactory/host_provider/test/ with follwing arguments:
    1. Number of seconds before current time
    2. Account name
    3. region
    4. machine name
-python LastFailureTime.py 1 AccountName westus2 Standard_D8_v5
+Update the offset compared to UTC time to match the time cycle_server is in, like below matches Central US Standard time, that is 5 hrs behind UTC:
+   def format_time(timestamp):
+    return datetime.datetime.strftime(timestamp, "%Y-%m-%d %H:%M:%S.%f-05:00")
+python LastFailureTime.py 1 <AccountName> westus2 Standard_D8_v5
 
 Output is like below:
 
 AdType = "Cloud.Capacity"
 ExpirationTime = `2024-03-01 16:34:54.045927-06:00`
-AccountName = "AccountName"
+AccountName = "<AccountName>"
 StatusUpdatedTime = `2024-03-01 15:34:53.045927-06:00`
 Region = "westus2"
 HasCapacity = False
 Provider = "azure"
-Name = "region/AccountName/westus2/Standard_D8_v5"
+Name = "region/<AccountName>/westus2/Standard_D8_v5"
 MachineType = "Standard_D8_v5"
 
-Copy the above output in /tmp/test.dat file and run below command to update the Cloud.Capacity record
+Above output is stored in /tmp/test.dat file and run below command to update the Cloud.Capacity record
 
 curl -k -u ${CC_USER} -X POST -H "Content-Type:application/text" --data-binary "@/tmp/test.dat" localhost:8080/db/Cloud.Capacity?format=text
 
+You can also verify this on CC GUI, HasCapacity is false
+![alt text](image.png)
 
+Note: You should run this script from machine where Cyclecloud is installed.
 ## Additional configs for symphony templates
 
 Following 2 configuration have been added:

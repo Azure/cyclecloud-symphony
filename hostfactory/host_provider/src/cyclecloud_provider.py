@@ -67,7 +67,7 @@ class CycleCloudProvider:
     # BUGFIX: exiting non-zero code will make symphony retry.
     def templates(self): 
         try:
-            pro_conf_dir=os.getenv('PRO_CONF_DIR', os.getcwd())
+            pro_conf_dir = os.getenv('PRO_CONF_DIR', os.getcwd())
             conf_path = os.path.join(pro_conf_dir, "conf", "azureccprov_templates.json")
             with open(conf_path, 'r') as json_file:
                 templates_json = json.load(json_file)
@@ -75,7 +75,7 @@ class CycleCloudProvider:
             return self.json_writer(templates_json, debug_output=False)
         except:
             logger.warning("Exiting Non-zero so that symphony will retry")
-            logger.exception("Could not get templates_json")
+            logger.exception(f"Could not get azureccprov_templates.json at {conf_path}")
             sys.exit(1) 
     
     def generate_sample_template(self):
@@ -84,13 +84,13 @@ class CycleCloudProvider:
         for bucket in buckets:
             autoscale_enabled = bucket.software_configuration.get("autoscaling", {}).get("enabled", False)
             if not autoscale_enabled:
-                print("Autoscaling is disabled in CC for nodearray %s" % bucket.nodearray)
+                print("Autoscaling is disabled in CC for nodearray %s" % bucket.nodearray, file=sys.stderr)
                 continue    
             if template_dict.get(bucket.nodearray) is None:
                 template_dict[bucket.nodearray] = {}
                 template_dict[bucket.nodearray]["templateId"] = bucket.nodearray
                 template_dict[bucket.nodearray]["attributes"] = {}
-                # Assuming slot size with ncpus=1 and nram=4096
+                # Assuming slot size with ncpus = 1 and nram = 4096
                 template_dict[bucket.nodearray]["attributes"]["type"] = ["String", "X86_64"]
                 template_dict[bucket.nodearray]["attributes"]["nram"] = ["Numeric", "4096"] 
                 template_dict[bucket.nodearray]["attributes"]["ncpus"] = ["Numeric", "1"]
@@ -139,12 +139,12 @@ class CycleCloudProvider:
             use_weighted_templates = False
             vmTypes = {}
             if self.config.get("symphony.enable_weighted_templates", True):
-                pro_conf_dir=os.getenv('PRO_CONF_DIR', os.getcwd())
+                pro_conf_dir = os.getenv('PRO_CONF_DIR', os.getcwd())
                 conf_path = os.path.join(pro_conf_dir, "conf", "azureccprov_templates.json")
                 with open(conf_path, 'r') as json_file:
                     templates_json = json.load(json_file)
                 vmTypes = self.weighted_template.parse_weighted_template(input_json, templates_json["templates"])
-                logger.debug("vmTypes %s", vmTypes) 
+                logger.debug("Current weightings: %s", ", ".join([f"{x}={y}" for x,y in vmTypes.items()]))
                 use_weighted_templates = True 
                 request_set = { 'count': input_json["template"]["machineCount"],
                                  'definition':{'templateId':input_json["template"]["templateId"]}} 
@@ -934,17 +934,18 @@ class CycleCloudProvider:
     def validate_template(self):
         cluster_status = self.cluster.status()
         nodearrays = cluster_status["nodearrays"]
-        pro_conf_dir=os.getenv('PRO_CONF_DIR', os.getcwd())
+        pro_conf_dir = os.getenv('PRO_CONF_DIR', os.getcwd())
         conf_path = os.path.join(pro_conf_dir, "conf", "azureccprov_templates.json")
         with open(conf_path, 'r') as json_file:
             templates_json = json.load(json_file)
         if "templates" not in templates_json:
-            print("List templates not present in azureccprov_templates.json")
+            print("List templates not present in azureccprov_templates.json", file=sys.stderr)
             return False
         templates_json = templates_json["templates"]
         if len(templates_json) == 0:
-            print("Length of list templates is 0")
+            print("Length of list templates is 0", file=sys.stderr)
             return False
+        template_name_found = False
         for template in templates_json:
            for nodearray_root in nodearrays:
                template_name_found = False
@@ -952,21 +953,21 @@ class CycleCloudProvider:
                    template_name_found = True
                    bucket_machineType = [bucket.get("definition")["machineType"].strip() for bucket in nodearray_root.get("buckets")]
                    if "vmTypes" not in template:
-                       print("Template validation failed")  
-                       print("vmTypes not present in template %s" % template["templateId"])
+                       print("Template validation failed", file=sys.stderr)  
+                       print("vmTypes not present in template %s" % template["templateId"], file=sys.stderr)
                        return False
                    vmTypes = [key.strip() for key in template["vmTypes"].keys()]
                    bucket_machineType = set(bucket_machineType)
                    vmTypes = set(vmTypes)
                    diff = bucket_machineType.symmetric_difference(vmTypes)
                    if len(diff) > 0:
-                       print("Template validation failed")   
-                       print(f"Difference in vmTypes and buckets {diff} for template {template['templateId']}")
+                       print("Template validation failed", file=sys.stderr)   
+                       print(f"Difference in vmTypes and buckets {diff} for template {template['templateId']}", file=sys.stderr)
                        return False
                    break
            if not template_name_found:
-               print("Template validation failed")
-               print("Template %s does not exist in nodearray" % template["templateId"])
+               print("Template validation failed", file=sys.stderr)
+               print("Template %s does not exist in nodearray" % template["templateId"], file=sys.stderr)
                return False
         print("Template validation passed")
         return True
@@ -986,6 +987,7 @@ def true_gmt_clock():  # pragma: no cover
 
 
 def main(argv=sys.argv, json_writer=simple_json_writer):  # pragma: no cover
+    operation_id = int(time.time())
     try:
         
         global logger
@@ -1011,7 +1013,7 @@ def main(argv=sys.argv, json_writer=simple_json_writer):  # pragma: no cover
         
         input_json = util.load_json(input_json_path)
         
-        operation_id = int(time.time())
+        
         logger.info("BEGIN %s %s - %s %s", operation_id, cmd, ignore, input_json_path)
         logger.debug("Input: %s", json.dumps(input_json))
         

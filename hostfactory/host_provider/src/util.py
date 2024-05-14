@@ -134,7 +134,7 @@ class JsonStore:
             return True
         iter = 0
         while iter < 18:
-            iter+=1
+            iter += 1
             try:
                 self.lockfp = open(self.lockpath, 'w')
                 if os.name == 'nt':

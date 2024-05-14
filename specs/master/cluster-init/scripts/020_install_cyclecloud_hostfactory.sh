@@ -7,7 +7,7 @@ SOAM_PASSWORD=$( jetpack config symphony.soam.password )
 
 
 USE_HOSTFACTORY=$( jetpack config symphony.host_factory.enabled )
-if [ "${USE_HOSTFACTORY,,}" != "true"]; then
+if [ "${USE_HOSTFACTORY,,}" != "true" ]; then
     echo "Skipping Host Factory configuration: symphony.host_factory.enabled = ${USE_HOSTFACTORY,,}"
     exit 0
 fi

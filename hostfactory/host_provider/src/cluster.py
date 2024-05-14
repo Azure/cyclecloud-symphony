@@ -41,7 +41,9 @@ class Cluster:
     
     def get_buckets(self):
         buckets = self.node_mgr.get_buckets()
-        self.logger.debug("Buckets %s", buckets)        
+        self.logger.debug("Buckets: count=%d", len(buckets))
+        for b in buckets:
+            self.logger.debug(f"{b.nodearray}/{b.vm_size} available={b.available_count} based on {b.limits} bucket_id={b.bucket_id}")           
         return buckets
     
     def add_nodes_scalelib(self, request, template_id, use_weighted_templates=False, vmTypes={}, dry_run=False):
@@ -50,7 +52,7 @@ class Cluster:
         if use_weighted_templates:
             self.logger.debug("Using weighted templates")
             self.node_mgr.add_default_resource(selection={}, resource_name="template_id", default_value="node.nodearray")
-            self.logger.debug("vmTypes %s", vmTypes.items())
+            self.logger.debug("Current weightings: %s", ", ".join([f"{x}={y}" for x,y in vmTypes.items()]))
             for vm_size, weight in vmTypes.items():
                 self.node_mgr.add_default_resource(selection={"node.vm_size": vm_size},
                                             resource_name="weight",
@@ -74,7 +76,7 @@ class Cluster:
                 print("Allocation result:")
                 print (key, len(value))
             return True
-        if not dry_run and result:
+        if result:
             request_id_start = f"{request['requestId']}-start"
             request_id_create = f"{request['requestId']}-create"
             return self.node_mgr.bootup(request_id_start=request_id_start, request_id_create=request_id_create)
