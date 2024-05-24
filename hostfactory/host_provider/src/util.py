@@ -224,13 +224,13 @@ def failureresponse(response):
                 
                 with_message["message"] = message
                 # args[0] is  self
-                return args[0].output_handler.handle(with_message)
+                return args[0].output_handler.try_handle(with_message)
             except Exception as e:
                 logger.exception(str(e))
                 logger.debug(traceback.format_exc())
                 with_message = deepcopy(response)
                 with_message["message"] = str(e)
-                return args[0].output_handler.handle(with_message)
+                return args[0].output_handler.try_handle(with_message)
             except SystemExit as se:
                 # NOTE: see terminate_machines for more info
                 logger.exception("System Exit occured intentionally write 0 json so symphony recovers")
@@ -240,7 +240,7 @@ def failureresponse(response):
                 logger.debug(traceback.format_exc())
                 with_message = deepcopy(response)
                 with_message["message"] = traceback.format_exc()
-                return args[0].output_handler.handle(with_message)
+                return args[0].output_handler.try_handle(with_message)
         return _wrap
     return decorator
 

@@ -14,11 +14,15 @@ Autoscale = $Autoscale
     SubnetId = $SubnetId
     Region = $Region
     KeyPairLocation = ~/.ssh/cyclecloud.pem
+    ShutdownPolicy = $ShutdownPolicy
 
     MachineType = $ExecuteMachineType
     
         [[[configuration]]]
         run_list = recipe[cuser]
+        # Disable ip-XXXXXXXX hostname generation
+        cyclecloud.hosts.standalone_dns.enabled = ${NodeNameIsHostname==false}
+        cyclecloud.hosts.simple_vpc_dns.enabled = ${NodeNameIsHostname==false}
 
         [[[network-interface eth0]]]
         AssociatePublicIpAddress = false
@@ -46,12 +50,29 @@ Autoscale = $Autoscale
 
         [[[cluster-init symphony:master:2.0.0]]]
 
+        [[[volume boot]]]
+        Size = $MasterBootDiskSize
+        Ssd = $MasterBootDiskSSD
+
+        [[[volume vartmp]]]
+        Size = 2048
+        SSD = true
+        Mount = vartmp
+        Persistent = false
+
     [[nodearray management]]
     MachineType = $ManagementMachineType    
     InitialCoreCount = 0
     MaxCoreCount = 64
+        
+        [[[volume boot]]]
+        Size = $ExecuteBootDiskSize
+        Ssd = $ExecuteBootDiskSize
 
         [[[configuration]]]
+        symphony.node_prefix = ${ifThenElse(NodeNamePrefix=="Cluster Prefix", StrJoin("-", toLower(ClusterName), ""), NodeNamePrefix)}
+        symphony.node_domain_suffix = $ZCSDomain
+        symphony.use_nodename_as_hostname = $NodeNameIsHostname
         cyclecloud.discoverable = true
 	
         [[[configuration symphony]]]
@@ -63,8 +84,16 @@ Autoscale = $Autoscale
     MaxCoreCount = $MaxExecuteCoreCount
     Interruptible = $UseLowPrio
     Priority = 10
+    AwaitInstallationTimeout=10
+
+        [[[volume boot]]]
+        Size = $ExecuteBootDiskSize
+        Ssd = $ExecuteBootDiskSize
     
         [[[configuration]]]
+        symphony.node_prefix = ${ifThenElse(NodeNamePrefix=="Cluster Prefix", StrJoin("-", toLower(ClusterName), ""), NodeNamePrefix)}
+        symphony.node_domain_suffix = $ZCSDomain
+        symphony.use_nodename_as_hostname = $NodeNameIsHostname
         autoscaling.enabled = true
     
         [[[cluster-init symphony:execute:2.0.0]]]
@@ -75,12 +104,23 @@ Autoscale = $Autoscale
     MaxCount = 400
     Priority = 100
 
+        [[[volume boot]]]
+        Size = $ExecuteBootDiskSize
+        Ssd = $ExecuteBootDiskSize
+
 
     [[nodearray persistent-execute]]
     InitialCoreCount= 0
     MaxCoreCount = 128
 
+        [[[volume boot]]]
+        Size = $ExecuteBootDiskSize
+        Ssd = $ExecuteBootDiskSize
+
         [[[configuration]]]
+        symphony.node_prefix = ${ifThenElse(NodeNamePrefix=="Cluster Prefix", StrJoin("-", toLower(ClusterName), ""), NodeNamePrefix)}
+        symphony.node_domain_suffix = $ZCSDomain
+        symphony.use_nodename_as_hostname = $NodeNameIsHostname
         cyclecloud.cluster.autoscale.stop_enabled = false
     
         [[[cluster-init symphony:execute:2.0.0]]]
@@ -133,7 +173,7 @@ Order = 10
         Label = Mgmt Machine Type
         Description = The machine type for the Symphony Management nodes
         ParameterType = Cloud.MachineType
-        DefaultValue = Standard_E16_v3
+        DefaultValue = Standard_F2s_v2
 	
         [[[parameter ExecuteMachineType]]]
         Label = Execute VM Type
@@ -193,11 +233,58 @@ Order = 20
     Description = "Specify the scheduling software, and base OS installed on all nodes, and optionally the cluster-init and chef versions from your Locker."
     Order = 10
 
+        [[[parameter NodeNameIsHostname]]]
+        Label = Name As Hostname
+        Description = Should the hostname match the nodename for execute nodes?
+        ParameterType = Boolean
+        DefaultValue = false
+        
+        [[[parameter ZCSDomain]]]
+        Label = Name of Domain
+        Description = Domain name of the node
+        ParameterType = String
+        DefaultValue = true
+ 
+        [[[parameter NodeNamePrefix]]]
+        Label = Node Prefix
+        Description = Prefix for generated node names, i.e. "prefix-" generates prefix-nodearray-1. Use 'Cluster Prefix' to get $ClusterName-nodearray-1
+        ParameterType = StringList
+        Config.Plugin = pico.form.Dropdown
+        Config.FreeForm = true
+        DefaultValue = "Cluster Prefix"
+        Config.Entries := {[Value=""], [Value="Cluster Prefix"]}
+        Conditions.Hidden := NodeNameIsHostname != true
+
+
         [[[parameter ImageName]]]
         Label = Base OS
         ParameterType = Cloud.Image
         Config.OS = linux
-        DefaultValue = cycle.image.centos7
+        DefaultValue = cycle.image.ubuntu20
+
+        [[[parameter MasterBootDiskSize]]]
+        Label = Master Boot Disk Size
+        Description = Size of the master boot disk in GB
+        ParameterType = Integer
+        DefaultValue = 128
+
+        [[[parameter MasterBootDiskSSD]]]
+        Label = Master Boot Disk SSD
+        Description = Use SSD for master boot disk
+        ParameterType = Boolean
+        DefaultValue = true
+
+        [[[parameter ExecuteBootDiskSize]]] 
+        Label = Exec Boot Disk Size
+        Description = Size of the execute boot disk in GB
+        ParameterType = Integer
+        DefaultValue = 128
+
+        [[[parameter ExecuteBootDiskSSD]]]
+        Label = Exec Boot Disk SSD
+        Description = Use SSD for execute boot disk
+        ParameterType = Boolean
+        DefaultValue = true
 
         [[[parameter DefaultClusterInitSpecs]]]
         Label = Default Cluster-Init Specs
@@ -230,5 +317,16 @@ Order = 20
         DefaultValue = true
         ParameterType = Boolean
         Config.Label = Access master node from the Internet
+
+        [[[parameter ShutdownPolicy]]]
+        description = By default, autostop will Delete stopped VMS for lowest cost.  Optionally, Stop/Deallocate the VMs for faster restart instead.
+        DefaultValue = Terminate
+        config.plugin = pico.control.AutoCompleteDropdown
+            [[[[list Config.Entries]]]]
+            Name = Terminate
+            Label = Terminate
+            [[[[list Config.Entries]]]]
+            Name = Deallocate
+            Label = Deallocate	
 
 
