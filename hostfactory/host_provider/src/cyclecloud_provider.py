@@ -38,6 +38,11 @@ class InvalidCycleCloudVersionError(RuntimeError):
     pass
 
 
+def quiet_output():
+    '''Return a JsonOutputHandler that does not print to stdout and still can only be invoked once'''
+    return JsonOutputHandler(quiet=True)
+
+
 class CycleCloudProvider:
     
     def __init__(self, config, cluster, hostnamer, stdout_handler, terminate_requests, creation_requests, templates, clock):
@@ -599,8 +604,7 @@ class CycleCloudProvider:
         try:
             if to_shutdown:
                 logger.debug("Terminating returned machines: %s", to_shutdown)
-                quiet_output = JsonOutputHandler(quiet=True)
-                self.terminate_machines({"machines": to_shutdown}, quiet_output)
+                self.terminate_machines({"machines": to_shutdown}, quiet_output())
         except:
             logger.exception()
         missing_from_cc = sym_existing_hostnames - cc_existing_hostnames
@@ -833,7 +837,7 @@ class CycleCloudProvider:
                 requests_store[request_id]["completedNodes"] = completed_nodes
                 if requests_store[request_id].get("allNodes") is None:
                     requests_store[request_id]["allNodes"] = all_nodes
-                requests_store[request_id]["completed"] = len(nodes_by_request_id) == len(completed_nodes)
+                requests_store[request_id]["completed"] = len(requested_nodes) == len(completed_nodes)
 
             active = len([x for x in machines if x["status"] == MachineStates.active])
             building = len([x for x in machines if x["status"] == MachineStates.building])
@@ -1099,9 +1103,8 @@ class CycleCloudProvider:
         deletes = [x for x in input_json["requests"] if x["requestId"].startswith("delete-")]
         create_response = {}
         delete_response = {}
-        quiet_output = JsonOutputHandler(quiet=True)
         if creates:
-            create_response = self._create_status({"requests": creates}, quiet_output)
+            create_response = self._create_status({"requests": creates}, quiet_output())
             assert "status" in create_response
 
         if deletes:
@@ -1144,11 +1147,10 @@ class CycleCloudProvider:
         for request_id, request in self.creation_json.read().items():
             if request["allNodes"] is None:
                 never_queried_requests.append(request_id)
-        quiet_output = JsonOutputHandler(quiet=True)
         if never_queried_requests:
             try:
                 unrecoverable_request_ids = []
-                response = self._create_status({"requests": [{"requestId": r} for r in never_queried_requests]}, quiet_output)
+                response = self._create_status({"requests": [{"requestId": r} for r in never_queried_requests]}, quiet_output())
 
                 for request in response["requests"]:
                     if request["status"] == RequestStates.complete_with_error and not request.get("_recoverable_", True):
@@ -1178,7 +1180,7 @@ class CycleCloudProvider:
             return
         
         self._create_status({"requests": [{"requestId": r} for r in to_update_status]},
-                              quiet_output)
+                              quiet_output())
 
         with self.creation_json as requests_store:
             to_shutdown = []
@@ -1205,8 +1207,7 @@ class CycleCloudProvider:
                 return
 
             if to_shutdown:
-                quiet_output = JsonOutputHandler(quiet=True)
-                self.terminate_machines({"machines": [{"machineId": x, "name": x} for x in to_shutdown]}, quiet_output)
+                self.terminate_machines({"machines": [{"machineId": x, "name": x} for x in to_shutdown]}, quiet_output())
 
             for request in to_mark_complete:
                 request["lastUpdateTime"] = calendar.timegm(self.clock())
@@ -1303,6 +1304,11 @@ class JsonOutputHandler:
         if not self.quiet:
             print(data_str)
         return data
+    
+    def try_handle(self, data, debug_output=True):
+        if self.written:
+            return
+        return self.handle(data, debug_output)
 
 
 def true_gmt_clock():  # pragma: no cover
