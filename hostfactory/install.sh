@@ -1,29 +1,29 @@
 #!/bin/bash
 if [[ ! -d $EGO_TOP ]] ; then
-     EGO_TOP="/opt/ibm/spectrumcomputing"  
+     export EGO_TOP="/opt/ibm/spectrumcomputing"  
      mkdir -p $EGO_TOP
      echo $EGO_TOP
 fi 
 # In Symphony 7.2 and earlier: HF_TOP=$EGO_TOP/eservice/hostfactory
 if [[ ! -d $HF_TOP ]] ; then
-     HF_TOP="$EGO_TOP/hostfactory"  
+     export HF_TOP="$EGO_TOP/hostfactory"  
      mkdir -p $HF_TOP
 fi 
 
 if [[  -z $HF_CONFDIR ]] ; then
-     HF_CONFDIR="$EGO_TOP/hostfactory/conf"  
+     export HF_CONFDIR="$EGO_TOP/hostfactory/conf"  
 fi 
 
 if [[  -z $HF_WORKDIR ]] ; then
-     HF_WORKDIR="$EGO_TOP/hostfactory/work"  
+     export HF_WORKDIR="$EGO_TOP/hostfactory/work"  
 fi 
 
 if [[  -z $HF_LOGDIR ]] ; then
-     HF_LOGDIR="$EGO_TOP/hostfactory/log"  
+     export HF_LOGDIR="$EGO_TOP/hostfactory/log"  
 fi 
 
 if [[ -z $HF_VERSION ]] ; then
-     HF_VERSION="1.2"
+     export HF_VERSION="1.1"
 fi 
 
 pluginSrcPath=$HF_TOP/$HF_VERSION/providerplugins/azurecc
@@ -56,15 +56,15 @@ function Generate-Provider-Config {
     echo "$hostProvidersJson" > "$providerConfPath/hostProviders.json"
 
     azureccprov_config_json="{
-    \"log_level\": \"info\",
+    \"log_level\": \"debug\",
     \"cyclecloud\": {
         \"cluster\": {
-            \"name\": \"$(jetpack config cyclecloud.cluster.name)\"
+            \"name\": \"$cluster\"
         },
         \"config\": {
-            \"username\": \"$(jetpack config cyclecloud.config.username)\",
-            \"password\": \"$(jetpack config cyclecloud.config.password)\",
-            \"web_server\": \"$(jetpack config cyclecloud.config.web_server)\"
+            \"username\": \"$username\",
+            \"password\": \"$password\",
+            \"web_server\": \"$web_server\"
         }
       }
    }"
@@ -74,26 +74,6 @@ function Generate-Provider-Config {
    fi
    echo "$azureccprov_config_json" > "$azureccProviderConfPath/azureccprov_config.json"
 
-   azureccprov_template_json='{"message" : "Get available templates success.",
-    "templates" : [
-    {
-        "templateId" : "executestandardf2sv2",
-        "maxNumber" : 10,
-        "attributes" : {
-            "nram" : [ "Numeric", "1024" ],
-            "ncpus" : [ "Numeric", "1" ],
-            "ncores" : [ "Numeric", "1" ],
-            "type" : [ "String", "X86_64" ]
-        }
-    } ]
-    }'
-    if [ ! -e $azureccProviderConfPath ]
-    then
-      mkdir -p  $azureccProviderConfPath
-    fi
-    echo "$azureccprov_template_json" > "$azureccProviderConfPath/azureccprov_templates.json"
-    #as this will be updated by HF we need to change user to egoadmin
-    chown egoadmin:egoadmin $azureccProviderConfPath/azureccprov_templates.json
 
 }
 
@@ -124,7 +104,6 @@ function Update-Requestors-Config
     then
       mkdir -p  $requestorConfPath
     fi
-    echo "Expected default host requestors conf file!   Will generate, but this may indicate a failure..."
     hostRequestorsJson="{
     \"version\": 2,
     \"requestors\":[
@@ -159,6 +138,86 @@ function Update-Requestors-Config
 echo "$hostRequestorsJson" > "$requestorConfPath/hostRequestors.json"
 
 }
-Generate-Provider-Config
-Generate-Provider-Plugins-Config
-Update-Requestors-Config
+
+function UpdateSymAReturnPolicy
+{
+    jq '.host_return_policy = "immediate"' "$requestorConfPath/symAinst/symAinstreq_config.json" > temp.json && mv temp.json "$requestorConfPath/symAinst/symAinstreq_config.json"
+
+}
+function Install-Python-Packages
+{
+    echo "Installing python packages..."
+    PKG_NAME=$( jetpack config symphony.pkg_plugin )
+    cd /tmp
+    mkdir -p $pluginSrcPath/scripts
+    cp -r /tmp/hostfactory/host_provider/* $pluginSrcPath/scripts
+    VENV=$pluginSrcPath/venv
+    # remove jetpack python from PATH so default python3 is used.
+    export PATH=$(echo $PATH | sed -e 's/\/opt\/cycle\/jetpack\/system\/embedded\/bin://g' | sed -e 's/:\/opt\/cycle\/jetpack\/system\/embedded\/bin//g')
+    export PATH=$PATH:/root/bin:/usr/bin
+
+    python3 -m virtualenv --version 2>&1 > /dev/null
+    if [ $? != 0 ]; then
+        python3 -m pip install virtualenv || exit 1
+    fi
+    set -e
+    echo "venv path"
+    echo $VENV
+    python3 -m virtualenv $VENV
+    source $VENV/bin/activate
+    pip install --upgrade packages/*
+    if [ -f $PKG_NAME ]; then
+        rm -f $PKG_NAME
+        rm -rf packages
+        rm -rf hostfactory
+    fi
+    echo "Python plugin virtualenv created at $VENV"
+}
+
+function Generate-Template
+{
+    cd $pluginSrcPath/scripts
+    echo "In scripts dir at $pluginSrcPath/scripts"
+    output=$(./generateWeightedTemplates.sh)
+    echo $output
+    echo $output > $azureccProviderConfPath/azureccprov_templates.json
+    # as this will be updated by HF we need to change user to egoadmin
+    chown egoadmin:egoadmin $azureccProviderConfPath/azureccprov_templates.json
+}
+# check for command line argument for generate_config
+if [ $# -gt 1 ]; then
+    if [ $1 == "generate_config" ]; then
+        echo "Parsing parameters for generating config files"
+        if [ $2 == "--cluster" ]; then
+            cluster=$3
+        else
+            echo "Cluster name is required"
+        fi
+        if [ $4 == "--username" ]; then
+            username=$5
+        else
+            echo "Username is required"
+        fi
+        if [ $6 == "--password" ]; then
+            password=$7
+        else
+            echo "Password is required"
+        fi
+        if [ $8 == "--web_server" ]; then
+            web_server=$9
+        else
+            echo "Web server is required"
+        fi
+        Generate-Provider-Config
+        Generate-Provider-Plugins-Config
+        Update-Requestors-Config
+        UpdateSymAReturnPolicy
+        Install-Python-Packages
+        Generate-Template
+    else
+        echo "Argument $1 is invalid"
+    fi
+
+else
+    Install-Python-Packages
+fi

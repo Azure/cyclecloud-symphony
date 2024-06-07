@@ -1,6 +1,6 @@
 
-default['symphony']['version'] = "7.3.2.0"
-default['symphony']['eval'] = true
+default['symphony']['version'] = "7.3.1.0"
+default['symphony']['eval'] = false
 default['symphony']['pkg']['linux'] = "sym-#{node['symphony']['version']}_x86_64.bin"
 default['symphony']['pkg']['windows'] = "sym-#{node['symphony']['version']}.exe"
 default['symphony']['pkg_plugin'] = "cyclecloud-symphony-pkg-3.0.0.zip"
@@ -54,7 +54,7 @@ else
   default['symphony']['hostfactory']['templates_dir'] = 'hostfactory/7.2'
 end
 default['symphony']['hostfactory']['confdir'] = "#{node['symphony']['hostfactory']['top']}/conf"
-default['symphony']['hostfactory']['version'] = "1.2"
+default['symphony']['hostfactory']['version'] = "1.1"
 
 # IP or Hostname for REST API URLs
 default['symphony']['hostfactory']['rest_address'] = '127.0.0.1'
@@ -90,3 +90,6 @@ default['symphony']['hostfactory']['requestors']['symA']['host_return_policy']['
 #attributes for sethostname
 default[:symphony][:ensure_waagent_monitor_hostname] = true
 default[:symphony][:use_nodename_as_hostname] = false
+
+default[:symphony][:enable_weighted_templates] = true
+default[:symphony][:ncpus_use_vcpus] = true

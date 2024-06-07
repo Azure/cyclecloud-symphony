@@ -5,15 +5,13 @@ from urllib.parse import urlencode
 from builtins import str
 from copy import deepcopy
 from hpc.autoscale.node.nodemanager import new_node_manager
+from hpc.autoscale.util import partition
+
 
 try:
     import cyclecli
 except ImportError:
     import cyclecliwrapper as cyclecli
- 
-    
-class OutOfCapacityError(RuntimeError):
-    pass
 
     
 class Cluster:
@@ -43,108 +41,51 @@ class Cluster:
     
     def get_buckets(self):
         buckets = self.node_mgr.get_buckets()
-        status_json = self.status()
-        nodearrays = status_json["nodearrays"]
-        for nodearray_root in nodearrays:
-            for bucket in buckets:
-                if nodearray_root.get("name") == bucket.nodearray:
-                    bucket.priority = nodearray_root.get("Priority")
+        self.logger.debug("Buckets: count=%d", len(buckets))
+        for b in buckets:
+            self.logger.debug(f"{b.nodearray}/{b.vm_size} available={b.available_count} based on {b.limits} bucket_id={b.bucket_id}")           
         return buckets
     
-    def limit_request_by_available_count(self, status, request, logger):
-        disable_active_count_fix = bool(self.provider_config.get("symphony.disable_active_count_fix", False))
-        if disable_active_count_fix:
-            return request
-        request_copy = deepcopy(request)
-        request_set = request_copy['sets'][0]
-        machine_type = request_set["definition"]["machineType"]
-        nodearray_name = request_set['nodearray']
-        filtered = [x for x in status["nodearrays"] if x["name"] == nodearray_name]
-        if len(filtered) < 1:
-            raise RuntimeError(f"Nodearray {nodearray_name} does not exist or has been removed")
-        nodearray = filtered[0]
-
-        filtered_buckets = [x for x in nodearray["buckets"] if x["definition"]["machineType"] == machine_type]
-        if len(filtered_buckets) < 1:
-            raise RuntimeError(f"VM Size {machine_type} does not exist or has been removed from nodearray {nodearray_name}")
-
-        bucket = filtered_buckets[0]
-        if bucket["availableCount"] == 0: 
-            raise OutOfCapacityError(f"No availablity for {nodearray_name}/{machine_type}")
+    def add_nodes_scalelib(self, request, template_id, use_weighted_templates=False, vmTypes={}, dry_run=False):
+        # if true, do new slot based allocation with weighting
+        # if false, use vm_size/node based allocation
+        if use_weighted_templates:
+            self.logger.debug("Using weighted templates")
+            self.node_mgr.add_default_resource(selection={}, resource_name="template_id", default_value="node.nodearray")
+            self.logger.debug("Current weightings: %s", ", ".join([f"{x}={y}" for x,y in vmTypes.items()]))
+            for vm_size, weight in vmTypes.items():
+                self.node_mgr.add_default_resource(selection={"node.vm_size": vm_size},
+                                            resource_name="weight",
+                                            default_value=weight)
+        else:    
+            self.node_mgr.add_default_resource(selection={}, resource_name="template_id", 
+                                        default_value=lambda node: "{node.nodearray + node.vm_size.replace('_', '')}".lower())
+            self.node_mgr.add_default_resource(selection={}, resource_name="weight", default_value=1)
         
-        if bucket["availableCount"] < request_set["count"]:
-            logger.warning(f"Requesting available count {bucket['availableCount']} vs requested. {request_set['count']}")
-            logger.warning(f"This could trigger a pause capacity for nodearray {nodearray_name} VM Size {machine_type}")
-            request_set["count"] = bucket["availableCount"]
-        return request_copy
-    
-    def add_nodes_scalelib(self, request, max_count):
-        sku = request['sets'][0]['definition']['machineType']
-        selector = {"node.nodearray": request['sets'][0]['nodearray']}
-        if sku:
-           selector["node.vm_size"] = sku
-        selector_list = [selector]
-        alloc_result = self.node_mgr.allocate(constraints=selector_list, node_count=request['sets'][0]['count'], allow_existing=False)
-        filtered_nodes = [n for n in alloc_result.nodes if int(n.name.split("-")[-1]) <= max_count]
-        exceeded_nodes = list(set(alloc_result.nodes) - set(filtered_nodes))
-        if len(exceeded_nodes) > 0:
-            self.logger.warning("In the allocation result %s nodes exceeded %s", len(exceeded_nodes), str(exceeded_nodes))
-            for node in self.node_mgr.get_nodes():
-                self.logger.debug("Node name %s Node state %s Node targetstate %s", node.name, node.state, node.target_state)
+        # Time in seconds to check waiting period after last capacity failure
+        capacity_failure_backoff = self.provider_config.get("capacity-failure-backoff", 300)
+        result = self.node_mgr.allocate({"weight": 1, "template_id": template_id, "capacity-failure-backoff": capacity_failure_backoff},
+                                slot_count=request['sets'][0]['count'],
+                                allow_existing=False)
+        self.logger.debug("Result of allocation %s", result)
         
-        self.logger.debug("Request id in add nodes %s",request['requestId'])    
-        request_id_start = f"{request['requestId']}-start"
-        request_id_create = f"{request['requestId']}-create"
-
-        bootup_resp = []
-        if len(filtered_nodes) > 0:
-            bootup_resp = self.node_mgr.bootup(nodes=filtered_nodes,
-            request_id_start=request_id_start, request_id_create=request_id_create
-            )
-        if (bootup_resp is None or []) or (bootup_resp.nodes is None or []):
-            return False
-        self.logger.debug("node bootup %s",bootup_resp)
-        self.logger.debug("node bootup requestids %s",bootup_resp.request_ids)
-        return (bootup_resp)
-    
-    def add_nodes(self, request, max_count):
-        def get_avail_count(status):
-            request_set = request['sets'][0]
-            machine_type = request_set["definition"]["machineType"]
-            nodearray_name = request_set['nodearray']
-            filtered = [x for x in status["nodearrays"] if x["name"] == nodearray_name]
-            if len(filtered) < 1:
-                raise RuntimeError(f"Nodearray {nodearray_name} does not exist or has been removed")
-            nodearray = filtered[0]
-            filtered_buckets = [x for x in nodearray["buckets"] if x["definition"]["machineType"] == machine_type]
-            if len(filtered_buckets) < 1:
-                raise RuntimeError(f"VM Size {machine_type} does not exist or has been removed from nodearray {nodearray_name}")
-            bucket = filtered_buckets[0]
-            return bucket["availableCount"]
+        if dry_run:
+            by_vm_size = partition(result.nodes, lambda node: node.vm_size)
+            for key,value in by_vm_size.items():
+                self.logger.debug("VM Size %s count %s", key, len(value))
+                print("Allocation result:")
+                print (key, len(value))
+            return True
+        if result:
+            request_id_start = f"{request['requestId']}-start"
+            request_id_create = f"{request['requestId']}-create"
+            return self.node_mgr.bootup(request_id_start=request_id_start, request_id_create=request_id_create)
+        return False
             
-        # TODO: Remove request_copy once Max count is correctly enforced in CC.
-        status_resp = self.status()
-        request_copy = self.limit_request_by_available_count(status=status_resp, request=request, logger=self.logger)
-        
-        response = self.add_nodes_scalelib(request_copy, max_count)
-        # TODO: Get rid of extra status call in CC 8.4.0
-        origin_avail_count = get_avail_count(status_resp)
-        max_mitigation_attempts = int(self.provider_config.get("symphony.max_status_mitigation_attempts", 10)) 
-        i = 0
-        avail_has_decreased = False
-        self.logger.info("BEGIN Overallocation Mitigation request id %s", request["requestId"])
-        while i < max_mitigation_attempts and not avail_has_decreased:
-            i = i + 1
-            temp_status = self.status()
-            new_avail_count = get_avail_count(temp_status)
-            if new_avail_count < origin_avail_count:
-                avail_has_decreased = True
-                break
-            time.sleep(1)  
-        if avail_has_decreased:
-            self.logger.info("END Availibility updated after %d attempts for requestId %s", i, request["requestId"])
-        else:
-            self.logger.warning("END For request %s availability has not properly updated after %d attempts", request["requestId"], max_mitigation_attempts)
+    
+    def add_nodes(self, request, use_weighted_templates=False, vmTypes={}, dry_run=False):
+        response = self.add_nodes_scalelib(request, template_id=request['sets'][0]['definition']['templateId'],
+                                              use_weighted_templates=use_weighted_templates, vmTypes=vmTypes, dry_run=dry_run)
         return response
     
     def all_nodes(self):
@@ -209,21 +150,6 @@ class Cluster:
             return json.loads(response_raw)
         except:
             raise RuntimeError("Could not parse response as json to terminate! '%s'" % response_raw)
-
-        # It appears that the "instance-filter" version NEVER succeeds and often throws
-        # kludge: work around
-        # if Symphony may have a stale machineId -> hostname mapping, so find the existing instance with that hostname and kill it
-        # machine_names = [ machine["name"].split(".")[0] for machine in machines if machine.get("name") ]
-        # if machine_names:
-        #     self.logger.warning("Terminating the following nodes by machine_names: %s", machine_names)
-
-        #     f = urlencode({"instance-filter": 'HostName in {%s}' % ",".join('"%s"' % x for x in machine_names)})
-        #     try:
-        #         self.post("/cloud/actions/terminate_node/%s?%s" % (self.cluster_name, f))
-        #     except Exception as e:
-        #         if "No instances were found matching your query" in str(e):
-        #            return
-        #         raise
             
     def _session(self):
         config = {"verify_certificates": False,

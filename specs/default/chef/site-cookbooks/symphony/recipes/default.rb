@@ -96,7 +96,7 @@ end
 
 
 # Install dependencies
-%w{ net-tools gettext unzip python}.each do |pkg|
+%w{ net-tools gettext unzip python2}.each do |pkg|
   package pkg
 end
 if node['platform_family'] == "debian"

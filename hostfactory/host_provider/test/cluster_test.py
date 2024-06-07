@@ -1,6 +1,7 @@
 import unittest
 import cluster
 import logging
+from unittest.mock import MagicMock
 
 class TestCluster(unittest.TestCase):
     
@@ -9,7 +10,7 @@ class TestCluster(unittest.TestCase):
         #self.provider.config.set("symphony.disable_active_count_fix", True)
         cluster_name = "TestCluster"
         provider_config = {"User" : "abcd"}
-        
+        cluster.new_node_manager = MagicMock(return_value=None)
         cluster_test = cluster.Cluster(cluster_name, provider_config, logging)
         def make_new_request(machine_count=1):
             request_set = {'count': machine_count,                       

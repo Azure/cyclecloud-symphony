@@ -138,6 +138,88 @@ burst into Azure.
 Please contact azure support for help with this configuration.
 
 
+# Guide for using Static Templates with HostFactory
+
+ Follow below steps if you are not using the chef in project:
+   1. Copy cyclecloud-symphony-pkg-{version}.zip to /tmp directory in master node.
+   2. Unzip the file in /tmp directory
+   3. Ensure python3 is installed
+   4. You should have following environment variables set as per your environment otherwise install.sh script under hostfactory/host_provider directory take default values:
+    EGO_TOP
+    HF_TOP
+    HF_VERSION
+    HF_CONFDIR
+    HF_WORKDIR
+    HF_LOGDIR
+    You can run install.sh within the folder and it will install python virtual environment at
+    plugin path like below:
+    $HF_TOP/$HF_VERSION/providerplugins/azurecc/scripts/venv
+    If you also need to generate symphony configuration then you can run install.sh with argument generate_config and other required arguments. This will set all the configurations assuming you have only azurecc provider and enable it.Example:
+    ./install.sh generate_config --cluster <cluster_name> --username <username> --password <password> --web_server <webserver>
+
+
+## Guide to using scripts
+
+ These scripts can be found under $HF_TOP/$HF_VERSION/providerplugins/azurecc/scripts. 
+   1. generateWeightedTemplates.sh 
+      This script is used to generated weighted template. You need to run this script as root.
+      ./generateWeightedTemplates.sh
+      This will create a template based on current cyclecloud template selections and print it.
+      If there are errors please check in /tmp/template_generate.out
+      You must then store template in $HF_TOP/$HF_VERSION/hostfactory/providers/conf/azurecc_templates.json file. After storing the file the change will take effect only after you stop and start HostFactory.
+   2. testDryRunWeightedTemplates.sh 
+      These are test scripts which has 2 options:
+         a. validate_templates - this will check the template in default path where azurecc_templates.json is stored
+            ./testDryRunWeightedTemplates.sh validate_templates
+         b. create_machines - for this you need to pass input json as an example:
+             input.json:
+             {"template": {"machineCount": 205, 
+                         "templateId": "execute"},
+               "dry-run": true}
+             ./testDryRunWeightedTemplates.sh create_machines input.json
+             This will not create machines but show what machines would have been created with given input. Make sure "dry-run" is true.
+
+
+## Testing capacity issues
+
+You can trigger a capacity issue using following python script. 
+Run LastFailureTime.py under hostfactory/host_provider/test/ with follwing arguments:
+   1. Number of seconds before current time
+   2. Account name
+   3. region
+   4. machine name
+Update the offset compared to UTC time to match the time cycle_server is in, like below matches Central US Standard time, that is 5 hrs behind UTC:
+   def format_time(timestamp):
+    return datetime.datetime.strftime(timestamp, "%Y-%m-%d %H:%M:%S.%f-05:00")
+python LastFailureTime.py 1 <AccountName> westus2 Standard_D8_v5
+
+Output is like below:
+
+AdType = "Cloud.Capacity"
+ExpirationTime = `2024-03-01 16:34:54.045927-06:00`
+AccountName = "<AccountName>"
+StatusUpdatedTime = `2024-03-01 15:34:53.045927-06:00`
+Region = "westus2"
+HasCapacity = False
+Provider = "azure"
+Name = "region/<AccountName>/westus2/Standard_D8_v5"
+MachineType = "Standard_D8_v5"
+
+Above output is stored in /tmp/test.dat file and run below command to update the Cloud.Capacity record
+
+curl -k -u ${CC_USER} -X POST -H "Content-Type:application/text" --data-binary "@/tmp/test.dat" localhost:8080/db/Cloud.Capacity?format=text
+
+You can also verify this on CC GUI, HasCapacity is false
+![alt text](image.png)
+
+Note: You should run this script from machine where Cyclecloud is installed.
+## Additional configs for symphony templates
+
+Following 2 configuration have been added:
+1.  enable_weighted_templates -> default value is true. Used to generate template in which templateId corresponds to nodearray and vmTypes are in dictionary format with weight. But you can change it under configuration symphony for master node. In that case you need to use default format of templateId as nodearray+ sku name.
+2.  ncpus_use_vcpus -> default value is true. It assumes you want slot ncpu attribute to be based on vcpu count. You can change in symphony configuration for master node.
+3. capacity-failure-backoff -> default value is 300 (unit is seconds). 
+This is the time after which scalelib will wait to make next attempt at allocation after failure occurs. 
 
 # Contributing
 

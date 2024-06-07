@@ -24,54 +24,52 @@ except ImportError:
 
 _logging_init = False
 
+class CustomFormatter(logging.Formatter):
+    def format(self, record):
+        record.operation_id = int(time.time())
+        return super().format(record)
 
+ 
 def init_logging(loglevel=logging.INFO, logfile=None):
     global _logging_init
     if logfile is None:
         logfile = "azurecc_prov.log"
     logfile_path = os.path.join(os.getenv("PRO_LOG_DIR", "."), logfile)
     
-    try:
-        import jetpack
-        jetpack.util.setup_logging()
-    except (ModuleNotFoundError,ImportError) as ex:
-        LOGGING = {
-            'version': 1,
-            'disable_existing_loggers': False,
-            'formatters': {
-                'default': {
-                    'format': '%(asctime)s %(levelname)-8s %(message)s'
-                },
+    LOGGING = {
+        'version': 1,
+        'disable_existing_loggers': False,
+        'formatters': {
+            'default': {
+                'format': '%(operation_id)s - %(asctime)s %(levelname)-8s %(message)s'
             },
-            'handlers': {
-                'file': {
-                    # The values below are popped from this dictionary and
-                    # used to create the handler, set the handler's level and
-                    # its formatter.
-                    '()': ConcurrentRotatingFileHandler,
-                    'level': logging.INFO,
-                    'formatter': 'default',
-                    # The values below are passed to the handler creator callable
-                    # as keyword arguments.
-                    # 'owner': ['root', 'cyclecloud'],
-                    'filename': logfile_path,
-                },
-            },
-            'root': {
-                'handlers': ['file'],
+        },
+        'handlers': {
+            'file': {
+                # The values below are popped from this dictionary and
+                # used to create the handler, set the handler's level and
+                # its formatter.
+                '()': ConcurrentRotatingFileHandler,
                 'level': logging.INFO,
+                'formatter': 'default',
+                # The values below are passed to the handler creator callable
+                # as keyword arguments.
+                # 'owner': ['root', 'cyclecloud'],
+                'filename': logfile_path,
             },
-        }
-        logging.config.dictConfig(LOGGING)
+        },
+        'root': {
+            'handlers': ['file'],
+            'level': logging.INFO,
+            
+        },
+    }
+    logging.config.dictConfig(LOGGING)
     
     try:
         root_logger = logging.getLogger()
         filtered_handlers = []
         for handler in root_logger.handlers:
-            if hasattr(handler, "baseFilename"):
-                bfn = getattr(handler, "baseFilename")
-                if bfn and bfn.endswith("jetpack.log"):
-                    continue
             filtered_handlers.append(handler)
             
         root_logger.handlers = filtered_handlers
@@ -94,13 +92,13 @@ def init_logging(loglevel=logging.INFO, logfile=None):
     tenMB = 10 * 1024 * 1024
     logfile_handler = ConcurrentRotatingFileHandler(logfile_path, mode='a',maxBytes=tenMB, backupCount=5)
     logfile_handler.setLevel(loglevel)
-    logfile_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+    logfile_handler.setFormatter(CustomFormatter('%(operation_id)s - %(asctime)s - %(name)s - %(levelname)s - %(message)s'))
     
     logger.addHandler(logfile_handler)
     
     stderr_handler = logging.StreamHandler(stream=sys.stderr)
     stderr_handler.setLevel(logging.DEBUG)
-    stderr_handler.setFormatter(logging.Formatter('%(levelname)s - %(message)s'))
+    stderr_handler.setFormatter(CustomFormatter('%(operation_id)s - %(levelname)s - %(message)s'))
     
     logger.addHandler(stderr_handler)
     
@@ -136,7 +134,7 @@ class JsonStore:
             return True
         iter = 0
         while iter < 18:
-            iter+=1
+            iter += 1
             try:
                 self.lockfp = open(self.lockpath, 'w')
                 if os.name == 'nt':
@@ -251,9 +249,9 @@ class ProviderConfig:
         self.logger = init_logging()
         if jetpack_config is None:
             try:
-                import jetpack
-                jetpack_config = jetpack.config 
-            except (ModuleNotFoundError,ImportError) as ex:
+                with open("/opt/cycle/jetpack/config/node.json") as json_file:
+                    jetpack_config = json.load(json_file)
+            except (FileNotFoundError) as ex:
                 jetpack_config = {}
         self.jetpack_config = jetpack_config
         
@@ -262,7 +260,7 @@ class ProviderConfig:
             return self.config
         
         keys = key.split(".")
-        top_value = self.config
+        top_value = {**self.config, **self.jetpack_config}
         for n in range(len(keys)):
             if top_value is None:
                 break
@@ -305,11 +303,9 @@ class ProviderConfig:
 
 def provider_config_from_environment(pro_conf_dir=os.getenv('PRO_CONF_DIR', os.getcwd())):    
     config_file = os.path.join(pro_conf_dir, "conf", "azureccprov_config.json")
-    templates_file = os.path.join(pro_conf_dir, "conf", "azureccprov_templates.json")
     if os.name == 'nt':
         # TODO: Why does the path matter?   Can we use one or the other for both OSs?
         config_file = os.path.join(pro_conf_dir, "azureccprov_config.json")
-        templates_file = os.path.join(pro_conf_dir, "azureccprov_templates.json")
 
 
     hf_conf_dir = os.getenv('HF_CONFDIR', os.path.join(pro_conf_dir, "..", "..", ".."))
@@ -355,43 +351,7 @@ def provider_config_from_environment(pro_conf_dir=os.getenv('PRO_CONF_DIR', os.g
     logger = init_logging(log_levels[log_level_name.lower()])
     
     for level, message in delayed_log_statements:
-        logger.log(level, message)
-    
-    # on disk per-nodearray template override
-    customer_templates = {}
-    if os.path.exists(templates_file):
-        logger.debug("Loading template overrides: %s" % templates_file)
-        customer_templates = load_json(templates_file)
-    else:
-        try:
-            with open(templates_file, "w") as fw:
-                json.dump({}, fw)
-            logger.info("Template overrides file does not exist, wrote an empty one: %s" % templates_file)
-        except IOError:
-            logger.debug("Template overrides file does not exist and can't write a default one: %s" % templates_file)
-    
-    # don't let the user define these in two places
-    if config.pop("templates", {}):
-        logger.warning("Please define template overrides in %s, not the azureccprov_config.json" % templates_file)
-    
-    # and merge them so it is transparent to the code
-    flattened_templates = {}
-    for template in customer_templates.get("templates", []):
-        
-        if "templateId" not in template:
-            logger.warning("Skipping template because templateId is not defined: %s", template)
-            continue
-        
-        nodearray = template.pop("templateId")  # definitely don't want to rename them as machineId
-        
-        if nodearray in flattened_templates:
-            logger.warning("Ignoring redefinition of templateId %s", nodearray)
-            continue
-        
-        flattened_templates[nodearray] = template
-        
-    config["templates"] = flattened_templates
-    
+        logger.log(level, message)    
     return ProviderConfig(config), logger, fine
 
 
