@@ -61,6 +61,16 @@ sudo -i -u egoadmin bash << EOF
 . /etc/profile.d/symphony.sh
 egosh user logon -u ${SOAM_USER} -x ${SOAM_PASSWORD}
 egosh service stop HostFactory
+
+COUNT=0
+while ! (egosh service view HostFactory | grep DEFINED); do
+    sleep 1
+    if [ ${COUNT} -gt 60 ]; then 
+       echo "HostFactory service did not stop in time."
+       break; 
+    fi
+    let COUNT++
+done
 egosh service start HostFactory
 egosh service view HostFactory
 EOF
