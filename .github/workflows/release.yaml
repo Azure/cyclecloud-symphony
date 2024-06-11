@@ -1,0 +1,39 @@
+# Based on example from https://github.com/actions/upload-release-asset
+# This is to maintain with Scalelib version
+on:
+  push:
+    # Sequence of patterns matched against refs/tags
+    tags:
+    - '3*' # Push events to matching v*, i.e. v1.0, v20.15.10
+    
+name: Upload Release Asset
+
+jobs:
+  build:
+    name: Upload Release Asset
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Build pkg
+        run:
+          sudo apt update || apt update;
+          sudo apt install -y dos2unix;
+          sudo apt-get install -y python3 python3-pip || apt-get install -y python3 python3-pip;
+          pip3 install virtualenv;
+          python3 -m virtualenv $GITHUB_WORKSPACE/.venv/;
+          source $GITHUB_WORKSPACE/.venv/bin/activate && python package.py;
+      - name: Get the version
+        id: get_version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT    
+      - name: Create and Upload Release Asset
+        id: upload-release-asset 
+        uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.ACTION_PAT }}
+        with:
+          tag_name: ${{ steps.get_version.outputs.version }}
+          name: Release ${{ steps.get_version.outputs.version }}
+          draft: false
+          prerelease: true
+          files: dist/cyclecloud-symphony-pkg-${{ steps.get_version.outputs.version }}.zip
