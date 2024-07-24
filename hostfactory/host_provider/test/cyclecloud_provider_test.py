@@ -742,7 +742,37 @@ class TestHostFactory(unittest.TestCase):
         nodearrays = [{"name": "n1"}, {"name": "n2", "Priority": 20}]
         self.assertEqual(20000, cyclecloud_provider.bucket_priority(nodearrays, nodearrays[0], b_index=0))
         self.assertEqual(20000, cyclecloud_provider.bucket_priority(nodearrays, nodearrays[1], b_index=0))
+    
+    def test_should_reset_priority(self):
+        provider = self._new_provider()
+        a4bucket = {"maxCount": 2, "availableCount": 2, "activeCount": 0, "definition": {"machineType": "A4"}, "virtualMachine": MACHINE_TYPES["A4"]}
+        a8bucket = {"maxCoreCount": 24, "availableCount": 24, "activeCount": 0, "definition": {"machineType": "A8"}, "virtualMachine": MACHINE_TYPES["A8"]}
         
+        a4bucket_2 = {"maxCount": 2, "availableCount": 2, "activeCount": 0, "definition": {"machineType": "A4"}, "virtualMachine": MACHINE_TYPES["A4"]}
+        a8bucket_2 = {"maxCoreCount": 24, "availableCount": 24, "activeCount": 0, "definition": {"machineType": "A8"}, "virtualMachine": MACHINE_TYPES["A8"]}
 
+        nodearrays = [{"name": "execute",                                               
+                        "nodearray": {"machineType": ["a4", "a8"], "Interruptible": False, "Configuration": {"autoscaling": {"enabled": True}, "symphony": {"autoscale": True}}},
+                        "buckets": [a4bucket, a8bucket]},
+                        {"name": "execute2",
+                        "nodearray": {"machineType": ["a4", "a8"], "Interruptible": True, "Configuration": {"autoscaling": {"enabled": True}, "symphony": {"autoscale": True}}},
+                        "buckets": [a4bucket_2, a8bucket_2]}]
+        # As all buckets have availableCount > 0 and none paused for capacity, should not reset priority
+        self.assertFalse(provider._should_reset_capacity(nodearrays))
+        
+        # As none of buckets have available count should not reset priority
+        a4bucket["availableCount"] = 0
+        a8bucket["availableCount"] = 0
+        a4bucket_2["availableCount"] = 0
+        a8bucket_2["availableCount"] = 0
+        self.assertFalse(provider._should_reset_capacity(nodearrays))
+        
+        # Pause capacity for nodearray execute but no availability for execute2, should reset priority
+        a4bucket["availableCount"] = 2
+        a8bucket["availableCount"] = 2
+        provider.capacity_tracker.pause_capacity("execute", "A4")
+        provider.capacity_tracker.pause_capacity("execute", "A8")
+        self.assertTrue(provider._should_reset_capacity(nodearrays))
+            
 if __name__ == "__main__":
     unittest.main()

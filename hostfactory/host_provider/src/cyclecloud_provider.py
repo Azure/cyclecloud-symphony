@@ -58,8 +58,9 @@ class CycleCloudProvider:
         self.termination_timeout = float(self.config.get("cyclecloud.termination_request_retirement", 120) * 60)
         self.creation_request_ttl = int(self.config.get("symphony.creation_request_ttl", 40 * 60))
         self.node_request_timeouts = float(self.config.get("cyclecloud.machine_request_retirement", 120) * 60)
+        self.capacity_limit_timeout = int(self.config.get("cyclecloud.capacity_limit_timeout", 5) * 60)
         self.fine = False
-        self.capacity_tracker = CapacityTrackingDb(self.config, self.cluster.cluster_name, self.clock)
+        self.capacity_tracker = CapacityTrackingDb(self.config, self.cluster.cluster_name, self.clock, self.capacity_limit_timeout)
         
     def _escape_id(self, name):
         return name.lower().replace("_", "")
@@ -83,8 +84,9 @@ class CycleCloudProvider:
         for writer in writers:
             json.dump(example, writer, indent=2, separators=(',', ': '))
 
-    def _check_for_zero_capacity(self, nodearrays):
-        at_least_one_available_bucket = False
+    def _should_reset_capacity(self, nodearrays):
+        at_least_one_unpaused_bucket = False
+        at_least_one_bucket_has_available = False
         for nodearray_root in nodearrays:
             nodearray = nodearray_root.get("nodearray")
             
@@ -100,12 +102,16 @@ class CycleCloudProvider:
                 if bucket.get("availableCount") == 0:
                     logger.debug("Bucket %s has 0 availableCount.", bucket)
                     continue
+                at_least_one_bucket_has_available = True
                 machine_type =  bucket["definition"]["machineType"]
                 # Symphony hates special characters
                 nodearray_name = nodearray_root["name"]
                 is_paused = self.capacity_tracker.is_paused(nodearray_name, machine_type)
-                at_least_one_available_bucket = at_least_one_available_bucket or not is_paused
-        return not at_least_one_available_bucket
+                at_least_one_unpaused_bucket = at_least_one_unpaused_bucket or not is_paused
+        # Don't reset capacity if there is no available capacity on any bucket
+        if not at_least_one_bucket_has_available:
+            return False
+        return not at_least_one_unpaused_bucket 
     
     # Regenerate templates (and potentially reconfig HostFactory) without output, so 
     #  this method is safe to call from other API calls
@@ -158,7 +164,7 @@ class CycleCloudProvider:
         
         # We cannot report to Symphony that we have 0 capacity on all VMs. If we detect this we
         # simply reset any temporary capacity constraints.
-        if self._check_for_zero_capacity(nodearrays):
+        if self._should_reset_capacity(nodearrays):
             logger.warning("All buckets have 0 capacity. Resetting capacity tracker.")
             self.capacity_tracker.reset()
         
