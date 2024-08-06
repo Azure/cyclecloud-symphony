@@ -703,14 +703,14 @@ class CycleCloudProvider:
                         "machines": machines}
             
             response["requests"].append(request)
-            
-            report_failure_states = ["Unavailable", "Failed"]
-            terminate_states = []
+
+            report_failure_states = ["Failed"]
+            terminate_states = ["Unavailable"]
             
             if self.config.get("symphony.terminate_failed_nodes", False):
-                report_failure_states = ["Unavailable"]
-                terminate_states = ["Failed"]
-            
+                report_failure_states = []
+                terminate_states = ["Failed", "Unavailable"]
+        
             for node in requested_nodes["nodes"]:
                 # for new nodes, completion is Ready. For "released" nodes, as long as
                 # the node has begun terminated etc, we can just say success.
@@ -725,8 +725,10 @@ class CycleCloudProvider:
                 
                 hostname = None
                 private_ip_address = None
-
-                
+            
+                terminate_without_vm_failed = (node_status == "Failed" 
+                                               and not node.get("PrivateIp")
+                                               and self.config.get("symphony.terminate_failed_nodes_without_vm", True))
                 if not node_target_state:
                     unknown_state_count = unknown_state_count + 1
                     continue
@@ -736,7 +738,7 @@ class CycleCloudProvider:
                     logger.debug("Node %s target state is not started it is %s", node.get("Name"), node_target_state) 
                     continue
                 
-                if node_status in report_failure_states:
+                if node_status in report_failure_states and not terminate_without_vm_failed:
                     valid_nodes.remove(node["NodeId"])
                     machine_result = MachineResults.failed
                     machine_status = MachineStates.error
@@ -744,7 +746,7 @@ class CycleCloudProvider:
                         message = node.get("StatusMessage", "Unknown error.")
                         request_status = RequestStates.complete_with_error
                         
-                elif node_status in terminate_states:
+                elif node_status in terminate_states or terminate_without_vm_failed:
                     # just terminate the node and next iteration the node will be gone. This allows retries of the shutdown to happen, as 
                     # we will report that the node is still booting.
                     unknown_state_count = unknown_state_count + 1
