@@ -27,7 +27,7 @@ Autoscale = $Autoscale
         [[[network-interface eth0]]]
         AssociatePublicIpAddress = false
 
-        [[[cluster-init symphony:default:3.0.0]]]
+        [[[cluster-init symphony:default:3.0.1]]]
 	
     [[node master]]
     MachineType = $ManagementMachineType
@@ -50,7 +50,7 @@ Autoscale = $Autoscale
         [[[network-interface eth0]]]
         AssociatePublicIpAddress = $UsePublicNetwork
 
-        [[[cluster-init symphony:master:3.0.0]]]
+        [[[cluster-init symphony:master:3.0.1]]]
 
         [[[volume boot]]]
         Size = $MasterBootDiskSize
@@ -80,7 +80,7 @@ Autoscale = $Autoscale
         [[[configuration symphony]]]
         is_management = true
 
-        [[[cluster-init symphony:management:3.0.0]]]
+        [[[cluster-init symphony:management:3.0.1]]]
 
     [[nodearray execute]]
     MaxCoreCount = $MaxExecuteCoreCount
@@ -97,7 +97,7 @@ Autoscale = $Autoscale
         symphony.use_nodename_as_hostname = $NodeNameIsHostname
         autoscaling.enabled = true
     
-        [[[cluster-init symphony:execute:3.0.0]]]
+        [[[cluster-init symphony:execute:3.0.1]]]
 
     [[nodearray execute2]]
     Extends = execute
@@ -124,7 +124,7 @@ Autoscale = $Autoscale
         symphony.use_nodename_as_hostname = $NodeNameIsHostname
         cyclecloud.cluster.autoscale.stop_enabled = false
     
-        [[[cluster-init symphony:execute:3.0.0]]]
+        [[[cluster-init symphony:execute:3.0.1]]]
 
 
 [parameters About]

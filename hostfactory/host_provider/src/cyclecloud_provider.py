@@ -249,7 +249,8 @@ class CycleCloudProvider:
         to_shutdown = []
 
         for node in all_nodes['nodes']:
-            
+            if not node.get("Configuration").get("autoscaling", {}).get("enabled", False):
+                continue
             hostname = node.get("Hostname")
             if not hostname:
                 try:
