@@ -585,7 +585,8 @@ class CycleCloudProvider:
         to_shutdown = []
 
         for node in all_nodes['nodes']:
-            
+            if not node.get("Configuration").get("autoscaling", {}).get("enabled", False):
+                continue
             hostname = node.get("Hostname")
             if not hostname:
                 # No hostname or no private ip then it could not possibly be returned
@@ -1334,6 +1335,8 @@ def main(argv=sys.argv):  # pragma: no cover
     try:
         
         global logger
+        # every command has the format cmd -f input.json        
+        cmd, ignore, input_json_path = argv[1:]
         provider_config, logger, fine = util.provider_config_from_environment()
         
         data_dir = os.getenv('PRO_DATA_DIR', os.getcwd())
@@ -1349,9 +1352,6 @@ def main(argv=sys.argv):  # pragma: no cover
                                       templates=JsonStore("templates.json", data_dir, formatted=True),
                                       clock=true_gmt_clock)
         provider.fine = fine
-
-        # every command has the format cmd -f input.json        
-        cmd, ignore, input_json_path = argv[1:]
 
         input_json = util.load_json(input_json_path)
         operation_id = int(time.time())
