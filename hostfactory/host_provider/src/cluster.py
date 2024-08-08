@@ -46,7 +46,7 @@ class Cluster:
             self.logger.debug(f"{b.nodearray}/{b.vm_size} available={b.available_count} based on {b.limits} bucket_id={b.bucket_id}")           
         return buckets
     
-    def add_nodes_scalelib(self, request, template_id, use_weighted_templates=False, vmTypes={}, dry_run=False):
+    def add_nodes_scalelib(self, request, template_id, use_weighted_templates=False, vmTypes={}, capacity_limit_timeout=300, dry_run=False):
         # if true, do new slot based allocation with weighting
         # if false, use vm_size/node based allocation
         if use_weighted_templates:
@@ -63,8 +63,7 @@ class Cluster:
             self.node_mgr.add_default_resource(selection={}, resource_name="weight", default_value=1)
         
         # Time in seconds to check waiting period after last capacity failure
-        capacity_failure_backoff = self.provider_config.get("capacity-failure-backoff", 300)
-        result = self.node_mgr.allocate({"weight": 1, "template_id": template_id, "capacity-failure-backoff": capacity_failure_backoff},
+        result = self.node_mgr.allocate({"weight": 1, "template_id": template_id, "capacity-failure-backoff": capacity_limit_timeout},
                                 slot_count=request['sets'][0]['count'],
                                 allow_existing=False)
         self.logger.debug("Result of allocation %s", result)
@@ -83,9 +82,9 @@ class Cluster:
         return False
             
     
-    def add_nodes(self, request, use_weighted_templates=False, vmTypes={}, dry_run=False):
+    def add_nodes(self, request, use_weighted_templates=False, vmTypes={}, capacity_limit_timeout=300, dry_run=False):
         response = self.add_nodes_scalelib(request, template_id=request['sets'][0]['definition']['templateId'],
-                                              use_weighted_templates=use_weighted_templates, vmTypes=vmTypes, dry_run=dry_run)
+                                              use_weighted_templates=use_weighted_templates, vmTypes=vmTypes, capacity_limit_timeout=capacity_limit_timeout, dry_run=dry_run)
         return response
     
     def all_nodes(self):

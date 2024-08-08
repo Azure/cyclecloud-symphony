@@ -315,7 +315,11 @@ class TestHostFactory(unittest.TestCase):
                                                "buckets": [a4bucket, a8bucket]}]})
         epoch_clock = MockClock((1970, 1, 1, 0, 0, 0))
         hostnamer = MockHostnamer()
-        provider = cyclecloud_provider.CycleCloudProvider(provider_config, cluster, hostnamer, json_writer, RequestsStoreInMem(), RequestsStoreInMem(), epoch_clock)
+        output_handler = cyclecloud_provider.JsonOutputHandler(quiet=True)
+        provider = cyclecloud_provider.CycleCloudProvider(provider_config, cluster, hostnamer, output_handler,  
+                                                          terminate_requests=RequestsStoreInMem(), 
+                                                          creation_requests=RequestsStoreInMem(),  
+                                                          clock=epoch_clock)
         provider.request_tracker.reset()
         return provider
     
