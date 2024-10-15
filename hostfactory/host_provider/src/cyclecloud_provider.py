@@ -42,6 +42,26 @@ def quiet_output():
     '''Return a JsonOutputHandler that does not print to stdout and still can only be invoked once'''
     return JsonOutputHandler(quiet=True)
 
+class AutoscalingStrategy(enumerate):
+    PRICE = "price"
+    CAPACITY = "capacity"
+    WEIGHTED = "weighted"
+
+def calculate_weights(original_sku_list):
+    weights = []
+    len_sku = len(original_sku_list)
+    for index,sku in enumerate(original_sku_list):
+        weight = len_sku/(len_sku+index)
+        weights.append(weight)
+    return weights
+# class SKU():
+#     def __init__(self, templateId, Priority=0, Weight=1, LastCapacityFailure=-1):
+#         self.templateId = ""    
+#         self.Priority = 0
+#         self.Weight = 1
+#         self.LastCapacityFailure = -1
+         
+
 
 class CycleCloudProvider:
     
@@ -61,7 +81,10 @@ class CycleCloudProvider:
         self.capacity_limit_timeout = int(self.config.get("cyclecloud.capacity_limit_timeout", 5) * 60)
         self.fine = False
         self.capacity_tracker = CapacityTrackingDb(self.config, self.cluster.cluster_name, self.clock, self.capacity_limit_timeout)
-        
+        self.auto_scaling_strategy = self.config.get("symphony.autoscaling.strategy", AutoscalingStrategy.WEIGHTED).lower()
+        self.original_sku_list = []
+        self.active_sku_list = []
+        self.weights_list = []
     def _escape_id(self, name):
         return name.lower().replace("_", "")
     
@@ -180,7 +203,6 @@ class CycleCloudProvider:
             autoscale_enabled = nodearray.get("Configuration", {}).get("autoscaling", {}).get("enabled", False)
             if not autoscale_enabled:
                 continue
-            
             for b_index, bucket in enumerate(nodearray_root.get("buckets")):
                 machine_type_name = bucket["definition"]["machineType"]
                 machine_type_short = machine_type_name.lower().replace("standard_", "").replace("basic_", "").replace("_", "")
@@ -193,8 +215,11 @@ class CycleCloudProvider:
                 template_id = self._escape_id(template_id)
                 if bucket.get("valid", True):
                     currently_available_templates.add(template_id)
+                
 
                 max_count = self._max_count(nodearray_name, nodearray, machine_type.get("vcpuCount"), bucket)
+                if template_id not in self.original_sku_list and max_count > 0:
+                    self.original_sku_list.append(template_id)
                 
                 memory = machine_type.get("memory") * 1024
                 is_low_prio = nodearray.get("Interruptible", False)
@@ -203,7 +228,7 @@ class CycleCloudProvider:
                     ngpus = int(nodearray.get("Configuration", {}).get("symphony", {}).get("ngpus", 0))
                 except ValueError:
                     logger.exception("Ignoring symphony.ngpus for nodearray %s" % nodearray_name)
-
+               
                 # Check previous maxNumber setting - we NEVER lower maxNumber, only raise it.
                 previous_max_count = 0
                 if template_id in templates_store:
@@ -221,11 +246,12 @@ class CycleCloudProvider:
                     ncpus = machine_type.get("vcpuCount")
                 else:
                     ncpus = machine_type.get("pcpuCount")
-
+                
                 record = {
                     "maxNumber": max_count,
                     "templateId": template_id,
                     "priority": base_priority,
+                    "weight": 0,
                     "attributes": {
                         "zone": ["String", nodearray.get("Region")],
                         "mem": ["Numeric", "%d" % memory],
@@ -239,6 +265,7 @@ class CycleCloudProvider:
                         "ncores": ["Numeric", "%d" % machine_type.get("vcpuCount")],
                         "ngpus": ["Numeric", ngpus],                            
                         "azurecchost": ["Boolean", "1"],
+                        "bucketIndex" : ["Numeric" , "%d" % b_index],
                         'rank': ['Numeric', '0'],
                         'priceInfo': ['String', 'price:0.1,billingTimeUnitType:prorated_hour,billingTimeUnitNumber:1,billingRoundoffType:unit'],                               'type': ['String', 'X86_64'],
                         "type": ["String", "X86_64"],
@@ -305,18 +332,36 @@ class CycleCloudProvider:
                     templates_store[record_mpi["templateId"]] = record_mpi
                     currently_available_templates.add(record_mpi["templateId"])
         
+        if not self.weights_list:
+           self.weights_list = calculate_weights(self.original_sku_list)
+        logger.info("NM: Original SKU list: %s", self.original_sku_list)
+        logger.info("NM: Weights list: %s",self.weights_list)
         # for templates that are no longer available, advertise them but set priority = 0
         # NOTE: do not modify "maxNumber" - Symphony HF does not respond well to lowering maxNumber while jobs may be runni
         for symphony_template in templates_store.values():
             if symphony_template["templateId"] not in currently_available_templates:
                 if self.fine:
                     logger.debug("Ignoring old template %s vs %s", symphony_template["templateId"], currently_available_templates)
-                symphony_template["priority"] = 0
-                
-        new_templates_str = json.dumps(templates_store, indent=2, sort_keys=True)
+                symphony_template["priority"] = 0      
+        
+       # new_templates_str = json.dumps(templates_store, indent=2, sort_keys=True)
         symphony_templates = list(templates_store.values())
         symphony_templates = sorted(symphony_templates, key=lambda x: -x["priority"])
-        #if new_templates_str != prior_templates_str and len(prior_templates) > 0: this probably was here to avoid a deadlock, but here we are avoiding with do_REST
+        # maintaining the active sku list after the templates are updated based on priority 
+        for symphony_template in symphony_templates:    
+            if symphony_template["maxNumber"] > 0:
+                self.active_sku_list.append(symphony_template["templateId"])
+        
+        logger.info("NM: Active SKU list: %s", self.active_sku_list)
+        for symphony_template in symphony_templates:
+            if symphony_template["templateId"] not in self.active_sku_list:
+                if self.fine:
+                    logger.debug("Ignoring old template %s vs %s", symphony_template["templateId"], self.active_sku_list)
+                symphony_template["weight"] = 0
+            else:
+                symphony_template["weight"] = self.weights_list[self.active_sku_list.index(symphony_template["templateId"])]
+        new_templates_str = json.dumps(templates_store, indent=2, sort_keys=True)
+                #if new_templates_str != prior_templates_str and len(prior_templates) > 0: this probably was here to avoid a deadlock, but here we are avoiding with do_REST
         if new_templates_str != prior_templates_str:
             generator = difflib.context_diff(prior_templates_str.splitlines(), new_templates_str.splitlines())
             difference = "\n".join([str(x) for x in generator])
@@ -491,6 +536,26 @@ class CycleCloudProvider:
             if template["attributes"].get("placementgroup"):
                 request_set["placementGroupId"] = template["attributes"].get("placementgroup")[1]
             
+            if self.auto_scaling_strategy == AutoscalingStrategy.WEIGHTED:
+                logger.info("NM: Using weighted distribution strategy for allocation")
+                weight = template["weight"]
+                request_set['count'] = min(max(1, weight*machine_count), machine_count)
+                # templates_len = 0
+                # for key in template_store:
+                #     template_values=template_store.get(key)
+                #     if template_values["attributes"].get("nodearray")[1] == nodearray:
+                #         templates_len+=1
+
+                # bucketIndex = int(template["attributes"].get("bucketIndex")[1])
+                # weight = templates_len/(templates_len+bucketIndex)
+                # max_inflight_sku = min(max(1, weight*machine_count), machine_count)
+                # logger.info("Setting priority to 0 for template %s to follow the weighted distribution", template_id)
+                # self.capacity_tracker.pause_capacity(nodearray_name=nodearray, machine_type=machinetype_name)
+                # machine_count = max_inflight_sku
+                # request_set['count'] = machine_count
+            elif self.auto_scaling_strategy == AutoscalingStrategy.CAPACITY:
+                logger.info("NM:Using capacity optimized distribution strategy for allocation and pausing capacity for the nodearray %s and machinetype %s", nodearray, machinetype_name)
+                self.capacity_tracker.pause_capacity(nodearray_name=nodearray, machine_type=machinetype_name)
             # We are grabbing the lock to serialize this call.
             try:
                 with self.creation_json as requests_store:                   
