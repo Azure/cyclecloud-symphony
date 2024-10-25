@@ -41,7 +41,7 @@ Autoscale = $Autoscale
         is_management = true
         is_master = true
         enable_weighted_templates = true
-        
+        autoscaling.strategy = $SymphonyAutoscalingStrategy
 
         [[[input-endpoint ganglia]]]
         PrivatePort = 8652
@@ -302,7 +302,21 @@ Order = 20
         DefaultValue = =undefined
         Description = Cluster init specs to apply to execute nodes
         ParameterType = Cloud.ClusterInitSpecs
-	
+       
+        [[[parameter SymphonyAutoscalingStrategy]]]
+        Label = Autoscaling Strategy
+        DefaultValue = price
+        config.plugin = pico.control.AutoCompleteDropdown
+        ParameterType = Cloud.ClusterInitSpecs
+            [[[[list Config.Entries]]]]
+            Name = price
+            Label = Price
+            [[[[list Config.Entries]]]]
+            Name = weighted
+            Label = Weighted
+            [[[[list Config.Entries]]]]
+            Name = capacity
+            Label = Capacity
 
     [[parameters Advanced Networking]]
     Description = Advanced networking settings

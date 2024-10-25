@@ -2,7 +2,48 @@ import unittest
 import cluster
 import logging
 from unittest.mock import MagicMock
+from unittest.mock import patch
 
+class MockNodeMgr:
+    
+    def __init__(self, expect=[], expect_new_nodes=0):
+        self.expect = expect
+        self.expected_node_count = expect_new_nodes 
+        # self.expected_new_nodes_list = expect_new_nodes_list
+    
+    def allocate(self,
+        constraints,
+        node_count = None,
+        slot_count = None,
+        allow_existing = True,
+        all_or_nothing = False,
+        assignment_id = None,
+        node_namer = None):
+        list_args = []
+        list_args.append(constraints)
+        list_args.append(slot_count)
+        list_args.append(allow_existing)
+        expected_args = self.expect.pop(0)
+        assert expected_args == list_args, f"Expected {list_args} got {expected_args}"
+        
+    def expect(self, *args):
+        self.expect.append(args)
+    
+    def expect_new_nodes(self, count):
+        self.expected_node_count = count
+        
+    # def expect_new_nodes_list(self, nodenames):
+    #     self.expected_new__list = nodenames
+        
+    def get_new_nodes(self):        
+        return [MockNode(1) for i in range(self.expected_node_count)]
+   
+class MockNode:
+    def __init__(self, weight):
+       #self.sku = sku
+       self.resources = {"weight": weight}
+    
+    
 class TestCluster(unittest.TestCase):
     
     def test_limit_request_by_available_count(self):
@@ -67,6 +108,57 @@ class TestCluster(unittest.TestCase):
         run_test_machine_type_removed(10)
         #Test if active count fix is disabled
         run_test(101, 101, True)  
+        
+class TestAllocationStrategy(unittest.TestCase):
+    def test_new_allocation_strategy(self):
+        
+        mymock = MockNodeMgr([
+            [{"node.vm_size": "A", "weight": 1, "template_id": "whatever", 'capacity-failure-backoff': 500}, 9, False],
+            [{"node.vm_size": "B", "weight": 1, "template_id": "whatever", 'capacity-failure-backoff': 500}, 8, False]
+            ], expect_new_nodes=17) 
+        c = cluster.allocation_strategy(mymock, "whatever", 17, 500, {"A": 1, "B": 1})
+        self.assertEqual(c, 17, f"Expected 17 got {c}")
+        
+        mymock = MockNodeMgr([
+            [{"node.vm_size": "A", "weight": 1, "template_id": "whatever", 'capacity-failure-backoff': 500}, 12, False],
+            [{"node.vm_size": "B", "weight": 1, "template_id": "whatever", 'capacity-failure-backoff': 500}, 12, False],
+            [{"node.vm_size": "C", "weight": 1, "template_id": "whatever", 'capacity-failure-backoff': 500}, 11, False]
+            ],  expect_new_nodes=35) 
+        c = cluster.allocation_strategy(mymock, "whatever", 35, 500, {"A": 1, "B": 1, "C": 1})
+        self.assertEqual(c, 35, f"Expected 35 got {c}")
+        
+        mymock = MockNodeMgr([
+            [{"node.vm_size": "A", "weight": 1, "template_id": "whatever", 'capacity-failure-backoff': 500}, 12, False],
+            [{"node.vm_size": "B", "weight": 1, "template_id": "whatever", 'capacity-failure-backoff': 500}, 12, False],
+            [{"node.vm_size": "C", "weight": 1, "template_id": "whatever", 'capacity-failure-backoff': 500}, 11, False]
+            ], expect_new_nodes=35) 
+        c = cluster.allocation_strategy(mymock, "whatever", 35, 500, {"A": 2, "B": 2, "C": 1})
+        self.assertEqual(c, 35, f"Expected 35 got {c}")
+        
+        mymock = MockNodeMgr([
+            [{"node.vm_size": "A", "weight": 1, "template_id": "whatever", 'capacity-failure-backoff': 500}, 10, False],
+            [{"node.vm_size": "B", "weight": 1, "template_id": "whatever", 'capacity-failure-backoff': 500}, 10, False],
+            [{"node.vm_size": "C", "weight": 1, "template_id": "whatever", 'capacity-failure-backoff': 500}, 10, False]
+            ], expect_new_nodes=30) 
+        c = cluster.allocation_strategy(mymock, "whatever", 30, 500, {"A": 2, "B": 2, "C": 1})
+        self.assertEqual(c, 30, f"Expected 30 got {c}")
+        
+        mymock = MockNodeMgr([
+            [{"node.vm_size": "A", "weight": 1, "template_id": "whatever", 'capacity-failure-backoff': 500}, 1, False],
+            ], expect_new_nodes=1) 
+        c = cluster.allocation_strategy(mymock, "whatever", 1, 500, {"A": 1, "B": 1, "C": 1})
+        self.assertEqual(c, 1, f"Expected 1 got {c}")
+        # Need to change to take it account cores
+        mymock = MockNodeMgr([
+            [{"node.vm_size": "A", "weight": 1, "template_id": "whatever", 'capacity-failure-backoff': 500}, 34, False],
+            [{"node.vm_size": "B", "weight": 1, "template_id": "whatever", 'capacity-failure-backoff': 500}, 33, False],
+            [{"node.vm_size": "C", "weight": 1, "template_id": "whatever", 'capacity-failure-backoff': 500}, 33, False]
+            ], expect_new_nodes=100) 
+        c = cluster.allocation_strategy(mymock, "whatever", 100, 500, {"A": 32, "B": 16, "C": 8})
+        self.assertEqual(c, 100, f"Expected 100 got {c}")
+        
+        
+        
         
 if __name__ == "__main__":
     unittest.main()

@@ -59,6 +59,7 @@ class CycleCloudProvider:
         self.creation_request_ttl = int(self.config.get("symphony.creation_request_ttl", 40 * 60))
         self.node_request_timeouts = float(self.config.get("cyclecloud.machine_request_retirement", 120) * 60)
         self.capacity_limit_timeout = int(self.config.get("cyclecloud.capacity_limit_timeout", 5) * 60)
+        self.autoscaling_strategy = self.config.get("symphony.autoscaling.strategy", "price")
         self.fine = False
         self.request_tracker = RequestTrackingDb(self.config, self.cluster.cluster_name, self.clock)
         self.weighted_template = weighted_template_parse.WeightedTemplates(logger)
@@ -157,7 +158,7 @@ class CycleCloudProvider:
             
             if self.dry_run:
                 add_nodes_response = self.cluster.add_nodes({'requestId': request_id,
-                                                        'sets': [request_set]},use_weighted_templates, vmTypes, self.capacity_limit_timeout, self.dry_run)
+                                                        'sets': [request_set]},use_weighted_templates, vmTypes, self.capacity_limit_timeout, self.autoscaling_strategy, self.dry_run)
                 if add_nodes_response:
                     print("Dry run succeeded")
                     exit(0)
@@ -165,7 +166,7 @@ class CycleCloudProvider:
             try:
                 with self.creation_json as requests_store:                   
                         add_nodes_response = self.cluster.add_nodes({'requestId': request_id,
-                                                        'sets': [request_set]},use_weighted_templates, vmTypes)
+                                                        'sets': [request_set]},use_weighted_templates, vmTypes, self.capacity_limit_timeout, self.autoscaling_strategy)
             finally:
                 request_set['requestId'] = request_id
                 self.request_tracker.add_request(request_set) 
