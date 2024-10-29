@@ -56,7 +56,7 @@ class Cluster:
         CC_CONFIG["username"] = self.provider_config.get("cyclecloud.config.username")
         CC_CONFIG["password"] = self.provider_config.get("cyclecloud.config.password")
         CC_CONFIG["cluster_name"] = self.cluster_name
-        self.auto_scaling_strategy =  AutoscalingStrategy.WEIGHTED.lower() 
+        self.auto_scaling_strategy =  AutoscalingStrategy.PRICE.lower() 
         self.node_mgr = new_node_manager(CC_CONFIG)
     
     def status(self):
@@ -87,7 +87,6 @@ class Cluster:
             for n, p in enumerate(vm_types.items()):
                 vm, weight = p
                 slot_count = remaining_slots // len(vm_types) + (1 if n < remaining_slots % len(vm_types) else 0)
-                #self.logger.debug(vm, slot_count)
                 new_nodes = self.node_mgr.get_new_nodes()
                 if new_nodes:
                     slot_count = slot_count - new_nodes[-1].available["weight"]
@@ -219,7 +218,9 @@ class Cluster:
                 except Exception as e:
                     if "No operation found for request id" in str(e):
                         self.logger.debug("No new nodes have been %s", action)
-                    return None
+                        return None 
+                    raise
+                    
             # : Optional[str]
             request_id_start = f"{request_id}-start"
             request_id_create = f"{request_id}-create"
