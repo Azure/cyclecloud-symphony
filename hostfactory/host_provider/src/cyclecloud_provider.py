@@ -487,7 +487,10 @@ class CycleCloudProvider:
                 #set default
                 requests_store[request_id]["lastUpdateTime"] = calendar.timegm(self.clock())
                         
-                requests_store[request_id]["completedNodes"] = completed_nodes
+                # Bugfix: Periodic cleanup calls this function however nodes reach ready state after symphony has 
+                # stopped making status calls should not update this.
+                if update_completed_nodes:
+                    requests_store[request_id]["completedNodes"] = completed_nodes
                 if requests_store[request_id].get("allNodes") is None:
                     requests_store[request_id]["allNodes"] = all_nodes
                 requests_store[request_id]["completed"] = len(requested_nodes) == len(completed_nodes)
@@ -498,10 +501,8 @@ class CycleCloudProvider:
             
             logger.info("Machine states for requestId %s: %d active, %d building, %d requesting, %d failed and %d in an unknown state.", 
                         request_id, active, building, requesting_count, failed, unknown_state_count)
-            # Bugfix: Periodic cleanup calls this function however nodes reach ready state after symphony has 
-            # stopped making status calls should not update this.
-            if update_completed_nodes:
-                request["status"] = request_status
+            
+            request["status"] = request_status
             if request_status == RequestStates.complete:
                 logger.info("Request %s is complete.", request_id)
             elif request_status == RequestStates.complete_with_error:
