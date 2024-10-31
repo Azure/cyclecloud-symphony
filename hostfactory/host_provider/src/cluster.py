@@ -63,7 +63,6 @@ def calculate_vm_dist_capacity(vm_types, total_slot_count):
         else:
             prev_vm_available_weight = weight - slot_count % weight
         vm_dist[vm] = slot_count
-        print(f"VM {vm} slot count {slot_count}")
     return vm_dist
 
 def calculate_vm_dist_weighted(vm_types, total_slot_count):
