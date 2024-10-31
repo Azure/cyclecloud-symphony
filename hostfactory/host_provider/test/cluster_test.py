@@ -4,12 +4,18 @@ import logging
 from unittest.mock import MagicMock
 from unittest.mock import patch
 
+
+class MockResult:
+    def __init__(self, status, node_list):
+        self.status = status
+        self.node_list = node_list
 class MockNodeMgr:
     
-    def __init__(self, expect=[], expect_new_nodes=0):
+    def __init__(self, expect=[], expected_new_nodes_list=[], expected_result="success"):
         self.expect = expect
-        self.expected_node_count = expect_new_nodes 
-        # self.expected_new_nodes_list = expect_new_nodes_list
+        #self.expected_node_count = expect_new_nodes 
+        self.expected_new_nodes_list = expected_new_nodes_list
+        self.expected_result = expected_result
     
     def allocate(self,
         constraints,
@@ -25,25 +31,29 @@ class MockNodeMgr:
         list_args.append(allow_existing)
         expected_args = self.expect.pop(0)
         assert expected_args == list_args, f"Expected {list_args} got {expected_args}"
+        if self.expected_result == "NoAllocationSelected":
+           result = MockResult("NoAllocationSelected", [])
+        else:
+           result = MockResult("success", self.expected_new_nodes_list)
+        
+        return result
         
     def expect(self, *args):
         self.expect.append(args)
-    
-    def expect_new_nodes(self, count):
-        self.expected_node_count = count
-        
-    # def expect_new_nodes_list(self, nodenames):
-    #     self.expected_new__list = nodenames
         
     def get_new_nodes(self):        
-        return [MockNode(1) for i in range(self.expected_node_count)]
-   
+        return self.expected_new_nodes_list
+        #return [MockNode(1) for i in range(self.expected_node_count)]
+    
+def set_node_list(node_name, node_count, weight=1):
+    # concatenate node_name with a number to create a list of nodes
+    return([MockNode(node_name + str(i), weight) for i in range(node_count)])
 class MockNode:
-    def __init__(self, weight):
-       #self.sku = sku
+    def __init__(self,node_name, weight):
+       self.name = node_name
        self.resources = {"weight": weight}
     
-    
+ 
 class TestCluster(unittest.TestCase):
     
     def test_limit_request_by_available_count(self):
@@ -111,55 +121,120 @@ class TestCluster(unittest.TestCase):
         
 class TestAllocationStrategy(unittest.TestCase):
     def test_new_allocation_strategy(self):
+        logger = logging.getLogger("test")
         
+        # Test capacity based distribution
+        vm_dist = {"A":9, "B":8}
+        expected_node_list = []
+        for vm, c in vm_dist.items():
+            expected_node_list.extend(set_node_list(vm, c, 1))
         mymock = MockNodeMgr([
             [{"node.vm_size": "A", "weight": 1, "template_id": "whatever", 'capacity-failure-backoff': 500}, 9, False],
             [{"node.vm_size": "B", "weight": 1, "template_id": "whatever", 'capacity-failure-backoff': 500}, 8, False]
-            ], expect_new_nodes=17) 
-        c = cluster.allocation_strategy(mymock, "whatever", 17, 500, {"A": 1, "B": 1})
-        self.assertEqual(c, 17, f"Expected 17 got {c}")
+            ], expected_new_nodes_list=expected_node_list) 
         
+        result = cluster.allocation_strategy(mymock, logger, "whatever", 17, 500, {"A": 1, "B": 1}, vm_dist)
+        self.assertEqual(result.status, "success")
+        self.assertEqual(result.node_list, expected_node_list)
+        
+        # Test NoAllocationSelected
         mymock = MockNodeMgr([
-            [{"node.vm_size": "A", "weight": 1, "template_id": "whatever", 'capacity-failure-backoff': 500}, 12, False],
-            [{"node.vm_size": "B", "weight": 1, "template_id": "whatever", 'capacity-failure-backoff': 500}, 12, False],
-            [{"node.vm_size": "C", "weight": 1, "template_id": "whatever", 'capacity-failure-backoff': 500}, 11, False]
-            ],  expect_new_nodes=35) 
-        c = cluster.allocation_strategy(mymock, "whatever", 35, 500, {"A": 1, "B": 1, "C": 1})
-        self.assertEqual(c, 35, f"Expected 35 got {c}")
+            [{"node.vm_size": "A", "weight": 1, "template_id": "whatever", 'capacity-failure-backoff': 500}, 9, False]
+            ], expected_new_nodes_list=[], expected_result="NoAllocationSelected") 
         
+        result = cluster.allocation_strategy(mymock, logger, "whatever", 17, 500, {"A": 1, "B": 1}, vm_dist)
+        self.assertEqual(result.status, "NoAllocationSelected")
+        self.assertEqual(result.node_list, [])
+        
+        # Test weighted distribution
+        vm_dist = {"A":17, "B":0, "C": 7}
+        expected_node_list = []
+        for vm, c in vm_dist.items():
+            expected_node_list.extend(set_node_list(vm, c, 1))
         mymock = MockNodeMgr([
-            [{"node.vm_size": "A", "weight": 1, "template_id": "whatever", 'capacity-failure-backoff': 500}, 12, False],
-            [{"node.vm_size": "B", "weight": 1, "template_id": "whatever", 'capacity-failure-backoff': 500}, 12, False],
-            [{"node.vm_size": "C", "weight": 1, "template_id": "whatever", 'capacity-failure-backoff': 500}, 11, False]
-            ], expect_new_nodes=35) 
-        c = cluster.allocation_strategy(mymock, "whatever", 35, 500, {"A": 2, "B": 2, "C": 1})
-        self.assertEqual(c, 35, f"Expected 35 got {c}")
+            [{"node.vm_size": "A", "weight": 1, "template_id": "whatever", 'capacity-failure-backoff': 500}, 17, False],
+            [{"node.vm_size": "C", "weight": 1, "template_id": "whatever", 'capacity-failure-backoff': 500}, 7, False],
+            [{"weight": 1, "template_id": "whatever", "capacity-failure-backoff": 500}, 11, False]],  expected_new_nodes_list=expected_node_list) 
+        result = cluster.allocation_strategy(mymock, logger, "whatever", 35, 500, {"A": 1, "B": 1, "C": 1}, vm_dist)
+        self.assertEqual(result.status, "success")
         
+        # Test single core allocation.
+        vm_dist = {"A":1, "B":0, "C": 0}
+        vm_weights = {"A": 8, "B": 2, "C": 2}
+        expected_node_list = []
+        for vm, c in vm_dist.items():
+            expected_node_list.extend(set_node_list(vm, c, vm_weights[vm]))
         mymock = MockNodeMgr([
-            [{"node.vm_size": "A", "weight": 1, "template_id": "whatever", 'capacity-failure-backoff': 500}, 10, False],
-            [{"node.vm_size": "B", "weight": 1, "template_id": "whatever", 'capacity-failure-backoff': 500}, 10, False],
-            [{"node.vm_size": "C", "weight": 1, "template_id": "whatever", 'capacity-failure-backoff': 500}, 10, False]
-            ], expect_new_nodes=30) 
-        c = cluster.allocation_strategy(mymock, "whatever", 30, 500, {"A": 2, "B": 2, "C": 1})
-        self.assertEqual(c, 30, f"Expected 30 got {c}")
-        
-        mymock = MockNodeMgr([
-            [{"node.vm_size": "A", "weight": 1, "template_id": "whatever", 'capacity-failure-backoff': 500}, 1, False],
-            ], expect_new_nodes=1) 
-        c = cluster.allocation_strategy(mymock, "whatever", 1, 500, {"A": 1, "B": 1, "C": 1})
-        self.assertEqual(c, 1, f"Expected 1 got {c}")
-        # Need to change to take it account cores
-        mymock = MockNodeMgr([
-            [{"node.vm_size": "A", "weight": 1, "template_id": "whatever", 'capacity-failure-backoff': 500}, 34, False],
-            [{"node.vm_size": "B", "weight": 1, "template_id": "whatever", 'capacity-failure-backoff': 500}, 33, False],
-            [{"node.vm_size": "C", "weight": 1, "template_id": "whatever", 'capacity-failure-backoff': 500}, 33, False]
-            ], expect_new_nodes=100) 
-        c = cluster.allocation_strategy(mymock, "whatever", 100, 500, {"A": 32, "B": 16, "C": 8})
-        self.assertEqual(c, 100, f"Expected 100 got {c}")
+            [{"node.vm_size": "A", "weight": 1, "template_id": "whatever", 'capacity-failure-backoff': 500}, 1, False]],  expected_new_nodes_list=expected_node_list)
+        result = cluster.allocation_strategy(mymock, logger, "whatever", 1, 500, {"A": 8, "B": 1, "C": 1}, vm_dist)
+        self.assertEqual(result.status, "success")
         
         
+        # vm_dist = {"A":17, "B":0, "C": 7}
+        # expected_node_list = []
+        # for vm, c in vm_dist.items():
+        #     expected_node_list.extend(set_node_list(vm, c, 1))
+        
+        # mymock = MockNodeMgr([
+        #     [{"node.vm_size": "A", "weight": 1, "template_id": "whatever", 'capacity-failure-backoff': 500}, 17, False],
+        #     [{"node.vm_size": "C", "weight": 1, "template_id": "whatever", 'capacity-failure-backoff': 500}, 7, False],
+        #     [{"weight": 1, "template_id": "whatever", "capacity-failure-backoff": 500}, 11, False]],  expected_new_nodes_list=expected_node_list) 
+        # result = cluster.allocation_strategy(mymock, "whatever", 96, 500, {"A": 1, "B": 1, "C": 1}, vm_dist)
+
+        # self.assertEqual(result.status, "success")
+        
+        # mymock = MockNodeMgr([
+        #     [{"node.vm_size": "A", "weight": 1, "template_id": "whatever", 'capacity-failure-backoff': 500}, 12, False],
+        #     [{"node.vm_size": "B", "weight": 1, "template_id": "whatever", 'capacity-failure-backoff': 500}, 12, False],
+        #     [{"node.vm_size": "C", "weight": 1, "template_id": "whatever", 'capacity-failure-backoff': 500}, 11, False]
+        #     ], expect_new_nodes=35) 
+        # c = cluster.allocation_strategy(mymock, "whatever", 35, 500, {"A": 2, "B": 2, "C": 1})
+        # self.assertEqual(c, 35, f"Expected 35 got {c}")
+        
+        # mymock = MockNodeMgr([
+        #     [{"node.vm_size": "A", "weight": 1, "template_id": "whatever", 'capacity-failure-backoff': 500}, 10, False],
+        #     [{"node.vm_size": "B", "weight": 1, "template_id": "whatever", 'capacity-failure-backoff': 500}, 10, False],
+        #     [{"node.vm_size": "C", "weight": 1, "template_id": "whatever", 'capacity-failure-backoff': 500}, 10, False]
+        #     ], expect_new_nodes=30) 
+        # c = cluster.allocation_strategy(mymock, "whatever", 30, 500, {"A": 2, "B": 2, "C": 1})
+        # self.assertEqual(c, 30, f"Expected 30 got {c}")
+        
+        # mymock = MockNodeMgr([
+        #     [{"node.vm_size": "A", "weight": 1, "template_id": "whatever", 'capacity-failure-backoff': 500}, 1, False],
+        #     ], expect_new_nodes=1) 
+        # c = cluster.allocation_strategy(mymock, "whatever", 1, 500, {"A": 1, "B": 1, "C": 1})
+        # self.assertEqual(c, 1, f"Expected 1 got {c}")
+        # # Need to change to take it account cores
+        # mymock = MockNodeMgr([
+        #     [{"node.vm_size": "A", "weight": 1, "template_id": "whatever", 'capacity-failure-backoff': 500}, 34, False],
+        #     [{"node.vm_size": "B", "weight": 1, "template_id": "whatever", 'capacity-failure-backoff': 500}, 33, False],
+        #     [{"node.vm_size": "C", "weight": 1, "template_id": "whatever", 'capacity-failure-backoff': 500}, 33, False]
+        #     ], expect_new_nodes=100) 
+        # c = cluster.allocation_strategy(mymock, "whatever", 100, 500, {"A": 32, "B": 16, "C": 8})
+        # self.assertEqual(c, 100, f"Expected 100 got {c}")
+        
+    def testCalculateDistCapacity(self):
+        vm_size = {"A": 16, "B": 8}
+        vm_dist = cluster.calculate_vm_dist_capacity(vm_size, 24)
+        self.assertEqual(vm_dist, {"A": 12, "B": 8})
+        
+        vm_size = {"A": 16, "B": 8, "C": 4}
+        vm_dist = cluster.calculate_vm_dist_capacity(vm_size, 50)
+        self.assertEqual(vm_dist, {"A": 17, "B": 2, "C": 10})  
+        
+    def testCalculateDistWeights(self):
+        vm_size = {"A": 16, "B": 8}
+        vm_dist = cluster.calculate_vm_dist_weighted(vm_size, 24)
+        self.assertEqual(vm_dist, {"A": 12, "B": 4})
+        
+        vm_size = {"A": 16, "B": 8, "C": 4}
+        vm_dist = cluster.calculate_vm_dist_weighted(vm_size, 50)
+        self.assertEqual(vm_dist, {"A": 17, "B": 0, "C": 7})
+        
+        vm_size = {"A": 16, "B": 8, "C": 4}
+        vm_dist = cluster.calculate_vm_dist_weighted(vm_size, 100)
+        self.assertEqual(vm_dist, {"A": 34, "B": 10, "C": 13})
         
         
 if __name__ == "__main__":
     unittest.main()
-    

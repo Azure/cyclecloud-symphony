@@ -1,4 +1,5 @@
 import json
+from math import ceil
 import time
 import logging
 from urllib.parse import urlencode
@@ -18,31 +19,68 @@ class AutoscalingStrategy(enumerate):
     CAPACITY = "capacity"
     WEIGHTED = "weighted"
 
-# This is only for unit testing
-def allocation_strategy(node_mgr, template_id, slot_count, capacity_limit_timeout, vm_sizes):
-    per_vm_size = slot_count//len(vm_sizes)
-    remainder = slot_count % len(vm_sizes)
-    print(vm_sizes)
+def allocation_strategy(node_mgr, logger, template_id, slot_count, capacity_limit_timeout, vm_sizes, vm_dist):
+    result = None
+    check_allocate = None
+    logger.debug(f"vm dist {vm_dist}")
     for n,vmsize in enumerate(vm_sizes):
-        print(vmsize)
-        vm_slot_count = per_vm_size + (1 if n < remainder else 0)
-        print(f"Allocating {vm_slot_count} {vmsize}" )
+        vm_slot_count = vm_dist[vmsize]
+        logger.debug(f"Allocating {vm_slot_count} {vmsize}" )
         if vm_slot_count > 0:
-            node_mgr.allocate({"node.vm_size": vmsize, "weight": 1, "template_id": template_id, "capacity-failure-backoff": capacity_limit_timeout},
+            check_allocate=node_mgr.allocate({"node.vm_size": vmsize, "weight": 1, "template_id": template_id, "capacity-failure-backoff": capacity_limit_timeout},
                             slot_count=vm_slot_count,
                             allow_existing=False)
-        if vm_slot_count == 0:
-            print(f"Allocated required {slot_count}")
-            break
+            if check_allocate.status == "NoAllocationSelected":
+                logger.debug("No allocation selected")
+                if result:
+                   return result
+                else:
+                    return check_allocate
+            else:
+                result = check_allocate
     allocated_count = sum([x.resources["weight"] for x in node_mgr.get_new_nodes()])
     remaining_count = slot_count - allocated_count
-    print(f"Remaining nodes {remaining_count}")
+    logger.debug(f"Allocated {allocated_count} remaining {remaining_count}")
     if remaining_count > 0:
-        node_mgr.allocate({"weight": 1, "template_id": template_id, "capacity-failure-backoff": capacity_limit_timeout},
+        check_allocate = node_mgr.allocate({"weight": 1, "template_id": template_id, "capacity-failure-backoff": capacity_limit_timeout},
                         slot_count=remaining_count,
-                        allow_existing=False)   
-    return allocated_count+remaining_count
+                        allow_existing=False) 
+        logger.debug(f"Remaining slots check allocate {check_allocate}")
+        if check_allocate.status != "NoAllocationSelected":
+            result = check_allocate
+    return result
 
+def calculate_vm_dist_capacity(vm_types, total_slot_count):
+    vm_dist = {}
+    prev_vm_available_weight = 0
+    for n, p in enumerate(vm_types.items()):
+        vm, weight = p
+        slot_count = total_slot_count // len(vm_types) + (1 if n < total_slot_count % len(vm_types) else 0)
+        slot_count = slot_count - prev_vm_available_weight
+        if slot_count < 0:
+            prev_vm_available_weight = (-1) * slot_count
+            slot_count = 0
+        else:
+            prev_vm_available_weight = weight - slot_count % weight
+        vm_dist[vm] = slot_count
+        print(f"VM {vm} slot count {slot_count}")
+    return vm_dist
+
+def calculate_vm_dist_weighted(vm_types, total_slot_count):
+    vm_dist = {}
+    prev_vm_available_weight = 0
+    for n, p in enumerate(vm_types.items()):
+        vm, weight = p
+        slot_count = int((len(vm_types) / (len(vm_types) + n))*(total_slot_count//len(vm_types))) + (1 if n < total_slot_count % len(vm_types) else 0)
+        slot_count = slot_count - prev_vm_available_weight
+        if slot_count < 0:
+            prev_vm_available_weight = (-1) * slot_count
+            slot_count = 0
+        else:
+            prev_vm_available_weight = weight - slot_count % weight
+        vm_dist[vm] = slot_count
+    return vm_dist
+    
 
     
 class Cluster:
@@ -79,71 +117,17 @@ class Cluster:
         return buckets
     
     def allocate_slots_capacity(self, total_slots, template_id, capacity_limit_timeout, vm_types):
-        remaining_slots = total_slots
         result = None
         self.logger.info("Using capacity based allocation")
-        capacity_reached = False
-        while remaining_slots > 0:
-            for n, p in enumerate(vm_types.items()):
-                vm, weight = p
-                slot_count = remaining_slots // len(vm_types) + (1 if n < remaining_slots % len(vm_types) else 0)
-                new_nodes = self.node_mgr.get_new_nodes()
-                if new_nodes:
-                    slot_count = slot_count - new_nodes[-1].available["weight"]
-                    if slot_count < 0:
-                        new_nodes[-1].available["weight"] = (-1) * slot_count
-                    else:
-                        new_nodes[-1].available["weight"] = 0
-                self.logger.debug("Allocate %s %d", vm, slot_count)
-                if slot_count > 0:
-                    check_allocate = self.node_mgr.allocate({"node.vm_size": vm, "weight": 1, "template_id": template_id, "capacity-failure-backoff": capacity_limit_timeout}, slot_count=slot_count, allow_existing=False)
-                    if check_allocate.status == "NoAllocationSelected":
-                        self.logger.debug("No allocation selected")
-                        capacity_reached = True
-                        break
-                    result = check_allocate
-            if capacity_reached:
-                break
-            slot_allocated = 0
-            for n in self.node_mgr.get_new_nodes():
-                slot_allocated = slot_allocated + n.vcpu_count
-            self.logger.debug("Slot allocated %d", slot_allocated)
-            remaining_slots = total_slots - slot_allocated
-            self.logger.debug("Remaining slots %d", remaining_slots)
+        vm_dist = calculate_vm_dist_capacity(vm_types, total_slots)
+        result = allocation_strategy(self.node_mgr, self.logger, template_id, total_slots, capacity_limit_timeout, vm_types, vm_dist)
         return result
             
     def allocate_slots_weighted(self, total_slots, template_id, capacity_limit_timeout, vm_types):
-        remaining_slots = total_slots
         result = None
         self.logger.info("Using weighted based allocation")
-        capacity_reached = False
-        while remaining_slots > 0:
-            for n, p in enumerate(vm_types.items()):
-                vm, weight = p
-                slot_count = int((len(vm_types) / (len(vm_types) + n))*(remaining_slots//len(vm_types))) + (1 if n < remaining_slots % len(vm_types) else 0)
-                new_nodes = self.node_mgr.get_new_nodes()
-                if new_nodes:
-                    slot_count = slot_count - new_nodes[-1].available["weight"]
-                    new_nodes[-1].available["weight"] = 0
-                self.logger.debug("Allocate %s %d", vm, slot_count)
-                
-                if slot_count > 0:
-                    check_allocate = self.node_mgr.allocate({"node.vm_size": vm, "weight": 1, "template_id": template_id, "capacity-failure-backoff": capacity_limit_timeout}, slot_count=slot_count, allow_existing=False)
-                    if check_allocate.status == "NoAllocationSelected":
-                        self.logger.debug("No allocation selected")
-                        capacity_reached = True
-                        break
-                    result = check_allocate
-                else:
-                    break
-            if capacity_reached:
-                break
-            slot_allocated = 0
-            for n in self.node_mgr.get_new_nodes():
-                slot_allocated = slot_allocated + n.vcpu_count
-            self.logger.debug("Slot allocated %d", slot_allocated)
-            remaining_slots = total_slots - slot_allocated
-            self.logger.debug("Remaining slots %d", remaining_slots)
+        vm_dist = calculate_vm_dist_weighted(vm_types, total_slots)
+        result = allocation_strategy(self.node_mgr, self.logger, template_id, total_slots, capacity_limit_timeout, vm_types, vm_dist)
         return result
     
     def add_nodes_scalelib(self, request, template_id, use_weighted_templates=False, vmTypes={}, capacity_limit_timeout=300, dry_run=False):
@@ -170,7 +154,6 @@ class Cluster:
             result = self.node_mgr.allocate({"weight": 1, "template_id": template_id, "capacity-failure-backoff": capacity_limit_timeout},
                                     slot_count=request['sets'][0]['count'],
                                     allow_existing=False)
-        self.logger.debug("Result of allocation %s", result)
         
         if dry_run:
             by_vm_size = partition(result.nodes, lambda node: node.vm_size)
@@ -182,7 +165,8 @@ class Cluster:
         if result:
             request_id_start = f"{request['requestId']}-start"
             request_id_create = f"{request['requestId']}-create"
-            return self.node_mgr.bootup(request_id_start=request_id_start, request_id_create=request_id_create)
+            result = self.node_mgr.bootup(request_id_start=request_id_start, request_id_create=request_id_create)
+            return result
         return False
             
     
