@@ -22,31 +22,28 @@ class AutoscalingStrategy(enumerate):
 def allocation_strategy(node_mgr, logger, template_id, slot_count, capacity_limit_timeout, vm_sizes, vm_dist):
     result = None
     check_allocate = None
-    logger.debug(f"vm dist {vm_dist}")
+    logger.debug(f"Allocating {slot_count} slots for template_id {template_id} using weight distribution {vm_dist}")
     for n,vmsize in enumerate(vm_sizes):
         vm_slot_count = vm_dist[vmsize]
         logger.debug(f"Allocating {vm_slot_count} {vmsize}" )
         if vm_slot_count > 0:
-            check_allocate=node_mgr.allocate({"node.vm_size": vmsize, "weight": 1, "template_id": template_id, "capacity-failure-backoff": capacity_limit_timeout},
+            check_allocate = node_mgr.allocate({"node.vm_size": vmsize, "weight": 1, "template_id": template_id, "capacity-failure-backoff": capacity_limit_timeout},
                             slot_count=vm_slot_count,
                             allow_existing=False)
-            if check_allocate.status == "NoAllocationSelected":
-                logger.debug("No allocation selected")
-                if result:
-                   return result
-                else:
-                    return check_allocate
+            if not check_allocate.nodes:
+                logger.debug(f"0 new nodes allocated for {vmsize}")
+                break
             else:
                 result = check_allocate
     allocated_count = sum([x.resources["weight"] for x in node_mgr.get_new_nodes()])
     remaining_count = slot_count - allocated_count
     logger.debug(f"Allocated {allocated_count} remaining {remaining_count}")
+    # Allocate remaining slots with any available vm size
     if remaining_count > 0:
         check_allocate = node_mgr.allocate({"weight": 1, "template_id": template_id, "capacity-failure-backoff": capacity_limit_timeout},
                         slot_count=remaining_count,
                         allow_existing=False) 
-        logger.debug(f"Remaining slots check allocate {check_allocate}")
-        if check_allocate.status != "NoAllocationSelected":
+        if check_allocate.nodes:
             result = check_allocate
     return result
 
