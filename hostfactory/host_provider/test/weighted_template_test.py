@@ -14,13 +14,11 @@ def azurecc_template_generate(vmTypes, maxNumber=100):
                     "nodearray":    ["String", "execute"]
                     
                 },
-        "vmTypes": {" Standard_D2_v2 ":2, " Standard_D1_v2 ":1},
+        "vmTypes": vmTypes,
         "priceInfo":    ["String", "price:0.1,billingTimeUnitType:prorated_hour,billingTimeUnitNumber:1,billingRoundoffType:unit"],
         "rank": ["Numeric", "0"],
-        "maxNumber":    100
+        "maxNumber":    maxNumber
         }]
-        azurecc_template[0]["vmTypes"] = vmTypes
-        azurecc_template[0]["maxNumber"] = maxNumber
         return azurecc_template
 class TestWeightedTemplate(unittest.TestCase):
     
@@ -28,16 +26,34 @@ class TestWeightedTemplate(unittest.TestCase):
         self.weighted_template = weighted_template_parse.WeightedTemplates( None)
     
     def test_parse_weighted_template(self):
-        vmTypes = {"Standard_D2_v2":2,  "Standard_D1_v2":1}
-        templates = azurecc_template_generate(vmTypes)
-        print(templates)
         input_json = {
             "template": {
                 "templateId": "execute",
                 "machineCount": 10       #Interpreted as request for 10 compute units
             }
         }
+
+        vmTypes = {"Standard_D2_v2":2,  "Standard_D1_v2":1}
+        templates = azurecc_template_generate(vmTypes)
         self.assertEqual(self.weighted_template.parse_weighted_template(input_json, templates), vmTypes)
-    
+
+        vmTypes = {"Standard_D2_v2":2,  "Standard_D1_v2":1, "Standard_D16_v2":16}
+        templates = azurecc_template_generate(vmTypes)
+        self.assertEqual(self.weighted_template.parse_weighted_template(input_json, templates), vmTypes)
+
+    def test_allocate_weighted(self):
+        vmTypes = {"Standard_D2_v2":2,  "Standard_D1_v2":1, "Standard_D16_v2":16}
+        templates = azurecc_template_generate(vmTypes)
+        input_json = {
+            "template": {
+                "templateId": "execute",
+                "machineCount": 100       #Interpreted as request for 10 compute units
+            }
+        }
+
+        # TODO : Mock out nodemgr and call allocate_weighted
+         
+
+
 if __name__ == "__main__":
     unittest.main() 

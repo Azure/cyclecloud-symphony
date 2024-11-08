@@ -1,10 +1,10 @@
 import json
-from math import ceil
+from math import ceil, floor
 import time
 import logging
 from urllib.parse import urlencode
 from builtins import str
-from copy import deepcopy
+from allocation_strategy import AllocationStrategy
 from hpc.autoscale.node.nodemanager import new_node_manager
 from hpc.autoscale.util import partition
 
@@ -14,71 +14,6 @@ try:
 except ImportError:
     import cyclecliwrapper as cyclecli
 
-class AutoscalingStrategy(enumerate):
-    PRICE = "price"
-    CAPACITY = "capacity"
-    WEIGHTED = "weighted"
-
-def allocation_strategy(node_mgr, logger, template_id, slot_count, capacity_limit_timeout, vm_sizes, vm_dist):
-    result = None
-    check_allocate = None
-    logger.debug(f"Allocating {slot_count} slots for template_id {template_id} using weight distribution {vm_dist}")
-    for n,vmsize in enumerate(vm_sizes):
-        vm_slot_count = vm_dist[vmsize]
-        logger.debug(f"Allocating {vm_slot_count} {vmsize}" )
-        if vm_slot_count > 0:
-            check_allocate = node_mgr.allocate({"node.vm_size": vmsize, "weight": 1, "template_id": template_id, "capacity-failure-backoff": capacity_limit_timeout},
-                            slot_count=vm_slot_count,
-                            allow_existing=False)
-            if not check_allocate.nodes:
-                logger.debug(f"0 new nodes allocated for {vmsize}")
-                break
-            else:
-                result = check_allocate
-    allocated_count = sum([x.resources["weight"] for x in node_mgr.get_new_nodes()])
-    remaining_count = slot_count - allocated_count
-    logger.debug(f"Allocated {allocated_count} remaining {remaining_count}")
-    # Allocate remaining slots with any available vm size
-    if remaining_count > 0:
-        check_allocate = node_mgr.allocate({"weight": 1, "template_id": template_id, "capacity-failure-backoff": capacity_limit_timeout},
-                        slot_count=remaining_count,
-                        allow_existing=False) 
-        if check_allocate.nodes:
-            result = check_allocate
-    return result
-
-def calculate_vm_dist_capacity(vm_types, total_slot_count):
-    vm_dist = {}
-    prev_vm_available_weight = 0
-    for n, p in enumerate(vm_types.items()):
-        vm, weight = p
-        slot_count = total_slot_count // len(vm_types) + (1 if n < total_slot_count % len(vm_types) else 0)
-        slot_count = slot_count - prev_vm_available_weight
-        if slot_count < 0:
-            prev_vm_available_weight = (-1) * slot_count
-            slot_count = 0
-        else:
-            prev_vm_available_weight = weight - slot_count % weight
-        vm_dist[vm] = slot_count
-    return vm_dist
-
-def calculate_vm_dist_weighted(vm_types, total_slot_count):
-    vm_dist = {}
-    prev_vm_available_weight = 0
-    for n, p in enumerate(vm_types.items()):
-        vm, weight = p
-        slot_count = int((len(vm_types) / (len(vm_types) + n))*(total_slot_count//len(vm_types))) + (1 if n < total_slot_count % len(vm_types) else 0)
-        slot_count = slot_count - prev_vm_available_weight
-        if slot_count < 0:
-            prev_vm_available_weight = (-1) * slot_count
-            slot_count = 0
-        else:
-            prev_vm_available_weight = weight - slot_count % weight
-        vm_dist[vm] = slot_count
-    return vm_dist
-    
-
-    
 class Cluster:
     
     def __init__(self, cluster_name, provider_config, logger=None):
@@ -90,7 +25,6 @@ class Cluster:
         CC_CONFIG["username"] = self.provider_config.get("cyclecloud.config.username")
         CC_CONFIG["password"] = self.provider_config.get("cyclecloud.config.password")
         CC_CONFIG["cluster_name"] = self.cluster_name
-        self.auto_scaling_strategy =  AutoscalingStrategy.PRICE.lower() 
         self.node_mgr = new_node_manager(CC_CONFIG)
     
     def status(self):
@@ -111,22 +45,9 @@ class Cluster:
         for b in buckets:
             self.logger.debug(f"{b.nodearray}/{b.vm_size} available={b.available_count} based on {b.limits} bucket_id={b.bucket_id}")           
         return buckets
-    
-    def allocate_slots_capacity(self, total_slots, template_id, capacity_limit_timeout, vm_types):
-        result = None
-        self.logger.info("Using capacity based allocation")
-        vm_dist = calculate_vm_dist_capacity(vm_types, total_slots)
-        result = allocation_strategy(self.node_mgr, self.logger, template_id, total_slots, capacity_limit_timeout, vm_types, vm_dist)
-        return result
-            
-    def allocate_slots_weighted(self, total_slots, template_id, capacity_limit_timeout, vm_types):
-        result = None
-        self.logger.info("Using weighted based allocation")
-        vm_dist = calculate_vm_dist_weighted(vm_types, total_slots)
-        result = allocation_strategy(self.node_mgr, self.logger, template_id, total_slots, capacity_limit_timeout, vm_types, vm_dist)
-        return result
-    
-    def add_nodes_scalelib(self, request, template_id, use_weighted_templates=False, vmTypes={}, capacity_limit_timeout=300, dry_run=False):
+
+
+    def configure_node_resources_scalelib(self, use_weighted_templates=False, vmTypes={}):
         # if true, do new slot based allocation with weighting
         # if false, use vm_size/node based allocation
         if use_weighted_templates:
@@ -141,37 +62,33 @@ class Cluster:
             self.node_mgr.add_default_resource(selection={}, resource_name="template_id", 
                                         default_value=lambda node: "{node.nodearray + node.vm_size.replace('_', '')}".lower())
             self.node_mgr.add_default_resource(selection={}, resource_name="weight", default_value=1)
-        if self.auto_scaling_strategy == AutoscalingStrategy.CAPACITY:
-            result = self.allocate_slots_capacity(request['sets'][0]['count'], template_id, capacity_limit_timeout, vmTypes)
-        elif self.auto_scaling_strategy == AutoscalingStrategy.WEIGHTED:
-            result = self.allocate_slots_weighted(request['sets'][0]['count'], template_id, capacity_limit_timeout, vmTypes)
-        else:
-            # Time in seconds to check waiting period after last capacity failure
-            result = self.node_mgr.allocate({"weight": 1, "template_id": template_id, "capacity-failure-backoff": capacity_limit_timeout},
-                                    slot_count=request['sets'][0]['count'],
-                                    allow_existing=False)
+
+    def add_nodes(self, request_id, template_id, requested_slot_count, use_weighted_templates=False, vmTypes={}, 
+                  capacity_limit_timeout=300, autoscaling_strategy="price", dry_run=False):
         
+        
+        # Add custom resources for nodes in scalelib (each pass may be a new process, so do this each time)
+        self.configure_node_resources_scalelib(use_weighted_templates, vmTypes)
+
+        autoscaling_strategy = AllocationStrategy(self.node_mgr, self.provider_config, strategy=autoscaling_strategy,
+                                                  capacity_limit_timeout=capacity_limit_timeout, logger=self.logger)
+        allocation_results = autoscaling_strategy.allocate_slots(requested_slot_count, template_id, vmTypes)
+
+        by_vm_size = partition(self.node_mgr.new_nodes, lambda node: node.vm_size)
+        for key,value in by_vm_size.items():
+            self.logger.info("Requesting %s nodes of %s", len(value), key)
+            
         if dry_run:
-            by_vm_size = partition(result.nodes, lambda node: node.vm_size)
-            for key,value in by_vm_size.items():
-                self.logger.debug("VM Size %s count %s", key, len(value))
-                print("Allocation result:")
-                print (key, len(value))
+            self.logger.info("Dry run: Would have booted %s nodes", len(self.node_mgr.new_nodes))
             return True
-        if result:
-            request_id_start = f"{request['requestId']}-start"
-            request_id_create = f"{request['requestId']}-create"
+        if allocation_results:
+            request_id_start = f"{request_id}-start"
+            request_id_create = f"{request_id}-create"
             result = self.node_mgr.bootup(request_id_start=request_id_start, request_id_create=request_id_create)
             return result
         return False
-            
-    
-    def add_nodes(self, request, use_weighted_templates=False, vmTypes={}, capacity_limit_timeout=300, autoscaling_strategy="price", dry_run=False):
-        self.auto_scaling_strategy = autoscaling_strategy
-        response = self.add_nodes_scalelib(request, template_id=request['sets'][0]['definition']['templateId'],
-                                              use_weighted_templates=use_weighted_templates, vmTypes=vmTypes, capacity_limit_timeout=capacity_limit_timeout, dry_run=dry_run)
-        return response
-    
+
+
     def all_nodes(self):
         all_nodes_json = self.get("/clusters/%s/nodes" % self.cluster_name)
         count_status = {}

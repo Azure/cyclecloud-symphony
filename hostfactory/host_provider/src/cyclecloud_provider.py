@@ -59,11 +59,13 @@ class CycleCloudProvider:
         self.creation_request_ttl = int(self.config.get("symphony.creation_request_ttl", 40 * 60))
         self.node_request_timeouts = float(self.config.get("cyclecloud.machine_request_retirement", 120) * 60)
         self.capacity_limit_timeout = int(self.config.get("cyclecloud.capacity_limit_timeout", 5) * 60)
-        self.autoscaling_strategy = self.config.get("symphony.autoscaling.strategy", "price")
+        self.autoscaling_strategy = self.config.get("symphony.autoscaling.strategy", "price")        
         self.fine = False
         self.request_tracker = RequestTrackingDb(self.config, self.cluster.cluster_name, self.clock)
         self.weighted_template = weighted_template_parse.WeightedTemplates(logger)
         self.dry_run = False
+
+        logger.info("Using %s based autoscaling strategy", self.autoscaling_strategy)
         
     def _escape_id(self, name):
         return name.lower().replace("_", "")
@@ -156,17 +158,18 @@ class CycleCloudProvider:
                 request_set = { 'count': input_json["template"]["machineCount"],
                                  'definition':{'templateId':input_json["template"]["templateId"]}} 
             
-            if self.dry_run:
-                add_nodes_response = self.cluster.add_nodes({'requestId': request_id,
-                                                        'sets': [request_set]},use_weighted_templates, vmTypes, self.capacity_limit_timeout, self.autoscaling_strategy, self.dry_run)
-                if add_nodes_response:
-                    print("Dry run succeeded")
-                    exit(0)
             # We are grabbing the lock to serialize this call.
             try:
-                with self.creation_json as requests_store:                   
-                        add_nodes_response = self.cluster.add_nodes({'requestId': request_id,
-                                                        'sets': [request_set]},use_weighted_templates, vmTypes, self.capacity_limit_timeout, self.autoscaling_strategy)
+                with self.creation_json as requests_store:
+                    template_id = request_set['definition']['templateId']                    
+                    requested_slot_count = request_set['count']
+                    add_nodes_response = self.cluster.add_nodes(request_id, template_id, requested_slot_count,
+                                                                use_weighted_templates, vmTypes,
+                                                                self.capacity_limit_timeout,
+                                                                self.autoscaling_strategy, self.dry_run)
+                if self.dry_run and add_nodes_response:
+                    print("Dry run succeeded")
+                    exit(0)
             finally:
                 request_set['requestId'] = request_id
                 self.request_tracker.add_request(request_set) 
@@ -174,26 +177,22 @@ class CycleCloudProvider:
             if not add_nodes_response:
                 raise ValueError("No nodes were created")
             
-            logger.info("Create nodes response: %s", add_nodes_response)
+            logger.info("Create nodes response status: %s  nodes: %s", add_nodes_response.status, [(n.name, n.vm_size) for n in add_nodes_response.nodes])
             
             with self.creation_json as requests_store:
                 requests_store[request_id]["allNodes"] = [self.cluster.get_node_id(x) for x in add_nodes_response.nodes]
             
             return self.stdout_handler.handle({"requestId": request_id, "status": RequestStates.running,
-                                     "message": "Request instances success from Azure CycleCloud."})
+                                               "message": "Request instances success from Azure CycleCloud."})
 
-        except UserError as e:
+        except (ValueError, UserError) as e:
             logger.exception("Azure CycleCloud experienced an error and the node creation request failed. %s", e)
             return self.stdout_handler.handle({"requestId": request_id, "status": RequestStates.complete_with_error,
-                                     "message": "Azure CycleCloud experienced an error: %s" % str(e)})
-        except ValueError as e:
-            logger.exception("Azure CycleCloud experienced an error and the node creation request failed. %s", e)
-            return self.stdout_handler.handle({"requestId": request_id, "status": RequestStates.complete_with_error,
-                                     "message": "Azure CycleCloud experienced an error: %s" % str(e)})
+                                               "message": "Azure CycleCloud experienced an error: %s" % str(e)})
         except Exception as e:
             logger.exception("Azure CycleCloud experienced an error, though it may have succeeded: %s", e)
             return self.stdout_handler.handle({"requestId": request_id, "status": RequestStates.running,
-                                     "message": "Azure CycleCloud experienced an error, though it may have succeeded: %s" % str(e)})
+                                               "message": "Azure CycleCloud experienced an error, though it may have succeeded: %s" % str(e)})
 
     @failureresponse({"requests": [], "status": RequestStates.complete_with_error})
     def get_return_requests(self, input_json):
