@@ -16,14 +16,20 @@ def round_down_to_nearest_multiple(target, x):
 def round_up_to_nearest_multiple(target, x):
     return x * ceil(target / x)
 
+def normalize_list(percentage_weights):
+    total = sum(percentage_weights)
+    if total == 0:
+        raise ValueError("Total of percentage weights is 0 - no slots would be allocated")
+    return [x / total for x in percentage_weights]
+
 def calculate_vm_dist_capacity(vm_types, total_slot_count):
     vm_dist = {}
-    slot_counts = [total_slot_count // len(vm_types) for n in range(len(vm_types))]
+    slots_per_vm_type = total_slot_count // len(vm_types) # balanced distribution
 
     remaining_slots = total_slot_count
     vm_dist = {vm: 0 for vm in vm_types.keys()}
     for n, (vm, weight) in enumerate(vm_types.items()):        
-        vm_dist[vm] = round_down_to_nearest_multiple(slot_counts[n], weight)
+        vm_dist[vm] = round_down_to_nearest_multiple(slots_per_vm_type, weight)
         remaining_slots -= vm_dist[vm]
         if remaining_slots <= 0:
             break
@@ -41,10 +47,13 @@ def calculate_vm_dist_capacity(vm_types, total_slot_count):
 
 def calculate_vm_dist_weighted(vm_types, requested_slot_count, percentage_weights=[.7, .2, .05, .05]):
     '''Apply a simple static percentage distribution to the vm_types'''
+    percentage_weights = normalize_list(percentage_weights) # Ensure that percentage weights sum to 1
+
     vm_dist = {vm: 0 for vm in vm_types.keys()}
     slots_per_vm_type = [floor(requested_slot_count * p) for p in percentage_weights]
-    for i in range(len(vm_types) - len(slots_per_vm_type)):
-        slots_per_vm_type.append(0)
+    if len(slots_per_vm_type) < len(vm_types):
+        for i in range(len(vm_types) - len(slots_per_vm_type)):
+            slots_per_vm_type.append(0)
         
     remaining_slots = requested_slot_count
     n = 0
@@ -75,9 +84,12 @@ def calculate_vm_dist_weighted(vm_types, requested_slot_count, percentage_weight
 
 def calculate_vm_dist_decay(vm_types, total_slot_count):
     '''
-    This method is only appropriate for relatively large slot counts (Symphony tends to scale by 100 or fewer nodes)
     Calculate Slots by applying a decreasing distribution : 
     weighted_increment_per_sku = [ num_skus / (1 + idx)  for idx in range(num_skus) ]
+
+    This method is more appropriate for scaling to relatively large slot counts.
+    If the incremental slot count increase is small, it will be indistinguishable 
+    from the price based allocation.
 
     vm_types: list of skus to consider for allocation
     total_slot_count: total number of slots to allocate across the vm_types under consideration
@@ -87,7 +99,7 @@ def calculate_vm_dist_decay(vm_types, total_slot_count):
 
     remaining = total_slot_count
     max_core_count = max(vm_types.values())
-    weighted_increment_per_sku = [ num_skus / (1 + idx)  for idx in range(num_skus) ]
+    weighted_increment_per_sku = [num_skus / (1 + idx) for idx in range(num_skus)]
     while remaining > 0:
         for idx, p in enumerate(vm_types.items()):
             sku, symphony_slot_weight = p
@@ -96,7 +108,6 @@ def calculate_vm_dist_decay(vm_types, total_slot_count):
             # Allow 1 instance for the last pass through the list
             if increment == 0 and remaining <= symphony_slot_weight:
                 increment += symphony_slot_weight
-            #logging.warning(f"sku: {sku}, symphony_slot_weight: {symphony_slot_weight}, remaining: {remaining}, unrounded_increment: {unrounded_increment}, increment: {increment}")
             remaining -= int(increment)
             vm_dist[sku] += int(increment)
             if remaining <= 0:
@@ -152,7 +163,7 @@ class AllocationStrategy:
     
     def allocate_slots_capacity(self, requested_slots, template_id, vm_types):
         result = None
-        self.logger.debug("Using capacity based allocation")
+        self.logger.debug("Using capacity based (aka balanced) allocation")
         # TODO: Need to calculate the new vm_dist based on the current allocations for the vm_types
         # IMPORTANT: Should be IDENTICAL to what's needed in allocate_slots_weighted
         vm_dist = calculate_vm_dist_capacity(vm_types, requested_slots)
@@ -169,7 +180,7 @@ class AllocationStrategy:
     def allocate_slots_weighted(self, requested_slots, template_id, vm_types):
         result = None
         distribution = [.7, .2, .05, .05]
-        self.logger.debug("Using weighted based allocation ", distribution)
+        self.logger.debug("Using weighted based allocation (weights: %s)", distribution)
         # Works per allocation request
         vm_dist = calculate_vm_dist_weighted(vm_types, requested_slots, distribution)
         result = self._allocation_strategy(template_id, requested_slots, vm_types, vm_dist)

@@ -17,9 +17,9 @@ import cluster
 from request_tracking_db import RequestTrackingDb
 from util import JsonStore, failureresponse
 import util
+from util import UserError
 import symphony
 import version
-from cyclecliwrapper import UserError
 
 
 logger = None
