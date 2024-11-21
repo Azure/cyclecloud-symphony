@@ -129,6 +129,7 @@ end
 bash 'Unzipping HostFactory Package...' do
   code <<-EOH
   cd #{node['jetpack']['downloads']}
+  rm -rf /tmp/hostfactory /tmp/packages
   unzip #{node['symphony']['pkg_plugin']} -d /tmp
   EOH
   user "root"

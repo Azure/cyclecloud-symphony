@@ -151,6 +151,8 @@ function Install-Python-Packages
     cd /tmp
     mkdir -p $pluginSrcPath/scripts
     cp -r /tmp/hostfactory/host_provider/* $pluginSrcPath/scripts
+    chmod a+x $pluginSrcPath/scripts/*.sh # Ensure scripts are executable
+    
     VENV=$pluginSrcPath/venv
     # remove jetpack python from PATH so default python3 is used.
     export PATH=$(echo $PATH | sed -e 's/\/opt\/cycle\/jetpack\/system\/embedded\/bin://g' | sed -e 's/:\/opt\/cycle\/jetpack\/system\/embedded\/bin//g')

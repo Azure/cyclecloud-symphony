@@ -1,19 +1,24 @@
+import version
 import json
+import requests
+from math import ceil, floor
 import time
 import logging
+from util import ConfigError, UserError
 from urllib.parse import urlencode
 from builtins import str
-from copy import deepcopy
+from allocation_strategy import AllocationStrategy
 from hpc.autoscale.node.nodemanager import new_node_manager
 from hpc.autoscale.util import partition
 
-
 try:
-    import cyclecli
+    from requests.packages import urllib3
+    if hasattr(urllib3, "disable_warnings"):
+        urllib3.disable_warnings()
 except ImportError:
-    import cyclecliwrapper as cyclecli
+    pass
 
-    
+
 class Cluster:
     
     def __init__(self, cluster_name, provider_config, logger=None):
@@ -43,57 +48,61 @@ class Cluster:
         buckets = self.node_mgr.get_buckets()
         self.logger.debug("Buckets: count=%d", len(buckets))
         for b in buckets:
-            self.logger.debug(f"{b.nodearray}/{b.vm_size} available={b.available_count} based on {b.limits} bucket_id={b.bucket_id}")           
+            self.logger.info(f"{b.nodearray}/{b.vm_size} available={b.available_count} based on {b.limits} bucket_id={b.bucket_id}  (last capacity failure {b.last_capacity_failure})")           
         return buckets
-    
-    def add_nodes_scalelib(self, request, template_id, use_weighted_templates=False, vmTypes={}, capacity_limit_timeout=300, dry_run=False):
+
+    def configure_node_resources_scalelib(self, use_weighted_templates=False, vm_types=None):
+        if not vm_types:
+            vm_types = {}
+
         # if true, do new slot based allocation with weighting
         # if false, use vm_size/node based allocation
         if use_weighted_templates:
             self.logger.debug("Using weighted templates")
             self.node_mgr.add_default_resource(selection={}, resource_name="template_id", default_value="node.nodearray")
-            self.logger.debug("Current weightings: %s", ", ".join([f"{x}={y}" for x,y in vmTypes.items()]))
-            for vm_size, weight in vmTypes.items():
+            self.logger.debug("Current weightings: %s", ", ".join([f"{x}={y}" for x,y in vm_types.items()]))
+            for vm_size, weight in vm_types.items():
                 self.node_mgr.add_default_resource(selection={"node.vm_size": vm_size},
-                                            resource_name="weight",
-                                            default_value=weight)
+                                                   resource_name="weight",
+                                                   default_value=weight)
         else:    
             self.node_mgr.add_default_resource(selection={}, resource_name="template_id", 
-                                        default_value=lambda node: "{node.nodearray + node.vm_size.replace('_', '')}".lower())
+                                               default_value=lambda node: "{node.nodearray + node.vm_size.replace('_', '')}".lower())
             self.node_mgr.add_default_resource(selection={}, resource_name="weight", default_value=1)
+
+    def add_nodes(self, request_id, template_id, requested_slot_count, use_weighted_templates=False, vm_types={}, 
+                  capacity_limit_timeout=300, autoscaling_strategy="price", dry_run=False):
         
-        # Time in seconds to check waiting period after last capacity failure
-        result = self.node_mgr.allocate({"weight": 1, "template_id": template_id, "capacity-failure-backoff": capacity_limit_timeout},
-                                slot_count=request['sets'][0]['count'],
-                                allow_existing=False)
-        self.logger.debug("Result of allocation %s", result)
         
+        # Add custom resources for nodes in scalelib (each pass may be a new process, so do this each time)
+        self.configure_node_resources_scalelib(use_weighted_templates, vm_types)
+
+        autoscaling_strategy = AllocationStrategy(self.node_mgr, self.provider_config, strategy=autoscaling_strategy,
+                                                  capacity_limit_timeout=capacity_limit_timeout, logger=self.logger)
+        allocation_results = autoscaling_strategy.allocate_slots(requested_slot_count, template_id, vm_types)
+
+        by_vm_size = partition(self.node_mgr.new_nodes, lambda node: node.vm_size)
+        for key,value in by_vm_size.items():
+            self.logger.info("Requesting %s nodes of %s", len(value), key)
+
         if dry_run:
-            by_vm_size = partition(result.nodes, lambda node: node.vm_size)
-            for key,value in by_vm_size.items():
-                self.logger.debug("VM Size %s count %s", key, len(value))
-                print("Allocation result:")
-                print (key, len(value))
+            self.logger.info("Dry run: Would have booted %s nodes", len(self.node_mgr.new_nodes))
             return True
-        if result:
-            request_id_start = f"{request['requestId']}-start"
-            request_id_create = f"{request['requestId']}-create"
-            return self.node_mgr.bootup(request_id_start=request_id_start, request_id_create=request_id_create)
+        if allocation_results:
+            request_id_start = f"{request_id}-start"
+            request_id_create = f"{request_id}-create"
+            result = self.node_mgr.bootup(request_id_start=request_id_start, request_id_create=request_id_create)
+            return result
         return False
-            
-    
-    def add_nodes(self, request, use_weighted_templates=False, vmTypes={}, capacity_limit_timeout=300, dry_run=False):
-        response = self.add_nodes_scalelib(request, template_id=request['sets'][0]['definition']['templateId'],
-                                              use_weighted_templates=use_weighted_templates, vmTypes=vmTypes, capacity_limit_timeout=capacity_limit_timeout, dry_run=dry_run)
-        return response
-    
+
+
     def all_nodes(self):
-        all_nodes_json = self.get("/clusters/%s/nodes" % self.cluster_name)
+        all_nodes_json = self.get(f"/clusters/{self.cluster_name}/nodes")
         count_status = {}
         nodes = all_nodes_json['nodes']
         for node in nodes:
             node_status = node.get("Status")
-            if  node_status in count_status:
+            if node_status in count_status:
                 count_status[node_status] = count_status[node_status] + 1
             else:
                 count_status[node_status] = 1
@@ -108,30 +117,34 @@ class Cluster:
             def _get_nodes_by_request_id(req_id, action):
                 try:
                     affected_nodes = self.node_mgr.get_nodes_by_request_id(req_id)
-                    self.logger.debug(f"Nodes %s %s", action, affected_nodes)
+                    self.logger.debug("Nodes %s %s", action, affected_nodes)
                     return affected_nodes
                 except Exception as e:
                     if "No operation found for request id" in str(e):
                         self.logger.debug("No new nodes have been %s", action)
-                    return None
+                        return None 
+                    raise
+                    
             # : Optional[str]
             request_id_start = f"{request_id}-start"
             request_id_create = f"{request_id}-create"
             nodes_started = _get_nodes_by_request_id(request_id_start, "started")
             nodes_created = _get_nodes_by_request_id(request_id_create, "created")
             if nodes_created is None and nodes_started is None:
-                raise RuntimeError("Could not find request id %s", request_id)
+                raise RuntimeError(f"Could not find request id {request_id}")
 
             responses[request_id] = []
-            if nodes_started: responses[request_id].extend( nodes_started )
-            if nodes_created: responses[request_id].extend( nodes_created )
+            if nodes_started: 
+                responses[request_id].extend(nodes_started)
+            if nodes_created: 
+                responses[request_id].extend(nodes_created)
             self.logger.debug(responses)
         return responses
     
     def nodes_by_operation_id(self, operation_id):
         if not operation_id:
             raise RuntimeError("You must specify operation id!")
-        return self.get("/clusters/%s/nodes?operation=%s" % (self.cluster_name, operation_id))
+        return self.get(f"/clusters/{self.cluster_name}/nodes?operation={operation_id}")
     
     def get_node_id(self,node):
         return node.delayed_node_id.node_id
@@ -143,28 +156,37 @@ class Cluster:
         
     def terminate(self, machines):
         machine_ids = [machine["machineId"] for machine in machines]
-        response_raw = self.post("/clusters/%s/nodes/terminate" % self.cluster_name, json={"ids": machine_ids})
+        response_raw = self.post(f"/clusters/{self.cluster_name}/nodes/terminate", json={"ids": machine_ids})
         try:
             self.logger.info("Terminate Response: %s", response_raw)
             return json.loads(response_raw)
-        except:
-            raise RuntimeError("Could not parse response as json to terminate! '%s'" % response_raw)
+        except Exception as exc:
+            raise RuntimeError(f"Could not parse response as json to terminate! '{response_raw}'") from exc
             
     def _session(self):
         config = {"verify_certificates": False,
                   "username": self._get_or_raise("cyclecloud.config.username"),
                   "password": self._get_or_raise("cyclecloud.config.password"),
-                  "cycleserver": {
-                      "timeout": 60
-                  }
         }
-        return cyclecli.get_session(config=config)
+        retries = 3
+        while retries > 0:
+            try:
+                s = requests.session()
+                s.auth = (config["username"], config["password"])
+                s.timeout = 60
+                s.verify = config["verify_certificates"]  # Should we auto-accept unrecognized certs?
+                s.headers = {"X-Cycle-Client-Version": f"cyclecloud-symphony:{version.get_version()}"}
+                return s
+            except requests.exceptions.SSLError:
+                retries = retries - 1
+                if retries < 1:
+                    raise
     
     def _get_or_raise(self, key):
         value = self.provider_config.get(key)
         if not value:
             #  jetpack.config.get will raise a ConfigError above.
-            raise cyclecli.ConfigError("Please define key %s in the provider config." % key)
+            raise ConfigError(f"Please define key {key} in the provider config.")
         return value
     
     def post(self, url, data=None, json=None, **kwargs):

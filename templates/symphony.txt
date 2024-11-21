@@ -27,7 +27,7 @@ Autoscale = $Autoscale
         [[[network-interface eth0]]]
         AssociatePublicIpAddress = false
 
-        [[[cluster-init symphony:default:3.0.1]]]
+        [[[cluster-init symphony:default:3.0.2]]]
 	
     [[node master]]
     MachineType = $ManagementMachineType
@@ -41,7 +41,7 @@ Autoscale = $Autoscale
         is_management = true
         is_master = true
         enable_weighted_templates = true
-        
+        autoscaling.strategy = $SymphonyAutoscalingStrategy
 
         [[[input-endpoint ganglia]]]
         PrivatePort = 8652
@@ -50,7 +50,7 @@ Autoscale = $Autoscale
         [[[network-interface eth0]]]
         AssociatePublicIpAddress = $UsePublicNetwork
 
-        [[[cluster-init symphony:master:3.0.1]]]
+        [[[cluster-init symphony:master:3.0.2]]]
 
         [[[volume boot]]]
         Size = $MasterBootDiskSize
@@ -80,7 +80,7 @@ Autoscale = $Autoscale
         [[[configuration symphony]]]
         is_management = true
 
-        [[[cluster-init symphony:management:3.0.1]]]
+        [[[cluster-init symphony:management:3.0.2]]]
 
     [[nodearray execute]]
     MaxCoreCount = $MaxExecuteCoreCount
@@ -97,7 +97,7 @@ Autoscale = $Autoscale
         symphony.use_nodename_as_hostname = $NodeNameIsHostname
         autoscaling.enabled = true
     
-        [[[cluster-init symphony:execute:3.0.1]]]
+        [[[cluster-init symphony:execute:3.0.2]]]
 
     [[nodearray execute2]]
     Extends = execute
@@ -124,7 +124,7 @@ Autoscale = $Autoscale
         symphony.use_nodename_as_hostname = $NodeNameIsHostname
         cyclecloud.cluster.autoscale.stop_enabled = false
     
-        [[[cluster-init symphony:execute:3.0.1]]]
+        [[[cluster-init symphony:execute:3.0.2]]]
 
 
 [parameters About]
@@ -302,7 +302,21 @@ Order = 20
         DefaultValue = =undefined
         Description = Cluster init specs to apply to execute nodes
         ParameterType = Cloud.ClusterInitSpecs
-	
+       
+        [[[parameter SymphonyAutoscalingStrategy]]]
+        Label = Symphony Autoscaling Strategy
+        DefaultValue = price
+        config.plugin = pico.control.AutoCompleteDropdown
+        ParameterType = Cloud.ClusterInitSpecs
+            [[[[list Config.Entries]]]]
+            Name = price
+            Label = Price
+            [[[[list Config.Entries]]]]
+            Name = weighted
+            Label = Weighted
+            [[[[list Config.Entries]]]]
+            Name = capacity
+            Label = Capacity
 
     [[parameters Advanced Networking]]
     Description = Advanced networking settings

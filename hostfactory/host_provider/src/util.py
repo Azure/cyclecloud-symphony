@@ -16,11 +16,13 @@ from builtins import str
 import os
 
 
-try:
-    import cyclecli
-except ImportError:
-    import cyclecliwrapper as cyclecli
-    
+class UserError(Exception):
+    pass
+
+
+class ConfigError(Exception):
+    pass
+
 
 _logging_init = False
 
@@ -209,7 +211,7 @@ def failureresponse(response):
             logger = init_logging()
             try:
                 return func(*args, **kwargs)
-            except cyclecli.UserError as ue:
+            except UserError as ue:
                 with_message = deepcopy(response)
                 message = str(ue)
                 logger.debug(traceback.format_exc())
@@ -280,7 +282,7 @@ class ProviderConfig:
         if top_value is None:
             try:
                 return self.jetpack_config.get(key, default_value)
-            except cyclecli.ConfigError as e:
+            except ConfigError as e:
                 if key in str(e):
                     return default_value
                 raise

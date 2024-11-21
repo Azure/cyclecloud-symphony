@@ -88,7 +88,9 @@ def execute() -> None:
     if not os.path.exists("dist"):
         os.makedirs("dist")
 
-    zf = zipfile.ZipFile("dist/cyclecloud-symphony-pkg-{}.zip".format(version), "w", zipfile.ZIP_DEFLATED)
+    zf_filename = f"cyclecloud-symphony-pkg-{version}.zip"
+    zf_path = os.path.join(expected_cwd, "dist", zf_filename)
+    zf = zipfile.ZipFile(zf_path, "w", zipfile.ZIP_DEFLATED)
 
 
     build_dir = tempfile.mkdtemp("cyclecloud-symphony")
@@ -157,6 +159,10 @@ def execute() -> None:
 
     print("Created package: ", zf.filename)
     print("\n".join(f for f in zf.namelist()))
+    
+    blob_path = os.path.join(expected_cwd, 'blobs/symphony', zf_filename)
+    print(f"Copying package to {blob_path}")
+    shutil.copyfile(zf_path, blob_path)
 
 if __name__ == "__main__":
     execute()
