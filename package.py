@@ -18,27 +18,22 @@ CONCURRENT_HANDLER_VERSION = "0.9.21"
 def get_cycle_libs(args: Namespace) -> List[str]:
     ret = []
 
-    scalelib_file = "cyclecloud-scalelib-{}.tar.gz".format(SCALELIB_VERSION)
-    cyclecloud_api_file = "cyclecloud_api-{}-py2.py3-none-any.whl".format(
-        CYCLECLOUD_API_VERSION
-    )
-    concurrent_handler_file ="concurrent-log-handler-{}.tar.gz".format(CONCURRENT_HANDLER_VERSION)
-    # scalelib_url = "https://github.com/Azure/cyclecloud-scalelib/archive/{}.tar.gz".format(
-    #     SCALELIB_VERSION
-    # )
+    scalelib_file = f"cyclecloud-scalelib-{SCALELIB_VERSION}.tar.gz"
+    cyclecloud_api_file = f"cyclecloud_api-{CYCLECLOUD_API_VERSION}-py2.py3-none-any.whl"
+    concurrent_handler_file =f"concurrent-log-handler-{CONCURRENT_HANDLER_VERSION}.tar.gz"
+    # scalelib_url = f"https://github.com/Azure/cyclecloud-scalelib/archive/{SCALELIB_VERSION}.tar.gz"
     # TODO: Switch back to pulling it from scalelib release when 1.0.3 is released
     scalelib_url ="https://github.com/Azure/cyclecloud-symphony/releases/download/2024-03-01-bins/cyclecloud-scalelib-1.0.3.tar.gz"
     # TODO RDH!!!
-    cyclecloud_api_url = "https://github.com/Azure/cyclecloud-symphony/releases/download/2024-03-01-bins/cyclecloud_api-{}-py2.py3-none-any.whl".format(CYCLECLOUD_API_VERSION)
-    concurrent_handler_url = "https://github.com/Preston-Landers/concurrent-log-handler/archive/refs/tags/{}.tar.gz".format(CONCURRENT_HANDLER_VERSION)
+    cyclecloud_api_url = f"https://github.com/Azure/cyclecloud-symphony/releases/download/2024-03-01-bins/cyclecloud_api-{CYCLECLOUD_API_VERSION}-py2.py3-none-any.whl"
+    concurrent_handler_url = f"https://github.com/Preston-Landers/concurrent-log-handler/archive/refs/tags/{CONCURRENT_HANDLER_VERSION}.tar.gz"
     to_download = {
         scalelib_file: (args.scalelib, scalelib_url),
         cyclecloud_api_file: (args.cyclecloud_api, cyclecloud_api_url),
-        concurrent_handler_file: (None,concurrent_handler_url)
+        concurrent_handler_file: (args.concurrent_log_handler, concurrent_handler_url)
     }
 
-    for lib_file in to_download:
-        arg_override, url = to_download[lib_file]
+    for dep_file, (arg_override, url) in to_download.items():
         if arg_override:
             if not os.path.exists(arg_override):
                 print(arg_override, "does not exist", file=sys.stderr)
@@ -50,10 +45,10 @@ def get_cycle_libs(args: Namespace) -> List[str]:
                 shutil.copyfile(orig, dest)
             ret.append(fname)
         else:
-            dest = os.path.join("libs", lib_file)
+            dest = os.path.join("libs", dep_file)
             check_call(["curl", "-L", "-k", "-s", "-f", "-o", dest, url])
-            ret.append(lib_file)
-            print("Downloaded", lib_file, "to")
+            ret.append(url)
+            print(f"Downloaded {url} to {dest}")
 
     return ret
 
@@ -71,6 +66,7 @@ def execute() -> None:
     )
     argument_parser.add_argument("--scalelib", default=None)
     argument_parser.add_argument("--cyclecloud-api", default=None)
+    argument_parser.add_argument("--concurrent-log-handler", default=None)
     args = argument_parser.parse_args()
 
     cycle_libs = get_cycle_libs(args)
@@ -107,16 +103,12 @@ def execute() -> None:
         print(f"Adding : {name} from {path}")
         zf.write(path, name)
 
-
-
-
     def _add_directory(name: str, path: Optional[str] = None) -> None:
        with zf as zip_ref:
           for folder_name, subfolders, filenames in os.walk(name):
               for filename in filenames:
                  file_path = os.path.join(folder_name, filename)
                  zip_ref.write(file_path)
-
 
     packages = []
     for dep in cycle_libs:
@@ -152,6 +144,15 @@ def execute() -> None:
         
         path = os.path.join(build_dir, fil)
         _add("packages/" + fil, path)
+
+    # Remove build artifacts
+    artifact_dirs = ['hostfactory/host_provider/src/__pycache__', 'hostfactory/host_provider/.mypy_cache']
+    for dir_path in artifact_dirs:        
+        try:
+            if os.path.exists(dir_path):
+                shutil.rmtree(dir_path)
+        except OSError as e:
+            print("Error: %s : %s" % (dir_path, e.strerror))
 
     _unix2dos("hostfactory", patterns=['**/*.ps1', '**/*.bat'])
     _add_directory("hostfactory")
