@@ -8,8 +8,8 @@ from unittest.mock import patch
 
 class TestCluster(unittest.TestCase):
     
-    # def test_limit_request_by_available_count(self):
-    #     pass
+    def test_limit_request_by_available_count(self):
+        pass
     #     #self.provider.config.set("symphony.disable_active_count_fix", True)
     #     cluster_name = "TestCluster"
     #     provider_config = {"User" : "abcd"}

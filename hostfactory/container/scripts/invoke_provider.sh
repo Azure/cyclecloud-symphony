@@ -13,6 +13,10 @@ export PRO_HF_LOGDIR=${PRO_HF_TOP}/log
 export PRO_HF_CONFDIR=${PRO_HF_TOP}/conf
 export PRO_HF_WORKDIR=${PRO_HF_TOP}/work
 
+if [ -f "/etc/profile.d/azurecc.sh" ]; then
+	source /etc/profile.d/azurecc.sh
+fi
+
 # copy input file into container mounted folder
 export HF_INPUT_DIR=${HF_WORKDIR}/inputs
 mkdir -p ${HF_INPUT_DIR}

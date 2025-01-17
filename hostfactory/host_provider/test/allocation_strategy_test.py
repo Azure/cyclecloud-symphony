@@ -116,7 +116,6 @@ class TestAllocationStrategy(unittest.TestCase):
         self.assertEqual(result, expected_node_list)
 
         # Test capacity distribution 
-        logger.warning("GOT HERE")
         vm_size = {"A": 16, "B": 8, "C": 4}
         expected_node_list = []
         expected_node_list.extend(set_node_list('A', 3, 16))
@@ -129,7 +128,6 @@ class TestAllocationStrategy(unittest.TestCase):
             [{"node.vm_size": "C", "weight": 1, "template_id": "some_template_id", 'capacity-failure-backoff': 500}, 32, False],
             ], expected_allocate_results_list=expected_node_list)
         
-        logger.warning("GOT HERE")
         autoscaling_strategy = allocation_strategy.AllocationStrategy(mymock, {}, strategy="capacity", 
                                                                       capacity_limit_timeout=500, logger=logger)
         result = autoscaling_strategy.allocate_slots(100, "some_template_id", vm_size)
