@@ -70,16 +70,15 @@ class Cluster:
                                                default_value=lambda node: "{node.nodearray + node.vm_size.replace('_', '')}".lower())
             self.node_mgr.add_default_resource(selection={}, resource_name="weight", default_value=1)
 
-    def add_nodes(self, request_id, template_id, requested_slot_count, use_weighted_templates=False, vm_types={}, 
+    def add_nodes(self, request_id, template_id, requested_slot_count, use_weighted_templates=False, vm_types={},
                   capacity_limit_timeout=300, autoscaling_strategy="price", dry_run=False):
-        
-        
+
         # Add custom resources for nodes in scalelib (each pass may be a new process, so do this each time)
         self.configure_node_resources_scalelib(use_weighted_templates, vm_types)
 
-        autoscaling_strategy = AllocationStrategy(self.node_mgr, self.provider_config, strategy=autoscaling_strategy,
-                                                  capacity_limit_timeout=capacity_limit_timeout, logger=self.logger)
-        allocation_results = autoscaling_strategy.allocate_slots(requested_slot_count, template_id, vm_types)
+        allocation_strategy = AllocationStrategy(self.node_mgr, self.provider_config, strategy=autoscaling_strategy,
+                                                 capacity_limit_timeout=capacity_limit_timeout, logger=self.logger)
+        allocation_results = allocation_strategy.allocate_slots(requested_slot_count, template_id, vm_types)
 
         by_vm_size = partition(self.node_mgr.new_nodes, lambda node: node.vm_size)
         for key,value in by_vm_size.items():

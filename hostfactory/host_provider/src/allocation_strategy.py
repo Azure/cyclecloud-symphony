@@ -61,6 +61,8 @@ def calculate_vm_dist_weighted(vm_types, requested_slot_count, percentage_weight
         vm, weight = p
         if slots_per_vm_type[n] < 1:
             continue
+        if weight <= 0:
+            continue
         slot_count = max(weight, round_down_to_nearest_multiple(slots_per_vm_type[n], weight))
         remaining_slots -= slot_count
         vm_dist[vm] = slot_count
@@ -134,7 +136,8 @@ class AllocationStrategy:
     def filter_available_vmTypes(self, vm_types):
         '''Filter out vmTypes that have no available capacity'''
 
-        buckets_with_capacity = [b for b in self.node_mgr.get_buckets() if (b.last_capacity_failure or 0) < self.capacity_limit_timeout and b.resources.get("weight") and b.available_count]
+        buckets_with_capacity = [b for b in self.node_mgr.get_buckets()
+                                 if ((int(b.last_capacity_failure or 0)) < self.capacity_limit_timeout and b.resources.get("weight")) and b.available_count]
         vm_sizes = [b.vm_size for b in buckets_with_capacity]
         filtered_vmTypes = {}
         for vm_size in vm_types:
@@ -194,11 +197,10 @@ class AllocationStrategy:
                                         "capacity-failure-backoff": self.capacity_limit_timeout},
                                         slot_count=requested_slots,
                                         allow_existing=False)
-        return result
+        return result.nodes or []
     
     
     def _allocation_strategy(self, template_id, slot_count, vm_sizes, vm_dist):
-        result = None
         allocation_results = []
         check_allocate = None
         self.logger.warning(f"Allocating {slot_count} slots for template_id {template_id} using distribution {vm_dist}")
@@ -214,20 +216,19 @@ class AllocationStrategy:
                     self.logger.debug("0 new nodes allocated for %s", vmsize)
                     break
                 else:
-                    result = check_allocate
-                    allocation_results.append(result)
+                    allocation_results.extend(check_allocate.nodes)
         allocated_count = sum([x.resources["weight"] for x in self.node_mgr.get_new_nodes()])
         remaining_count = slot_count - allocated_count
         self.logger.debug("Allocated %s remaining %s", allocated_count, remaining_count)
         # Allocate remaining slots with any available vm size
         if remaining_count > 0:
+            self.logger.warning("Allocating remaining: %s slots", remaining_count)
             check_allocate = self.node_mgr.allocate({"weight": 1, 
                                                      "template_id": template_id, 
                                                      "capacity-failure-backoff": self.capacity_limit_timeout},
                                                     slot_count=remaining_count, allow_existing=False) 
             if check_allocate.nodes:
-                result = check_allocate
-                allocation_results.append(result)
+                allocation_results.extend(check_allocate.nodes)
         return allocation_results
 
 

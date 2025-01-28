@@ -5,10 +5,15 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
 cyclecloud_api_package=${1}
 
+echo "Building host provider plugin"
 cd "${SCRIPT_DIR}"
 echo "Clearing build_deps and dist directories"
-rm -rf ./build_deps ./dist
+rm -rf ./build_venv ./build_deps ./dist
 mkdir -p ./build_deps ./dist
+
+python3 -m venv ./build_venv
+. ./build_venv/bin/activate
+
 pushd ./build_deps
 
     echo "Fetching cyclecloud-api package"
@@ -30,8 +35,6 @@ pushd ./build_deps
     echo "Building cyclecloud-scalelib package"
     git clone 'https://github.com/Azure/cyclecloud-scalelib.git'
     pushd cyclecloud-scalelib
-        # TODO: Remove once branch is merged
-        git checkout ryhamel/last-capacity-failure
         python3 setup.py sdist
         cyclecloud_scalelib_package=$(basename $(ls dist/cyclecloud-scalelib-*.tar.gz))
         cp "./dist/${cyclecloud_scalelib_package}" "../../dist/${cyclecloud_scalelib_package}"

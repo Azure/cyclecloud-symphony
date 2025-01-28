@@ -161,8 +161,19 @@ def execute() -> None:
     print("Created package: ", zf.filename)
     print("\n".join(f for f in zf.namelist()))
     
-    blob_path = os.path.join(expected_cwd, 'blobs/symphony', zf_filename)
+    blob_dir = os.path.join(expected_cwd, 'blobs', 'symphony')
+    blob_path = os.path.join(blob_dir, zf_filename)
+    os.makedirs(blob_dir, exist_ok=True)
     print(f"Copying package to {blob_path}")
+
+
+    def list_files_recursive(directory):
+        for root, dirs, files in os.walk(directory):
+            for file in files:
+                print(os.path.join(root, file))
+
+    list_files_recursive(blob_dir)
+
     shutil.copyfile(zf_path, blob_path)
 
 if __name__ == "__main__":

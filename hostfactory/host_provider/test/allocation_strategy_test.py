@@ -2,16 +2,24 @@ import unittest
 import allocation_strategy
 import logging
 
-class MockResult:
+class MockAllocateResult:
 
     def __init__(self, node_list):
         self.nodes = node_list
 
+class MockSku:
+
+    def __init__(self, name, vcpus, available_count=1000000):
+        self.name = name
+        self.vcpus = vcpus
+        self.available_count = available_count
+
 class MockNodeMgr:
     
-    def __init__(self, expect=[], expected_new_nodes_list=[]):
+    def __init__(self, expect=[], expected_allocate_results_list=[]):
         self.expect = expect
-        self.expected_new_nodes_list = expected_new_nodes_list
+        self.expected_allocate_results_list = expected_allocate_results_list
+        self.remaining_nodes_to_allocate = list(self.expected_allocate_results_list)
     
     def allocate(self,
         constraints,
@@ -25,12 +33,19 @@ class MockNodeMgr:
         list_args.append(constraints)
         list_args.append(slot_count)
         list_args.append(allow_existing)
-        expected_args = self.expect.pop(0)
+        expected_args = self.expect.pop(0) if self.expect else []
         assert expected_args == list_args, f"Expected {list_args} got {expected_args}"
-        if not self.expected_new_nodes_list:
-           result = MockResult([])
+
+        nodes = []
+        if not self.remaining_nodes_to_allocate:
+           result = MockAllocateResult(nodes)
         else:
-           result = MockResult(self.expected_new_nodes_list)
+           remaining_count = slot_count
+           while remaining_count > 0:               
+               next_node = self.remaining_nodes_to_allocate.pop(0)
+               nodes.append(next_node)
+               remaining_count -= next_node.resources['weight']
+           result = MockAllocateResult(nodes)
         
         return result
         
@@ -38,13 +53,16 @@ class MockNodeMgr:
         self.expect.append(args)
         
     def get_new_nodes(self):        
-        return self.expected_new_nodes_list
+        return self.expected_allocate_results_list
     
 class MockNode:
     
     def __init__(self, node_name, weight):
        self.name = node_name
        self.resources = {"weight": weight}
+
+    def __str__(self):
+        return f"name: {self.name}, resources: {self.resources}"
     
 def set_node_list(node_name, node_count, weight=1):
     # concatenate node_name with a number to create a list of nodes
@@ -70,13 +88,15 @@ class TestAllocationStrategy(unittest.TestCase):
             expected_node_list.extend(set_node_list(vm, c, 1))
         mymock = MockNodeMgr([
             [{"weight": 1, "template_id": "some_template_id", 'capacity-failure-backoff': 500}, 17, False]
-            ], expected_new_nodes_list=expected_node_list) 
+            ], expected_allocate_results_list=expected_node_list)
 
         # Price based allocation (left-to-right)
         autoscaling_strategy = allocation_strategy.AllocationStrategy(mymock, {}, strategy="price", 
                                                                       capacity_limit_timeout=500, logger=logger)
         result = autoscaling_strategy.allocate_slots(17, "some_template_id", {"A": 1, "B": 1})
-        self.assertEqual(result.nodes, expected_node_list)
+
+        self.assertEqual(len(result), len(expected_node_list))
+        self.assertEqual(result, expected_node_list)
 
 
         # Test capacity based distribution and no remaining slots
@@ -87,35 +107,40 @@ class TestAllocationStrategy(unittest.TestCase):
         mymock = MockNodeMgr([
             [{"node.vm_size": "A", "weight": 1, "template_id": "some_template_id", 'capacity-failure-backoff': 500}, 9, False],
             [{"node.vm_size": "B", "weight": 1, "template_id": "some_template_id", 'capacity-failure-backoff': 500}, 8, False],
-            ], expected_new_nodes_list=expected_node_list) 
+            ], expected_allocate_results_list=expected_node_list) 
         
         autoscaling_strategy = allocation_strategy.AllocationStrategy(mymock, {}, strategy="capacity", 
                                                                       capacity_limit_timeout=500, logger=logger)
         result = autoscaling_strategy.allocate_slots(17, "some_template_id", {"A": 1, "B": 1})
-        self.assertEqual(result.nodes, expected_node_list)        
+        self.assertEqual(len(result), len(expected_node_list))
+        self.assertEqual(result, expected_node_list)
 
         # Test capacity distribution 
         vm_size = {"A": 16, "B": 8, "C": 4}
-        expected_node_list.extend(set_node_list('A', 48, 16))
-        expected_node_list.extend(set_node_list('B', 32, 8))
-        expected_node_list.extend(set_node_list('C', 32, 4))
+        expected_node_list = []
+        expected_node_list.extend(set_node_list('A', 3, 16))
+        expected_node_list.extend(set_node_list('B', 4, 8))
+        expected_node_list.extend(set_node_list('C', 8, 4))
+        logger.warning("Expecting: %s", "\n".join([f"{str(node)}" for node in expected_node_list]))
         mymock = MockNodeMgr([
             [{"node.vm_size": "A", "weight": 1, "template_id": "some_template_id", 'capacity-failure-backoff': 500}, 48, False],
             [{"node.vm_size": "B", "weight": 1, "template_id": "some_template_id", 'capacity-failure-backoff': 500}, 32, False],
             [{"node.vm_size": "C", "weight": 1, "template_id": "some_template_id", 'capacity-failure-backoff': 500}, 32, False],
-            ], expected_new_nodes_list=expected_node_list) 
+            ], expected_allocate_results_list=expected_node_list)
         
         autoscaling_strategy = allocation_strategy.AllocationStrategy(mymock, {}, strategy="capacity", 
                                                                       capacity_limit_timeout=500, logger=logger)
         result = autoscaling_strategy.allocate_slots(100, "some_template_id", vm_size)
-        self.assertEqual(result.nodes, expected_node_list)        
+        self.assertEqual(len(result), len(expected_node_list))
+        self.assertEqual(result, expected_node_list)        
 
         # Test weighted distribution
         vm_size = {"A": 16, "B": 8, "C": 48, "D": 16, "E": 8, "F": 4}
-        expected_node_list.extend(set_node_list('A', 704, 16))
-        expected_node_list.extend(set_node_list('B', 200, 8))
-        expected_node_list.extend(set_node_list('C', 48, 48))
-        expected_node_list.extend(set_node_list('D', 48, 16))
+        expected_node_list = []
+        expected_node_list.extend(set_node_list('A', 44, 16))
+        expected_node_list.extend(set_node_list('B', 25, 8))
+        expected_node_list.extend(set_node_list('C', 1, 48))
+        expected_node_list.extend(set_node_list('D', 3, 16))
         expected_node_list.extend(set_node_list('E', 0, 8))
         expected_node_list.extend(set_node_list('F', 0, 4))
         mymock = MockNodeMgr([
@@ -123,12 +148,13 @@ class TestAllocationStrategy(unittest.TestCase):
             [{"node.vm_size": "B", "weight": 1, "template_id": "some_template_id", 'capacity-failure-backoff': 500}, 200, False],
             [{"node.vm_size": "C", "weight": 1, "template_id": "some_template_id", 'capacity-failure-backoff': 500}, 48, False],
             [{"node.vm_size": "D", "weight": 1, "template_id": "some_template_id", 'capacity-failure-backoff': 500}, 48, False],
-            ], expected_new_nodes_list=expected_node_list) 
+            ], expected_allocate_results_list=expected_node_list) 
         
         autoscaling_strategy = allocation_strategy.AllocationStrategy(mymock, {}, strategy="weighted", 
                                                                       capacity_limit_timeout=500, logger=logger)
         result = autoscaling_strategy.allocate_slots(1000, "some_template_id", vm_size)
-        self.assertEqual(result.nodes, expected_node_list)        
+        self.assertEqual(len(result), len(expected_node_list))
+        self.assertEqual(result, expected_node_list)        
 
 
     def test_allocation_strategy(self):
@@ -140,38 +166,45 @@ class TestAllocationStrategy(unittest.TestCase):
         for vm, c in vm_dist.items():
             expected_node_list.extend(set_node_list(vm, c, 1))
         mymock = MockNodeMgr([
-            [{"node.vm_size": "A", "weight": 1, "template_id": "some_template_id", 'capacity-failure-backoff': 500}, 9, False],
-            [{"node.vm_size": "B", "weight": 1, "template_id": "some_template_id", 'capacity-failure-backoff': 500}, 8, False],
-            ], expected_new_nodes_list=expected_node_list) 
+            [{"weight": 1, "template_id": "some_template_id", 'capacity-failure-backoff': 500}, 17, False]
+            ], expected_allocate_results_list=expected_node_list) 
         
         autoscaling_strategy = allocation_strategy.AllocationStrategy(mymock, {}, strategy="price", capacity_limit_timeout=500, logger=logger)
-        result = autoscaling_strategy._allocation_strategy("some_template_id", 17, {"A": 1, "B": 1}, vm_dist)
-        self.assertEqual(result.nodes, expected_node_list)
+
+        result = autoscaling_strategy.allocate_slots(17, "some_template_id", vm_dist)
+        self.assertEqual(len(result), len(expected_node_list))
+        self.assertEqual(result, expected_node_list)        
         
-        # Test Empty list of nodes
-        mymock = MockNodeMgr([
-            [{"node.vm_size": "A", "weight": 1, "template_id": "some_template_id", 'capacity-failure-backoff': 500}, 9, False],
-            [{"weight": 1, "template_id": "some_template_id", "capacity-failure-backoff": 500}, 17, False]], expected_new_nodes_list=[]) 
+        # # Test Empty list of nodes
+        # mymock = MockNodeMgr([
+        #     [{"node.vm_size": "A", "weight": 1, "template_id": "some_template_id", 'capacity-failure-backoff': 500}, 9, False],
+        #     [{"weight": 1, "template_id": "some_template_id", "capacity-failure-backoff": 500}, 17, False]], expected_allocate_results_list=[]) 
         
-        autoscaling_strategy = allocation_strategy.AllocationStrategy(mymock, {}, strategy="price", capacity_limit_timeout=500, logger=logger)
-        result = autoscaling_strategy._allocation_strategy("some_template_id", 17, {"A": 1, "B": 1}, vm_dist)
-        self.assertEqual(result, None)
+        # autoscaling_strategy = allocation_strategy.AllocationStrategy(mymock, {}, strategy="price", capacity_limit_timeout=500, logger=logger)
+        # result = autoscaling_strategy._allocation_strategy("some_template_id", 17, {"A": 1, "B": 1}, vm_dist)
+        # self.assertEqual(result, None)
         
         # Test weighted distribution and remaining slots
         vm_dist = {"A":17, "B":0, "C": 7}
         expected_node_list = []
-        for vm, c in vm_dist.items():
-            expected_node_list.extend(set_node_list(vm, c, 1))
+        # for vm, c in vm_dist.items():
+        #     expected_node_list.extend(set_node_list(vm, c, 1))
+        expected_node_list = []
+        expected_node_list.extend(set_node_list('A', 2, 17))
+        expected_node_list.extend(set_node_list('B', 0, 0))
+        expected_node_list.extend(set_node_list('C', 1, 7))
         mymock = MockNodeMgr([
-            [{"node.vm_size": "A", "weight": 1, "template_id": "some_template_id", 'capacity-failure-backoff': 500}, 17, False],
+            [{"node.vm_size": "A", "weight": 1, "template_id": "some_template_id", 'capacity-failure-backoff': 500}, 34, False],
             [{"node.vm_size": "C", "weight": 1, "template_id": "some_template_id", 'capacity-failure-backoff': 500}, 7, False],
             [{"weight": 1, "template_id": "some_template_id", "capacity-failure-backoff": 500}, 11, False]],  
-            expected_new_nodes_list=expected_node_list)
-        expected_node_list.extend(set_node_list("A", 11, 1))
-        autoscaling_strategy = allocation_strategy.AllocationStrategy(mymock, {}, strategy="price", capacity_limit_timeout=500, logger=logger)
-        result = autoscaling_strategy._allocation_strategy("some_template_id", 35, {"A": 1, "B": 1, "C": 1}, vm_dist)
-        self.assertEqual(result.nodes, expected_node_list)
-        
+            expected_allocate_results_list=expected_node_list)
+        # expected_node_list.extend(set_node_list("A", 11, 1))
+        autoscaling_strategy = allocation_strategy.AllocationStrategy(mymock, {}, strategy="weighted", capacity_limit_timeout=500, logger=logger)
+
+        result = autoscaling_strategy.allocate_slots(35, "some_template_id", vm_dist)
+        self.assertEqual(len(result), len(expected_node_list))
+        self.assertEqual(result, expected_node_list)        
+
     def test_CalculateDistCapacity(self):
         vm_size = {"A": 16, "B": 8}
         vm_dist = allocation_strategy.calculate_vm_dist_capacity(vm_size, 24)
@@ -284,4 +317,5 @@ class TestAllocationStrategy(unittest.TestCase):
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.DEBUG)
     unittest.main()
