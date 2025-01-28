@@ -44,7 +44,6 @@ COPY ./cyclecloud_api-*-py2.py3-none-any.whl /tmp/cyclecloud_api-*-py2.py3-none-
 
 RUN cd /cyclecloud-symphony \
  && echo "Building package..." \
- && git checkout bewatrou/containerized_plugin \
  && ./build_package_from_source.sh /tmp/cyclecloud_api-*-py2.py3-none-any.whl
 
 # Make the host_provider plugin executable from /hostfactory/host_provider
