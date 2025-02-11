@@ -263,7 +263,7 @@ class ProviderConfig:
             return self.config
         
         keys = key.split(".")
-        top_value = {**self.config, **self.jetpack_config}
+        top_value = {**self.jetpack_config, **self.config}
         for n in range(len(keys)):
             if top_value is None:
                 break

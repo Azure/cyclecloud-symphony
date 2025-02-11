@@ -47,7 +47,7 @@ def get_cycle_libs(args: Namespace) -> List[str]:
         else:
             dest = os.path.join("libs", dep_file)
             check_call(["curl", "-L", "-k", "-s", "-f", "-o", dest, url])
-            ret.append(url)
+            ret.append(dep_file)
             print(f"Downloaded {url} to {dest}")
 
     return ret
