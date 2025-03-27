@@ -28,9 +28,23 @@ echo `date` "  Invoking:" >> /tmp/invoke_provider_container.${USER}.log
 exec {BASH_XTRACEFD}>>/tmp/invoke_provider_container.${USER}.log # redirect bash echo / xtrace
 set -x
 
-docker run -v ${HF_LOGDIR}:${PRO_HF_LOGDIR} \
-		   -v ${HF_CONFDIR}:${PRO_HF_CONFDIR} \
-		   -v ${HF_WORKDIR}:${PRO_HF_WORKDIR} \
-		   --network host \
-		   ${PRO_IMAGE_TAG} \
-		   ${PRO_SCRIPTDIR}/invoke_provider.sh ${PLUGIN_ACTION} -f "${PRO_INPUT_FILE}"
+scriptDir=`dirname $0`
+export PYTHONPATH=$PYTHONPATH:$scriptDir
+venv_path=${DOCKER_VENV_PATH}
+
+if [ -z "$venv_path" ]; then
+	venv_path=$scriptDir/venv
+	python3 -m venv $venv_path
+	. $venv_path/bin/activate
+	pip install docker
+	deactivate
+fi
+
+if [ -e $venv_path ]; then
+	. $venv_path/bin/activate
+	$venv_path/bin/python3 -m docker_exec.py ${PLUGIN_ACTION} -f ${PRO_INPUT_FILE} 2>>/tmp/invoke_provider_container.${USER}.log
+	exit $?
+else
+	echo "ERROR: Could not find venv at $venv_path"
+	exit 1
+fi
