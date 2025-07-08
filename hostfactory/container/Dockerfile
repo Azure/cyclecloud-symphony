@@ -27,11 +27,17 @@ RUN apt update && apt install -y \
     nano \
     jq \
     git \
-    python3-pip \    
-    python3-setuptools \
-    python3-venv \
     dos2unix \
- && rm -rf /var/lib/apt/lists/*
+    curl \
+    python3.11 \
+    python3.11-venv \
+    python3.11-dev \
+    && curl -O https://bootstrap.pypa.io/get-pip.py \
+    && python3.11 get-pip.py \
+    && update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1 \
+    && update-alternatives --set python3 /usr/bin/python3.11 \
+    && ln -s /usr/bin/python3.11 /usr/bin/python \
+    && rm -rf /var/lib/apt/lists/*
 
 RUN update-locale LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
 ENV LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
@@ -40,7 +46,7 @@ RUN mkdir -p ${EGO_TOP}/kernel/conf ${HF_TOP} ${HF_CONFDIR} ${HF_LOGDIR} ${HF_WO
  && cd / \
  && git clone https://github.com/Azure/cyclecloud-symphony.git
 
-COPY ./cyclecloud_api-*-py2.py3-none-any.whl /tmp/cyclecloud_api-*-py2.py3-none-any.whl
+COPY ./cyclecloud_api-*-py2.py3-none-any.whl /tmp/
 
 RUN cd /cyclecloud-symphony \
  && echo "Building package..." \
@@ -61,5 +67,3 @@ RUN cd / \
 # Copy resulting host_provider blob back to container host with docker build --output=.
 #FROM scratch
 #COPY --from=build /cyclecloud-symphony/blobs/symphony/cyclecloud-symphony-pkg* .
-    
-
