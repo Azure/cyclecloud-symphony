@@ -28,10 +28,6 @@ fi
 
 set -e
 
-
-# for 7.3.2
-#su - -c "source /etc/profile.d/symphony.sh && yes | egoconfig setpassword -x Admin && egoconfig setentitlement ${SYM_ENTITLEMENT_FILE}" egoadmin
-
 #7.3.1
 su - -c "source /etc/profile.d/symphony.sh && yes | egoconfig setentitlement ${SYM_ENTITLEMENT_FILE}" egoadmin
 
