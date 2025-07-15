@@ -29,7 +29,7 @@ fi
 set -e
 
 
-su - -c "source /etc/profile.d/symphony.sh && yes | egoconfig setpassword -x Admin && egoconfig setentitlement ${SYM_ENTITLEMENT_FILE}" egoadmin
+su - -c "source /etc/profile.d/symphony.sh && yes | egoconfig setpassword -x ${SOAM_PASSWORD} && egoconfig setentitlement ${SYM_ENTITLEMENT_FILE}" egoadmin
 
 # Enable automatic startup after reboot (TODO: might want to move restart to chef so volumes are mounted)
 egosetrc.sh
