@@ -32,8 +32,8 @@ SESSION_COLS={'SESSION': 0,
 
 BOOTSTRAP_DIR = jetpack.config.get("cyclecloud.bootstrap")
 
-_username = 'Admin'
-_password = 'Admin'
+_username = os.environ.get('SOAM_USER')
+_password = os.environ.get('SOAM_PASS')
 
 
 def soamview(*args):

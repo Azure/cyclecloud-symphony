@@ -33,8 +33,8 @@ class SymphonyRestClient:
         self.config = config
         self.logger = logger or logging.getLogger()
         self.webserviceUrl = self.rest_url()
-        self.username = self.config.get('symphony.soam.user', 'Admin')
-        self.password = self.config.get('symphony.soam.password', 'Admin')
+        self.username = self.config.get('symphony.soam.user')
+        self.password = self.config.get('symphony.soam.password')
         self.token = None
 
     def rest_url(self):
