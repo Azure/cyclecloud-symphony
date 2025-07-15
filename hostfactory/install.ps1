@@ -8,7 +8,7 @@ Param(
     [parameter(HelpMessage="Cyclecloud Username")]
     [String]$cc_user = "cyclecloud_access",
     [parameter(HelpMessage="Cyclecloud Password")]
-    [String]$cc_pass = "DGn298QMq.n0GC",
+    [String]$cc_pass = "fakepassword",
     [parameter(HelpMessage="Fake installation")]
     [switch]$dryrun = $false
 
