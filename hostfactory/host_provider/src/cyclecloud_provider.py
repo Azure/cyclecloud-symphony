@@ -263,7 +263,7 @@ class CycleCloudProvider:
             if is_paused_capacity:
                 record["priority"] = 0
                     
-                templates_store[template_id] = record
+            templates_store[template_id] = record
                 
         
         # for templates that are no longer available, advertise them but set priority = 0
@@ -638,7 +638,9 @@ class CycleCloudProvider:
                 nodes_by_request_id.update(self.cluster.nodes(request_ids=[request_id]))   
                 logger.debug("Node list by request id %s",nodes_by_request_id)             
             except Exception as e:
-                if "No operation found for request id" in str(e):
+                if "Could not find request id" in str(e):
+                    nodes_by_request_id[request_id] = {"nodes": []}
+                elif "No operation found for request id" in str(e):
                     nodes_by_request_id[request_id] = {"nodes": []}
                 else:
                     exceptions.append(e)
