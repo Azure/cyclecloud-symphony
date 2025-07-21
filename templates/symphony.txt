@@ -54,6 +54,14 @@ Autoscale = $Autoscale
         Size = $MasterBootDiskSize
         Ssd = $MasterBootDiskSSD
 
+        [[[volume vartmp]]]
+        Size = 2048
+        SSD = true
+        Mount = vartmp
+        Persistent = false
+
+
+
     [[nodearray management]]
     MachineType = $ManagementMachineType    
     InitialCoreCount = 0
@@ -78,6 +86,7 @@ Autoscale = $Autoscale
     MaxCoreCount = $MaxExecuteCoreCount
     Interruptible = $UseLowPrio
     Priority = 10
+    AwaitInstallationTimeout=10
 
         [[[volume boot]]]
         Size = $ExecuteBootDiskSize
