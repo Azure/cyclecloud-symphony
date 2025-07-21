@@ -92,17 +92,15 @@ class CycleCloudProvider:
             autoscale_enabled = bucket.software_configuration.get("autoscaling", {}).get("enabled", False)
             if not autoscale_enabled:
                 continue
-            # if available count is 0 then set availablity to 0
-            for bucket in buckets:
-                if bucket.get("availableCount") == 0:
-                    logger.debug("Bucket %s has 0 availableCount.", bucket)
-                    continue
-                at_least_one_bucket_has_available = True
-                machine_type =  bucket.vm_size
-                # Symphony hates special characters
-                nodearray_name = bucket.nodearray
-                is_paused = self.capacity_tracker.is_paused(nodearray_name, machine_type)
-                at_least_one_unpaused_bucket = at_least_one_unpaused_bucket or not is_paused
+            if bucket.available_count == 0:
+                logger.debug("Bucket %s has 0 availableCount.", bucket)
+                continue
+            at_least_one_bucket_has_available = True
+            machine_type =  bucket.vm_size
+            # Symphony hates special characters
+            nodearray_name = bucket.nodearray
+            is_paused = self.capacity_tracker.is_paused(nodearray_name, machine_type)
+            at_least_one_unpaused_bucket = at_least_one_unpaused_bucket or not is_paused
         # Don't reset capacity if there is no available capacity on any bucket
         if not at_least_one_bucket_has_available:
             return False
@@ -150,7 +148,7 @@ class CycleCloudProvider:
         
         # We cannot report to Symphony that we have 0 capacity on all VMs. If we detect this we
         # simply reset any temporary capacity constraints.
-        if self._should_reset_capacity(buckets):
+        if self._should_reset_capacity_scalelib(buckets):
             logger.warning("All buckets have 0 capacity. Resetting capacity tracker.")
             self.capacity_tracker.reset()
         
@@ -163,98 +161,37 @@ class CycleCloudProvider:
             if not autoscale_enabled:
                 continue
 
-            for bucket in enumerate(buckets):
-                machine_type_name = bucket.vm_size
-                
-                machine_type = bucket.vm_size
-                at_least_one_available_bucket = True
-                
-                # Symphony hates special characters
-                nodearray_name = bucket.nodearray
-                template_id = "%s%s" % (nodearray_name, machine_type_name)
-                template_id = self._escape_id(template_id)
-                
-                currently_available_templates.add(template_id)
-
-                max_count = bucket.max_count
-                
-                memory = bucket.memory.convert_to("m").value
-                is_low_prio = bucket.spot
-                ngpus = 0
-                try:
-                    ngpus = int(bucket.software_configuration.get("symphony", {}).get("ngpus", bucket.gpu_count))
-                except ValueError:
-                    logger.exception("Ignoring symphony.ngpus for nodearray %s" % nodearray_name)
-
-                # Check previous maxNumber setting - we NEVER lower maxNumber, only raise it.
-                previous_max_count = 0
-                if template_id in templates_store:
-                    previous_max_count = templates_store[template_id].get("maxNumber", max_count)
-                if max_count < previous_max_count:
-                    logger.info("Rejecting attempt to lower maxNumber from %s to %s for %s", previous_max_count, max_count, template_id)
-                    max_count = previous_max_count
-                
-                base_priority = bucket_priority(buckets, bucket)
-                # Symphony
-                # - uses nram rather than mem
-                # - uses strings for numerics  
-                ncpus_use_vcpus = bool(self.config.get("symphony.ncpus_use_vcpus", True))
-                if ncpus_use_vcpus:
-                    ncpus = machine_type.get("vcpuCount")
-                else:
-                    ncpus = machine_type.get("pcpuCount")
-
-                record = {
-                    "maxNumber": max_count,
-                    "templateId": template_id,
-                    "priority": base_priority,
-                    "attributes": {
-                        "zone": ["String", bucket.location],
-                        "mem": ["Numeric", "%d" % memory],
-                        "nram": ["Numeric", "%d" % memory],
-                        # NOTE:
-                        #  ncpus == num_sockets == ncores / cores_per_socket
-                        #  Since we don't generally know the num_sockets,
-                        #      just set ncpus = 1 for all skus (1 giant CPU with N cores)
-                        #"ncpus": ["Numeric", "%d" % machine_type.get("???physical_socket_count???")],
-                        "ncpus": ["Numeric", "%d" % ncpus],  
-                        "ncores": ["Numeric", "%d" % machine_type.get("vcpuCount")],
-                        "ngpus": ["Numeric", ngpus],                            
-                        "azurecchost": ["Boolean", "1"],
-                        'rank': ['Numeric', '0'],
-                        'priceInfo': ['String', 'price:0.1,billingTimeUnitType:prorated_hour,billingTimeUnitNumber:1,billingRoundoffType:unit'],                               'type': ['String', 'X86_64'],
-                        "type": ["String", "X86_64"],
-                        "machinetypefull": ["String", machine_type_name],
-                        "machinetype": ["String", machine_type_name],
-                        "nodearray": ["String", nodearray_name],
-                        "azureccmpi": ["Boolean", "0"],
-                        "azurecclowprio": ["Boolean", "1" if is_low_prio else "0"]
-                    }
-                }
-                
-                # deepcopy so we can pop attributes
-                
-                for override_sub_key in ["default", nodearray_name]:
-                    overrides = deepcopy(self.config.get("templates.%s" % override_sub_key, {}))
-                    attribute_overrides = overrides.pop("attributes", {})
-                    record.update(overrides)
-                    record["attributes"].update(attribute_overrides)
-                
-                attributes = self.generate_userdata(record)
-                
-                custom_env = self._parse_UserData(record.pop("UserData", "") or "")
-                record["UserData"] = {"symphony": {}}
-                
-                if custom_env:
-                    record["UserData"]["symphony"] = {"custom_env": custom_env,
-                                                    "custom_env_names": " ".join(sorted(custom_env))}
-                
-                record["UserData"]["symphony"]["attributes"] = attributes
-                record["UserData"]["symphony"]["attribute_names"] = " ".join(sorted(attributes))
+            machine_type_name = bucket.vm_size
+            
+            at_least_one_available_bucket = True
+            
             # Symphony hates special characters
-            template_id = "%s%s" % (bucket.nodearray, bucket.vm_size)
+            nodearray_name = bucket.nodearray
+            
+            # Symphony hates special characters
+            template_id = "%s%s" % (nodearray_name, machine_type_name)
             template_id = self._escape_id(template_id)
             currently_available_templates.add(template_id)
+
+            max_count = bucket.max_count
+            
+            memory = bucket.memory.convert_to("m").value
+            is_low_prio = bucket.spot
+            ngpus = 0
+            try:
+                ngpus = int(bucket.software_configuration.get("symphony", {}).get("ngpus", bucket.gpu_count))
+            except ValueError:
+                logger.exception("Ignoring symphony.ngpus for nodearray %s" % nodearray_name)
+
+            # Check previous maxNumber setting - we NEVER lower maxNumber, only raise it.
+            previous_max_count = 0
+            if template_id in templates_store:
+                previous_max_count = templates_store[template_id].get("maxNumber", max_count)
+            if max_count < previous_max_count:
+                logger.info("Rejecting attempt to lower maxNumber from %s to %s for %s", previous_max_count, max_count, template_id)
+                max_count = previous_max_count
+            
+            base_priority = bucket_priority(buckets, bucket)
             
             max_count = bucket.max_count
             is_low_prio = bucket.spot
