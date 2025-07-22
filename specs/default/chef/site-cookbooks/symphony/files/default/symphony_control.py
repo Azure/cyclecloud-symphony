@@ -28,8 +28,8 @@ SESSION_COLS={'SESSION': 0,
               'CREATED': 8,
               'INST': 9 }
 
-_username = 'Admin'
-_password = 'Admin'
+_username = os.environ.get('SOAM_USER')
+_password = os.environ.get('SOAM_PASS')
 
 
 def soamview(*args):

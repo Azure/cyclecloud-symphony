@@ -45,6 +45,7 @@ class MockCluster:
         self._nodes = {}
         self.raise_during_termination = False
         self.raise_during_add_nodes = False
+        self.raise_during_nodes = False
 
         # {<MachineType>: <ActualCapacity != MaxCount>} 
         # {'standard_a8': 1} => max of 1 VM will be returned by add_nodes regardless of requested count
@@ -100,9 +101,12 @@ class MockCluster:
         for node in self.inodes(RequestId=request_ids):
             node['InstanceId'] = '%s_%s' % (node["RequestId"], instance_count)
             node['State'] = 'Started'
+            node['Status'] = 'Started'
             node['PrivateIp'] =  '10.0.0.%s' % instance_count
             
     def nodes(self, request_ids=[]):
+        if self.raise_during_nodes:
+           raise RuntimeError("raise_during_nodes")
         ret = {}
         
         for request_id in request_ids:
@@ -149,6 +153,9 @@ class RequestsStoreInMem:
         
     def read(self):
         return self.requests
+    
+    def write(self, data):
+        self.requests = deepcopy(data)
     
     def __enter__(self):
         return self.requests
@@ -295,7 +302,12 @@ class TestHostFactory(unittest.TestCase):
                                                "buckets": [a4bucket, a8bucket]}]})
         epoch_clock = MockClock((1970, 1, 1, 0, 0, 0))
         hostnamer = MockHostnamer()
-        provider = cyclecloud_provider.CycleCloudProvider(provider_config, cluster, hostnamer, json_writer, RequestsStoreInMem(), RequestsStoreInMem(), epoch_clock)
+        output_handler = cyclecloud_provider.JsonOutputHandler(quiet=True)
+        provider = cyclecloud_provider.CycleCloudProvider(provider_config, cluster, hostnamer, output_handler,  
+                                                          terminate_requests=RequestsStoreInMem(), 
+                                                          creation_requests=RequestsStoreInMem(), 
+                                                          templates=RequestsStoreInMem(), 
+                                                          clock=epoch_clock)
         provider.capacity_tracker.reset()
         return provider
     
@@ -331,9 +343,19 @@ class TestHostFactory(unittest.TestCase):
         self.assertEqual(0, len(request_status1["machines"]))
         self.assertEqual(RequestStates.running, request_status2["status"])
         self.assertEqual(0, len(request_status2["machines"]))
-
+        
+        # Test for a case when exception raised during status call.
+        provider.cluster.raise_during_nodes = True
+        request_status = provider.status({'requests': [request1, request2]})
+        self.assertEqual(RequestStates.running, request_status["status"])
+        request_status1 = find_request_status(request_status, request1)
+        request_status2 = find_request_status(request_status, request2)
+        self.assertEqual(RequestStates.running, request_status1["status"])
+        self.assertEqual(RequestStates.running, request_status2["status"])
+        
         provider.cluster.complete_node_startup([request1['requestId'], request2['requestId']])
-
+        
+        provider.cluster.raise_during_nodes = False
         request_status = provider.status({'requests': [request1, request2]})
         self.assertEqual(RequestStates.complete, request_status["status"])
         request_status1 = find_request_status(request_status, request1)
@@ -409,6 +431,26 @@ class TestHostFactory(unittest.TestCase):
         status_response = provider.terminate_status({"machines": [{"machineId": "missing", "name": "missing-123"}]})
         self.assertEqual({'requests': [], 'status': 'complete'}, status_response)
         
+        # test status is reported as running so that HF keeps requesting status of request.
+        provider.cluster.raise_during_termination = True
+        term_response = provider.terminate_machines({"machines": [{"name": "host-123", "machineId": "id-123"}, {"name": "host-231", "machineId": "id-231"}]})
+        failed_request_id = term_response["requestId"]
+        term_response = provider.terminate_machines({"machines": [{"name": "host-123", "machineId": "id-1234"}]})
+        failed_request_id2 = term_response["requestId"]
+        status_response = provider.status({"requests": [{"requestId": failed_request_id}, {"requestId": failed_request_id2}]})
+        self.assertEqual(status_response["status"], "running")
+        self.assertEqual(len(status_response["requests"]), 2)
+        self.assertEqual(status_response["requests"][0]["requestId"], failed_request_id)
+        self.assertEqual(status_response["requests"][0]["machines"][0]["machineId"], "id-123")
+        self.assertEqual(status_response["requests"][0]["machines"][1]["machineId"], "id-231")
+        self.assertEqual(len(status_response["requests"][0]["machines"]), 2)
+        self.assertEqual(status_response["requests"][0]["status"], "running") 
+        self.assertEqual(status_response["requests"][1]["requestId"], failed_request_id2)
+        self.assertEqual(status_response["requests"][1]["machines"][0]["machineId"], "id-1234")
+        self.assertEqual(len(status_response["requests"][1]["machines"]), 1)
+        self.assertEqual(status_response["requests"][1]["status"], "running") 
+        
+        
     def test_terminate_error(self):
         provider = self._new_provider()
         term_response = provider.terminate_machines({"machines": [{"name": "host-123", "machineId": "id-123"}]})
@@ -471,6 +513,8 @@ class TestHostFactory(unittest.TestCase):
         
         a4bucket["maxCount"] = 100
         self.assertEqual(100, provider.templates()["templates"][0]["maxNumber"])
+
+
 
 
     def test_reprioritize_template(self):
