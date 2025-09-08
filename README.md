@@ -215,11 +215,46 @@ You can also verify this on CC GUI, HasCapacity is false
 Note: You should run this script from machine where Cyclecloud is installed.
 ## Additional configs for symphony templates
 
-Following 2 configuration have been added:
-1.  enable_weighted_templates -> default value is true. Used to generate template in which templateId corresponds to nodearray and vmTypes are in dictionary format with weight. But you can change it under configuration symphony for master node. In that case you need to use default format of templateId as nodearray+ sku name.
-2.  ncpus_use_vcpus -> default value is true. It assumes you want slot ncpu attribute to be based on vcpu count. You can change in symphony configuration for master node.
-3. capacity-failure-backoff -> default value is 300 (unit is seconds). 
-This is the time after which scalelib will wait to make next attempt at allocation after failure occurs. 
+Following configuration options:
+
+1. `symphony.enable_weighted_templates` (default: `true`)
+   - Used to generate templates where `templateId` corresponds to the nodearray and `vmTypes` are in a dictionary format with weights.
+   - You can change this in the Symphony configuration for the master node. In that case, use the default format of `templateId` as `nodearray+sku name`.
+
+2. `symphony.ncpus_use_vcpus` (default: `true`)
+   - If `true`, the slot `ncpu` attribute is based on vCPU count.
+   - You can change this in the Symphony configuration for the master node.
+
+3. `cyclecloud.capacity_limit_timeout` (default: `300` seconds)
+   - The time (in seconds) after which scalelib will wait before making the next allocation attempt after a failure occurs.
+
+4. `symphony.autoscaling.strategy` (default: `price`)
+    - Options: `["price", "capacity", "weighted"]`
+    - **Price**
+       - Uses the legacy allocation algorithm.
+    - **Capacity**
+       - Allocates cores evenly across all SKUs from the start.
+       - Quickly identifies and eliminates SKUs with low capacity.
+       - Reduces spikes of single SKUs that may be evicted during allocation.
+    - **Weighted**
+       - Assigns a preference to each SKU, but still allocates VMs from multiple SKUs in each pass to reduce spikes.
+       - When the first SKU runs out of capacity, the distribution shifts to the next SKU for the next allocation.
+       - If all SKU preferences/percentages are identical, this behaves the same as the Capacity strategy.
+
+5. `symphony.autoscaling.ncpus` (default: `1`)
+   - Number of vCPUs to use for autoscaling slot size
+
+6. `symphony.autoscaling.ncores` (default: `1`)
+   - Number of physical cores to use for autoscaling slot size.
+
+7. `symphony.autoscaling.nram` (default: `4096` MB)
+   - Amount of RAM (in MB) to use for autoscaling slot size.
+
+8. `symphony.autoscaling.percent_weights` (default: `[0.7, 0.2, 0.05, 0.05]`)
+   - List of percentage weights (as fractions) used for the weighted autoscaling strategy.
+   - By default, these weights allocate VMs to the top 4 SKUs in a node array, prioritizing higher-capacity SKUs.
+   - You can adjust both the values and the number of weights to match your available SKUs and desired distribution.
+   - The order and length of this list should correspond to the order and number of VM types you want to distribute across.
 
 # Contributing
 

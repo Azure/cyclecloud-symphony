@@ -16,11 +16,15 @@ class MockSku:
 
 class MockNodeMgr:
     
-    def __init__(self, expect=[], expected_allocate_results_list=[]):
+    def __init__(self, expect=[], expected_allocate_results_list=[], buckets=[]):
         self.expect = expect
         self.expected_allocate_results_list = expected_allocate_results_list
         self.remaining_nodes_to_allocate = list(self.expected_allocate_results_list)
-    
+        self.buckets = buckets
+     
+    def get_buckets(self):
+        return self.buckets
+
     def allocate(self,
         constraints,
         node_count = None,
@@ -54,7 +58,13 @@ class MockNodeMgr:
         
     def get_new_nodes(self):        
         return self.expected_allocate_results_list
-    
+
+class MockBucket:
+    def __init__(self, vm_size, weight=1, available_count=1, last_capacity_failure=None):
+        self.vm_size = vm_size
+        self.resources = {"weight": weight}
+        self.available_count = available_count
+        self.last_capacity_failure = last_capacity_failure   
 class MockNode:
     
     def __init__(self, node_name, weight):
@@ -314,8 +324,20 @@ class TestAllocationStrategy(unittest.TestCase):
         vm_size = {"A": 16, "B": 8, "C": 48, "D": 16, "E": 8, "F": 4}
         vm_dist = allocation_strategy.calculate_vm_dist_decay(vm_size, 1000)
         self.assertEqual(vm_dist, {'A': 576, 'B': 160, 'C': 96, 'D': 64, 'E': 56, 'F': 48})
-
+        
+    def test_FilterAvailableVmTypes(self):
+        bucket_with_lastcap_none = MockBucket("A", weight=1, available_count=1, last_capacity_failure=None)
+        new_failure_bucket = MockBucket("B", weight=1, available_count=1, last_capacity_failure=200)
+        old_failure_bucket = MockBucket("C", weight=1, available_count=1, last_capacity_failure=305)
+        node_mgr = MockNodeMgr(buckets=[bucket_with_lastcap_none, new_failure_bucket, old_failure_bucket])
+        strategy = allocation_strategy.AllocationStrategy(node_mgr=node_mgr, provider_config={}, strategy="price", capacity_limit_timeout=300)
+        vm_types = {"A": 2, "B": 4, "C": 8}
+        filtered = strategy.filter_available_vmTypes(vm_types)
+        self.assertIn("A", filtered)
+        self.assertNotIn("B", filtered)
+        self.assertIn("C", filtered)
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
     unittest.main()
+    

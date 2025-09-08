@@ -137,7 +137,7 @@ class AllocationStrategy:
         '''Filter out vmTypes that have no available capacity'''
 
         buckets_with_capacity = [b for b in self.node_mgr.get_buckets()
-                                 if ((int(b.last_capacity_failure or 0)) < self.capacity_limit_timeout and b.resources.get("weight")) and b.available_count]
+                                 if (not b.last_capacity_failure or int(b.last_capacity_failure) > self.capacity_limit_timeout) and b.resources.get("weight") and b.available_count]
         vm_sizes = [b.vm_size for b in buckets_with_capacity]
         filtered_vmTypes = {}
         for vm_size in vm_types:
@@ -182,7 +182,7 @@ class AllocationStrategy:
     
     def allocate_slots_weighted(self, requested_slots, template_id, vm_types):
         result = None
-        distribution = [.7, .2, .05, .05]
+        distribution = self.provider_config.get("symphony.autoscaling.percent_weights", [.7, .2, .05, .05])
         self.logger.debug("Using weighted based allocation (weights: %s)", distribution)
         # Works per allocation request
         vm_dist = calculate_vm_dist_weighted(vm_types, requested_slots, distribution)

@@ -817,9 +817,42 @@ class TestHostFactory(unittest.TestCase):
         provider.generate_sample_template()
         json_data = json.loads(capture_output.getvalue())
         self.assertEqual(1, len(json_data["templates"]))
-        assert json.loads(capture_output.getvalue())
-        sys.stdout = saved_stdout
+        self.assertEqual(2, len(json_data["templates"][0]["vmTypes"]))
+        # Check weights
+        self.assertEqual(json_data["templates"][0]["vmTypes"]["A2"], 1)
+        self.assertEqual(json_data["templates"][0]["vmTypes"]["A4"], 2)
          
+        print(json_data["templates"][0], file=saved_stdout)
+        # json_data was already parsed from the captured output above; ensure it's truthy
+        self.assertTrue(json_data)
+        sys.stdout = saved_stdout
+        
+    
+    def test_generate_sample_template_config(self):
+        saved_stdout = sys.stdout
+        from io import StringIO
+        capture_output = StringIO()
+        sys.stdout = capture_output
+        return_value = [NodeBucket("execute", 50, "A4", "cdcd4c31-3bbf-48af-b266-1c3de4b8a3d4", resources={"ncores":4}, vcpu_count=4, max_count=200, software_configuration={ "autoscaling": {"enabled": True}}),
+                        NodeBucket("execute", 50, "A8", "cdcd4c31-3bbf-48af-b266-1c3de4b8a3d4", resources={"ncores":8}, vcpu_count=8, max_count=100, software_configuration={ "autoscaling": {"enabled": True}})]
+        config = {"symphony.autoscaling.ncpus": 2, "symphony.autoscaling.nram": 8129}
+        provider = self._new_provider(provider_config=config)
+        provider.cluster.set_buckets(return_value)
+        provider.generate_sample_template()
+        json_data = json.loads(capture_output.getvalue())
+        self.assertEqual(1, len(json_data["templates"]))
+        self.assertEqual(2, len(json_data["templates"][0]["vmTypes"]))
+        self.assertEqual(json_data["templates"][0]["attributes"]["ncpus"], ["Numeric", "2"])
+        self.assertEqual(json_data["templates"][0]["attributes"]["nram"], ["Numeric", "8129"])
+        # Check weights
+        self.assertEqual(json_data["templates"][0]["vmTypes"]["A4"], 2) 
+        self.assertEqual(json_data["templates"][0]["vmTypes"]["A8"], 4)
+        self.assertEqual(json_data["templates"][0]["maxNumber"], 800)
+        print(json_data["templates"][0], file=saved_stdout)
+        # json_data was already parsed from the captured output above; ensure it's truthy
+        self.assertTrue(json_data)
+        sys.stdout = saved_stdout
+                 
 
 if __name__ == "__main__":
     unittest.main()

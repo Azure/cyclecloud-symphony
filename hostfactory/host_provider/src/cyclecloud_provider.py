@@ -59,7 +59,10 @@ class CycleCloudProvider:
         self.creation_request_ttl = int(self.config.get("symphony.creation_request_ttl", 40 * 60))
         self.node_request_timeouts = float(self.config.get("cyclecloud.machine_request_retirement", 120) * 60)
         self.capacity_limit_timeout = int(self.config.get("cyclecloud.capacity_limit_timeout", 5) * 60)
-        self.autoscaling_strategy = self.config.get("symphony.autoscaling.strategy", "price")        
+        self.autoscaling_strategy = self.config.get("symphony.autoscaling.strategy", "price")     
+        self.symphony_ncpus = self.config.get("symphony.autoscaling.ncpus", 1)
+        self.symphony_ncores = self.config.get("symphony.autoscaling.ncores", 1)
+        self.symphony_nram = self.config.get("symphony.autoscaling.nram", 4096)
         self.fine = False
         self.request_tracker = RequestTrackingDb(self.config, self.cluster.cluster_name, self.clock)
         self.weighted_template = weighted_template_parse.WeightedTemplates(logger)
@@ -99,21 +102,20 @@ class CycleCloudProvider:
                 template_dict[bucket.nodearray] = {}
                 template_dict[bucket.nodearray]["templateId"] = bucket.nodearray
                 template_dict[bucket.nodearray]["attributes"] = {}
-                # Assuming slot size with ncpus = 1 and nram = 4096
                 template_dict[bucket.nodearray]["attributes"]["type"] = ["String", "X86_64"]
-                template_dict[bucket.nodearray]["attributes"]["nram"] = ["Numeric", "4096"] 
-                template_dict[bucket.nodearray]["attributes"]["ncpus"] = ["Numeric", "1"]
-                template_dict[bucket.nodearray]["attributes"]["ncores"] = ["Numeric", "1"]
+                template_dict[bucket.nodearray]["attributes"]["nram"] = ["Numeric", "%d" % self.symphony_nram]
+                template_dict[bucket.nodearray]["attributes"]["ncpus"] = ["Numeric","%d" % self.symphony_ncpus]
+                template_dict[bucket.nodearray]["attributes"]["ncores"] = ["Numeric", "%d" % self.symphony_ncores]
                 template_dict[bucket.nodearray]["vmTypes"] = {}
                 if self.config.get("symphony.ncpus_use_vcpus", True):
-                    weight = bucket.resources.get("ncores", bucket.vcpu_count)
+                    weight = int(bucket.resources.get("ncores", bucket.vcpu_count)/ self.symphony_ncpus)
                 else:
-                    weight = bucket.resources.get("ncores", bucket.pcpu_count)
+                    weight = int(bucket.resources.get("ncores", bucket.pcpu_count)/ self.symphony_ncpus)
                 # Here maxNumber is defined based on SKU with lowest weight.
-                template_dict[bucket.nodearray]["maxNumber"] = (bucket.max_count * weight) 
+                template_dict[bucket.nodearray]["maxNumber"] = max(template_dict[bucket.nodearray].get("maxNumber", 0), bucket.max_count * bucket.vcpu_count)
                 template_dict[bucket.nodearray]["vmTypes"].update({bucket.vm_size: weight})
             else:
-                weight = bucket.resources.get("ncores", bucket.vcpu_count)
+                weight = int(bucket.resources.get("ncores", bucket.vcpu_count)/ self.symphony_ncpus)
                 template_dict[bucket.nodearray]["vmTypes"].update({bucket.vm_size: weight})
         templates = {"templates": list(template_dict.values())}
         print(json.dumps(templates, indent=4))
