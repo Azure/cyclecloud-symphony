@@ -185,7 +185,7 @@ class AllocationStrategy:
         distribution = self.provider_config.get("symphony.autoscaling.percent_weights", [.7, .2, .05, .05])
         self.logger.debug("Using weighted based allocation (weights: %s)", distribution)
         # Works per allocation request
-        vm_dist = calculate_vm_dist_weighted(vm_types, requested_slots, distribution)
+        vm_dist = calculate_vm_dist_weighted(vm_types=vm_types, requested_slot_count=requested_slots, percentage_weights=distribution)
         result = self._allocation_strategy(template_id, requested_slots, vm_types, vm_dist)
         return result
     

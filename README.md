@@ -217,18 +217,14 @@ Note: You should run this script from machine where Cyclecloud is installed.
 
 Following configuration options:
 
-1. `symphony.enable_weighted_templates` (default: `true`)
-   - Used to generate templates where `templateId` corresponds to the nodearray and `vmTypes` are in a dictionary format with weights.
-   - You can change this in the Symphony configuration for the master node. In that case, use the default format of `templateId` as `nodearray+sku name`.
-
-2. `symphony.ncpus_use_vcpus` (default: `true`)
+1. `symphony.ncpus_use_vcpus` (default: `true`)
    - If `true`, the slot `ncpu` attribute is based on vCPU count.
    - You can change this in the Symphony configuration for the master node.
 
-3. `cyclecloud.capacity_limit_timeout` (default: `300` seconds)
+2. `cyclecloud.capacity_limit_timeout` (default: `300` seconds)
    - The time (in seconds) after which scalelib will wait before making the next allocation attempt after a failure occurs.
 
-4. `symphony.autoscaling.strategy` (default: `price`)
+3. `symphony.autoscaling.strategy` (default: `price`)
     - Options: `["price", "capacity", "weighted"]`
     - **Price**
        - Uses the legacy allocation algorithm.
@@ -241,20 +237,22 @@ Following configuration options:
        - When the first SKU runs out of capacity, the distribution shifts to the next SKU for the next allocation.
        - If all SKU preferences/percentages are identical, this behaves the same as the Capacity strategy.
 
-5. `symphony.autoscaling.ncpus` (default: `1`)
-   - Number of vCPUs to use for autoscaling slot size
+4. `symphony.autoscaling.ncpus` (default: `1`)
+   - Number of vCPUs to use for autoscaling slot size 
+     Note: This will only update when using generateWeightedTemplates.sh
 
-6. `symphony.autoscaling.ncores` (default: `1`)
+5. `symphony.autoscaling.ncores` (default: `1`)
    - Number of physical cores to use for autoscaling slot size.
+     Note: This will only update when using generateWeightedTemplates.sh
 
-7. `symphony.autoscaling.nram` (default: `4096` MB)
+6. `symphony.autoscaling.nram` (default: `4096` MB)
    - Amount of RAM (in MB) to use for autoscaling slot size.
+     Note: This will only update when using generateWeightedTemplates.sh
 
-8. `symphony.autoscaling.percent_weights` (default: `[0.7, 0.2, 0.05, 0.05]`)
+7. `symphony.autoscaling.percent_weights` (default: `[0.7, 0.2, 0.05, 0.05]`)
    - List of percentage weights (as fractions) used for the weighted autoscaling strategy.
-   - By default, these weights allocate VMs to the top 4 SKUs in a node array, prioritizing higher-capacity SKUs.
+   - By default, these weights allocate VMs to the top 4 SKUs in a node array, prioritizing higher-capacity SKUs.It will work like a sliding window. 
    - You can adjust both the values and the number of weights to match your available SKUs and desired distribution.
-   - The order and length of this list should correspond to the order and number of VM types you want to distribute across.
 
 # Contributing
 
