@@ -22,7 +22,7 @@ def normalize_list(percentage_weights):
         raise ValueError("Total of percentage weights is 0 - no slots would be allocated")
     return [x / total for x in percentage_weights]
 
-def calculate_vm_dist_capacity(vm_types, total_slot_count):
+def calculate_vm_dist_capacity(vm_types, total_slot_count, logger=None):
     vm_dist = {}
     slots_per_vm_type = total_slot_count // len(vm_types) # balanced distribution
 
@@ -41,11 +41,11 @@ def calculate_vm_dist_capacity(vm_types, total_slot_count):
             if remaining_slots <= 0:
                 break
 
-    logging.info("New (capacity) VM SKU distribution targets: %s", vm_dist)
+    logger.info("New (capacity) VM SKU distribution targets: %s", vm_dist)
     return vm_dist
 
 
-def calculate_vm_dist_weighted(vm_types, requested_slot_count, percentage_weights=[.7, .2, .05, .05]):
+def calculate_vm_dist_weighted(vm_types, requested_slot_count, percentage_weights=[.7, .2, .05, .05], logger=None):
     '''Apply a simple static percentage distribution to the vm_types'''
     percentage_weights = normalize_list(percentage_weights) # Ensure that percentage weights sum to 1
 
@@ -78,13 +78,13 @@ def calculate_vm_dist_weighted(vm_types, requested_slot_count, percentage_weight
             if remaining_slots <= 0:
                 break
 
-    logging.info("New (weighted) VM SKU distribution targets: %s", vm_dist)
+    logger.info("New (weighted) VM SKU distribution targets: %s", vm_dist)
     return vm_dist
 
 
 
 
-def calculate_vm_dist_decay(vm_types, total_slot_count):
+def calculate_vm_dist_decay(vm_types, total_slot_count, logger=None):
     '''
     Calculate Slots by applying a decreasing distribution : 
     weighted_increment_per_sku = [ num_skus / (1 + idx)  for idx in range(num_skus) ]
@@ -115,7 +115,7 @@ def calculate_vm_dist_decay(vm_types, total_slot_count):
             if remaining <= 0:
                 break
 
-    logging.info("New (decay) VM SKU distribution targets: %s", vm_dist)
+    logger.info("New (decay) VM SKU distribution targets: %s", vm_dist)
     return vm_dist
 
 
@@ -137,7 +137,7 @@ class AllocationStrategy:
         '''Filter out vmTypes that have no available capacity'''
 
         buckets_with_capacity = [b for b in self.node_mgr.get_buckets()
-                                 if ((int(b.last_capacity_failure or 0)) < self.capacity_limit_timeout and b.resources.get("weight")) and b.available_count]
+                                 if (not b.last_capacity_failure or int(b.last_capacity_failure) > self.capacity_limit_timeout) and b.resources.get("weight") and b.available_count]
         vm_sizes = [b.vm_size for b in buckets_with_capacity]
         filtered_vmTypes = {}
         for vm_size in vm_types:
@@ -169,23 +169,23 @@ class AllocationStrategy:
         self.logger.debug("Using capacity based (aka balanced) allocation")
         # TODO: Need to calculate the new vm_dist based on the current allocations for the vm_types
         # IMPORTANT: Should be IDENTICAL to what's needed in allocate_slots_weighted
-        vm_dist = calculate_vm_dist_capacity(vm_types, requested_slots)
+        vm_dist = calculate_vm_dist_capacity(vm_types, requested_slots, logger=self.logger)
         result = self._allocation_strategy(template_id, requested_slots, vm_types, vm_dist)
         return result
 
     def allocate_slots_decay(self, requested_slots, template_id, vm_types):
         result = None
         self.logger.debug("Using decay based allocation")
-        vm_dist = calculate_vm_dist_decay(vm_types, requested_slots)
+        vm_dist = calculate_vm_dist_decay(vm_types, requested_slots, logger=self.logger)
         result = self._allocation_strategy(template_id, requested_slots, vm_types, vm_dist)
         return result
     
     def allocate_slots_weighted(self, requested_slots, template_id, vm_types):
         result = None
-        distribution = [.7, .2, .05, .05]
+        distribution = self.provider_config.get("symphony.autoscaling.percent_weights", [.7, .2, .05, .05])
         self.logger.debug("Using weighted based allocation (weights: %s)", distribution)
         # Works per allocation request
-        vm_dist = calculate_vm_dist_weighted(vm_types, requested_slots, distribution)
+        vm_dist = calculate_vm_dist_weighted(vm_types=vm_types, requested_slot_count=requested_slots, percentage_weights=distribution, logger=self.logger)
         result = self._allocation_strategy(template_id, requested_slots, vm_types, vm_dist)
         return result
     
