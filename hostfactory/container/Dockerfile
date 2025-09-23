@@ -32,8 +32,7 @@ RUN apt update && apt install -y \
     python3.11 \
     python3.11-venv \
     python3.11-dev \
-    && curl -O https://bootstrap.pypa.io/get-pip.py \
-    && python3.11 get-pip.py \
+    python3-pip \
     && update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1 \
     && update-alternatives --set python3 /usr/bin/python3.11 \
     && ln -s /usr/bin/python3.11 /usr/bin/python \

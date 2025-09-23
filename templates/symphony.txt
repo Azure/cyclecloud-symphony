@@ -41,10 +41,10 @@ Autoscale = $Autoscale
         is_management = true
         is_master = true
         autoscaling.strategy = $SymphonyAutoscalingStrategy
-        autoscaling.ncpus = 2
-        autoscaling.ncores = 1
-        autoscaling.nram = 8192
-        autoscaling.percent_weights = 0.5,0.5,0.5
+#        autoscaling.ncpus = 1
+#        autoscaling.ncores = 1
+#        autoscaling.nram = 4096
+#        autoscaling.percent_weights = .7, .2, .05, .05
 
         [[[input-endpoint ganglia]]]
         PrivatePort = 8652
