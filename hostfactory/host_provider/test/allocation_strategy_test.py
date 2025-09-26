@@ -164,10 +164,12 @@ class TestAllocationStrategy(unittest.TestCase):
                                                                       capacity_limit_timeout=500, logger=logger)
         result = autoscaling_strategy.allocate_slots(1000, "some_template_id", vm_size)
         self.assertEqual(len(result), len(expected_node_list))
-        self.assertEqual(result, expected_node_list)       
+        self.assertEqual(result, expected_node_list)     
+          
+        # Testing allocation behavior when no VM Types are available
         vm_size={}
         result = autoscaling_strategy.allocate_slots(1000, "some_template_id", vm_size)
-        self.assertFalse(result)
+        self.assertEqual(result, [])
 
 
     def test_allocation_strategy(self):
