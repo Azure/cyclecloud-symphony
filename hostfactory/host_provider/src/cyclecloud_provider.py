@@ -1045,6 +1045,7 @@ def main(argv=sys.argv):  # pragma: no cover
         else:
             import traceback
             traceback.print_exc()
+        sys.exit(1) 
     finally:
         logger.info("END %s %s - %s %s", operation_id, cmd, ignore, input_json_path)       
 
