@@ -1038,7 +1038,7 @@ def main(argv=sys.argv):  # pragma: no cover
             
     except ImportError as e:
         logger.exception(str(e))
-
+        exit(1)
     except Exception as e:
         if logger:
             logger.exception(str(e))
@@ -1047,7 +1047,7 @@ def main(argv=sys.argv):  # pragma: no cover
             traceback.print_exc()
         logger.warning("Exiting Non-zero so that symphony will retry")
         sys.exit(1) 
-    finally:
+    finally: 
         logger.info("END %s %s - %s %s", operation_id, cmd, ignore, input_json_path)       
 
 if __name__ == "__main__":
