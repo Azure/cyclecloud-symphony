@@ -164,7 +164,12 @@ class TestAllocationStrategy(unittest.TestCase):
                                                                       capacity_limit_timeout=500, logger=logger)
         result = autoscaling_strategy.allocate_slots(1000, "some_template_id", vm_size)
         self.assertEqual(len(result), len(expected_node_list))
-        self.assertEqual(result, expected_node_list)        
+        self.assertEqual(result, expected_node_list)     
+          
+        # Testing allocation behavior when no VM Types are available
+        vm_size={}
+        result = autoscaling_strategy.allocate_slots(1000, "some_template_id", vm_size)
+        self.assertEqual(result, [])
 
 
     def test_allocation_strategy(self):
@@ -217,112 +222,115 @@ class TestAllocationStrategy(unittest.TestCase):
 
     def test_CalculateDistCapacity(self):
         vm_size = {"A": 16, "B": 8}
-        vm_dist = allocation_strategy.calculate_vm_dist_capacity(vm_size, 24)
+        logger= logging.getLogger("test")
+        vm_dist = allocation_strategy.calculate_vm_dist_capacity(vm_size, 24, logger=logger)
         self.assertEqual(vm_dist, {"A": 16, "B": 8})
         
         vm_size = {"A": 16, "B": 8, "C": 4}
-        vm_dist = allocation_strategy.calculate_vm_dist_capacity(vm_size, 50)
-        self.assertEqual(vm_dist, {"A": 32, "B": 16, "C": 16})  
+        vm_dist = allocation_strategy.calculate_vm_dist_capacity(vm_size, 50, logger=logger)
+        self.assertEqual(vm_dist, {"A": 32, "B": 16, "C": 16})
 
         vm_size = {"A": 16, "B": 8, "C": 48, "D": 16, "E": 8, "F": 4}
-        vm_dist = allocation_strategy.calculate_vm_dist_capacity(vm_size, 100)
+        vm_dist = allocation_strategy.calculate_vm_dist_capacity(vm_size, 100, logger=logger)
         self.assertEqual(vm_dist, {'A': 32, 'B': 24, 'C': 0, 'D': 16, 'E': 16, 'F': 16})
 
         vm_size = {"A": 16, "B": 8, "C": 48, "D": 16, "E": 8, "F": 4}
-        vm_dist = allocation_strategy.calculate_vm_dist_capacity(vm_size, 1000)                
+        vm_dist = allocation_strategy.calculate_vm_dist_capacity(vm_size, 1000, logger=logger)
         self.assertEqual(vm_dist, {'A': 176, 'B': 168, 'C': 192, 'D': 160, 'E': 160, 'F': 164})
 
         
     def test_CalculateDistWeights(self):
         # default distribution is [.7, .2, .05, .05]
+        logger= logging.getLogger("test")
         vm_size = {"A": 16, "B": 8}
-        vm_dist = allocation_strategy.calculate_vm_dist_weighted(vm_size, 24)
+        vm_dist = allocation_strategy.calculate_vm_dist_weighted(vm_size, 24, logger=logger)
         self.assertEqual(vm_dist, {"A": 16, "B": 8})
 
         vm_size = {"A": 16, "B": 8}
-        vm_dist = allocation_strategy.calculate_vm_dist_weighted(vm_size, 40)
+        vm_dist = allocation_strategy.calculate_vm_dist_weighted(vm_size, 40, logger=logger)
         self.assertEqual(vm_dist, {"A": 32, "B": 8})
 
         vm_size = {"A": 16, "B": 8, "C": 4}
-        vm_dist = allocation_strategy.calculate_vm_dist_weighted(vm_size, 50)
+        vm_dist = allocation_strategy.calculate_vm_dist_weighted(vm_size, 50, logger=logger)
         self.assertEqual(vm_dist, {"A": 48, "B": 8, "C": 4})
         
         vm_size = {"A": 16, "B": 8, "C": 4}
-        vm_dist = allocation_strategy.calculate_vm_dist_weighted(vm_size, 74)
+        vm_dist = allocation_strategy.calculate_vm_dist_weighted(vm_size, 74, logger=logger)
         self.assertEqual(vm_dist, {"A": 64, "B": 8, "C": 4})
         
         vm_size = {"A": 16, "B": 8, "C": 4}
-        vm_dist = allocation_strategy.calculate_vm_dist_weighted(vm_size, 100)
+        vm_dist = allocation_strategy.calculate_vm_dist_weighted(vm_size, 100, logger=logger)
         self.assertEqual(vm_dist, {"A": 80, "B": 16, "C": 4})
         
         vm_size = {"A": 16, "B": 8, "C": 48, "D": 16, "E": 8, "F": 4}
-        vm_dist = allocation_strategy.calculate_vm_dist_weighted(vm_size, 100)
+        vm_dist = allocation_strategy.calculate_vm_dist_weighted(vm_size, 100, logger=logger)
         self.assertEqual(vm_dist, {'A': 64, 'B': 16, 'C': 48, 'D': 0, 'E': 0, 'F': 0}) # We err on the side of allocating if node has a percent
 
         vm_size = {"A": 16, "B": 8, "C": 48, "D": 16, "E": 8, "F": 4}
-        vm_dist = allocation_strategy.calculate_vm_dist_weighted(vm_size, 256)
+        vm_dist = allocation_strategy.calculate_vm_dist_weighted(vm_size, 256, logger=logger)
         self.assertEqual(vm_dist, {'A': 176, 'B': 48, 'C': 48, 'D': 0, 'E': 0, 'F': 0})
 
         vm_size = {"A": 16, "B": 8, "C": 48, "D": 16, "E": 8, "F": 4}
-        vm_dist = allocation_strategy.calculate_vm_dist_weighted(vm_size, 512)
+        vm_dist = allocation_strategy.calculate_vm_dist_weighted(vm_size, 512, logger=logger)
         self.assertEqual(vm_dist, {'A': 352, 'B': 96, 'C': 48, 'D': 16, 'E': 0, 'F': 0})
 
         vm_size = {"A": 16, "B": 8, "C": 48, "D": 16, "E": 8, "F": 4}
-        vm_dist = allocation_strategy.calculate_vm_dist_weighted(vm_size, 1000)
+        vm_dist = allocation_strategy.calculate_vm_dist_weighted(vm_size, 1000, logger=logger)
         self.assertEqual(vm_dist, {'A': 704, 'B': 200, 'C': 48, 'D': 48, 'E': 0, 'F': 0})
 
 
     def test_CalculateDistDecay(self):
+        logger= logging.getLogger("test")
         vm_size = {"A": 16, "B": 8}
-        vm_dist = allocation_strategy.calculate_vm_dist_decay(vm_size, 24)
+        vm_dist = allocation_strategy.calculate_vm_dist_decay(vm_size, 24, logger=logger)
         self.assertEqual(vm_dist, {"A": 16, "B": 8})
 
         vm_size = {"A": 16, "B": 8}
-        vm_dist = allocation_strategy.calculate_vm_dist_decay(vm_size, 40)
+        vm_dist = allocation_strategy.calculate_vm_dist_decay(vm_size, 40, logger=logger)
         self.assertEqual(vm_dist, {"A": 32, "B": 8})
 
         vm_size = {"A": 16, "B": 8, "C": 4}
-        vm_dist = allocation_strategy.calculate_vm_dist_decay(vm_size, 50)
+        vm_dist = allocation_strategy.calculate_vm_dist_decay(vm_size, 50, logger=logger)
         self.assertEqual(vm_dist, {"A": 48, "B": 8, "C": 0})
         
         vm_size = {"A": 16, "B": 8, "C": 4}
-        vm_dist = allocation_strategy.calculate_vm_dist_decay(vm_size, 74)
+        vm_dist = allocation_strategy.calculate_vm_dist_decay(vm_size, 74, logger=logger)
         self.assertEqual(vm_dist, {"A": 48, "B": 24, "C": 4})
         
         vm_size = {"A": 16, "B": 8, "C": 4}
-        vm_dist = allocation_strategy.calculate_vm_dist_decay(vm_size, 100)
+        vm_dist = allocation_strategy.calculate_vm_dist_decay(vm_size, 100, logger=logger)
         self.assertEqual(vm_dist, {"A": 64, "B": 24, "C": 16})
         
         vm_size = {"A": 16, "B": 8, "C": 48}
-        vm_dist = allocation_strategy.calculate_vm_dist_decay(vm_size, 100)
+        vm_dist = allocation_strategy.calculate_vm_dist_decay(vm_size, 100, logger=logger)
         self.assertEqual(vm_dist, {"A": 96, "B": 8, "C": 0}) # We never get allocate a big C node here
         
         vm_size = {"A": 16, "B": 8, "C": 48}
-        vm_dist = allocation_strategy.calculate_vm_dist_decay(vm_size, 200)
+        vm_dist = allocation_strategy.calculate_vm_dist_decay(vm_size, 200, logger=logger)
         self.assertEqual(vm_dist, {"A": 144, "B": 56, "C": 0})
 
         vm_size = {"A": 16, "B": 8, "C": 48}
-        vm_dist = allocation_strategy.calculate_vm_dist_decay(vm_size, 256)
+        vm_dist = allocation_strategy.calculate_vm_dist_decay(vm_size, 256, logger=logger)
         self.assertEqual(vm_dist, {"A": 144, "B": 72, "C": 48})
 
         vm_size = {"A": 16, "B": 8, "C": 48}
-        vm_dist = allocation_strategy.calculate_vm_dist_decay(vm_size, 1000)
+        vm_dist = allocation_strategy.calculate_vm_dist_decay(vm_size, 1000, logger=logger)
         self.assertEqual(vm_dist, {"A": 576, "B": 280, "C": 144})
 
         vm_size = {"A": 16, "B": 8, "C": 48, "D": 16, "E": 8, "F": 4}
-        vm_dist = allocation_strategy.calculate_vm_dist_decay(vm_size, 100)
+        vm_dist = allocation_strategy.calculate_vm_dist_decay(vm_size, 100, logger=logger)
         self.assertEqual(vm_dist, {'A': 96, 'B': 8, 'C': 0, 'D': 0, 'E': 0, 'F': 0})
 
         vm_size = {"A": 16, "B": 8, "C": 48, "D": 16, "E": 8, "F": 4}
-        vm_dist = allocation_strategy.calculate_vm_dist_decay(vm_size, 256)
+        vm_dist = allocation_strategy.calculate_vm_dist_decay(vm_size, 256, logger=logger)
         self.assertEqual(vm_dist, {'A': 256, 'B': 0, 'C': 0, 'D': 0, 'E': 0, 'F': 0})
 
         vm_size = {"A": 16, "B": 8, "C": 48, "D": 16, "E": 8, "F": 4}
-        vm_dist = allocation_strategy.calculate_vm_dist_decay(vm_size, 512)
+        vm_dist = allocation_strategy.calculate_vm_dist_decay(vm_size, 512, logger=logger)
         self.assertEqual(vm_dist, {'A': 288, 'B': 144, 'C': 48, 'D': 32, 'E': 0, 'F': 0})
 
         vm_size = {"A": 16, "B": 8, "C": 48, "D": 16, "E": 8, "F": 4}
-        vm_dist = allocation_strategy.calculate_vm_dist_decay(vm_size, 1000)
+        vm_dist = allocation_strategy.calculate_vm_dist_decay(vm_size, 1000, logger=logger)
         self.assertEqual(vm_dist, {'A': 576, 'B': 160, 'C': 96, 'D': 64, 'E': 56, 'F': 48})
         
     def test_FilterAvailableVmTypes(self):

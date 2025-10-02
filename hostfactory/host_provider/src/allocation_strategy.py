@@ -152,7 +152,9 @@ class AllocationStrategy:
                      template_id, self.auto_scaling_strategy)
         # Filter out vmTypes that have no available capacity
         filtered_vm_types = self.filter_available_vmTypes(vm_types)
-
+        if len(filtered_vm_types) == 0:
+            self.logger.warning("No available VM types found - cannot allocate nodes")
+            return []
         if self.auto_scaling_strategy == AllocationStrategies.CAPACITY:
             result = self.allocate_slots_capacity(requested_slot_count, template_id, filtered_vm_types)
         elif self.auto_scaling_strategy == AllocationStrategies.WEIGHTED:
