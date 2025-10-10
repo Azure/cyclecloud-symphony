@@ -27,7 +27,7 @@ Autoscale = $Autoscale
         [[[network-interface eth0]]]
         AssociatePublicIpAddress = false
 
-        [[[cluster-init symphony:default:3.1.2]]]
+        [[[cluster-init symphony:default:3.1.3]]]
 	
     [[node master]]
     MachineType = $ManagementMachineType
@@ -41,10 +41,10 @@ Autoscale = $Autoscale
         is_management = true
         is_master = true
         autoscaling.strategy = $SymphonyAutoscalingStrategy
-#        autoscaling.ncpus = 1
-#        autoscaling.ncores = 1
-#        autoscaling.nram = 4096
-#        autoscaling.percent_weights = .7, .2, .05, .05
+ #       autoscaling.ncpus = 1
+ #       autoscaling.ncores = 1
+ #       autoscaling.nram = 4096
+ #       autoscaling.percent_weights = .7, .2, .05, .05
 
         [[[input-endpoint ganglia]]]
         PrivatePort = 8652
@@ -53,7 +53,7 @@ Autoscale = $Autoscale
         [[[network-interface eth0]]]
         AssociatePublicIpAddress = $UsePublicNetwork
 
-        [[[cluster-init symphony:master:3.1.2]]]
+        [[[cluster-init symphony:master:3.1.3]]]
 
         [[[volume boot]]]
         Size = $MasterBootDiskSize
@@ -83,7 +83,7 @@ Autoscale = $Autoscale
         [[[configuration symphony]]]
         is_management = true
 
-        [[[cluster-init symphony:management:3.1.2]]]
+        [[[cluster-init symphony:management:3.1.3]]]
 
     [[nodearray execute]]
     MaxCoreCount = $MaxExecuteCoreCount
@@ -99,8 +99,8 @@ Autoscale = $Autoscale
         symphony.node_domain_suffix = $ZCSDomain
         symphony.use_nodename_as_hostname = $NodeNameIsHostname
         autoscaling.enabled = true
-    
-        [[[cluster-init symphony:execute:3.1.2]]]
+
+        [[[cluster-init symphony:execute:3.1.3]]]
 
     [[nodearray execute2]]
     Extends = execute
@@ -126,8 +126,8 @@ Autoscale = $Autoscale
         symphony.node_domain_suffix = $ZCSDomain
         symphony.use_nodename_as_hostname = $NodeNameIsHostname
         cyclecloud.cluster.autoscale.stop_enabled = false
-    
-        [[[cluster-init symphony:execute:3.1.2]]]
+
+        [[[cluster-init symphony:execute:3.1.3]]]
 
 
 [parameters About]

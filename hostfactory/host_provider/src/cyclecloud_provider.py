@@ -455,9 +455,14 @@ class CycleCloudProvider:
                                 hostname = self.hostnamer.hostname(node.private_ip)
                                 logger.warning("_create_status: Node does not have hostname using %s ", hostname)
                             except Exception:                                
-                                # TODO: need to append to completed node somewhere? What do we do?
-                                logger.warning("_create_status: No hostname set and could not convert ip %s to hostname for \"%s\" VM.", node.get("PrivateIp"), node)    
-                        completed_nodes.append({"hostname": hostname, "nodeid": node_id})
+                                # We report status as running even though the node is ready, as we don't have a hostname.
+                                logger.warning("_create_status: No hostname set and could not convert ip %s to hostname for \"%s\" VM.", node.private_ip, node)
+                                machine_result = MachineResults.executing
+                                machine_status = MachineStates.building
+                                request_status = RequestStates.running
+                                hostname = ""
+                        if hostname:
+                           completed_nodes.append({"hostname": hostname, "nodeid": node_id})
                 else:
                     machine_result = MachineResults.executing
                     machine_status = MachineStates.building
