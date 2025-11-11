@@ -379,111 +379,110 @@ class CycleCloudProvider:
                 terminate_states = ["Failed"]
             
             for node in requested_nodes:
-                # for new nodes, completion is Ready. For "released" nodes, as long as
-                # the node has begun terminated etc, we can just say success.
-                # node_status = node.get("State")
-                node_status = node.state
-                node_target_state = node.target_state
-                node_id = self.cluster.get_node_id(node)
-                all_nodes.append(node_id)
-                valid_nodes.append(node_id)
-                machine_status = MachineStates.active
-                
-                hostname = None
-                private_ip_address = None
-
-                
-                if not node_target_state:
-                    unknown_state_count = unknown_state_count + 1
-                    continue
-                
-                if node_target_state and node_target_state != "Started":
-                    valid_nodes.remove(node_id)
-                    logger.debug("Node %s target state is not started it is %s", node.get("Name"), node_target_state) 
-                    continue
-                
-                if node_status in report_failure_states:
-                    valid_nodes.remove(node_id)
-                    machine_result = MachineResults.failed
-                    machine_status = MachineStates.error
-                    if request_status != RequestStates.running:
-                        # message = node.get("StatusMessage", "Unknown error.")
-                        request_status = RequestStates.complete_with_error
-                        
-                elif node_status in terminate_states:
-                    # just terminate the node and next iteration the node will be gone. This allows retries of the shutdown to happen, as 
-                    # we will report that the node is still booting.
-                    unknown_state_count = unknown_state_count + 1
-                    machine_result = MachineResults.executing
-                    machine_status = MachineStates.building
-                    request_status = RequestStates.running
-
-                    hostname = node.hostname
-                    if not hostname:
-                        try:
-                            hostname = self.hostnamer.hostname(node.private_ip)
-                        except Exception:                            
-                            logger.warning("_create_status: No hostname set and could not convert ip %s to hostname for \"%s\" VM.", node.private_ip, node_status)
-
-                    try:
-                        logger.warning("Warning: Cluster status check terminating failed node %s", node)
-                        # import traceback
-                        #logger.warning("Traceback:\n%s", '\n'.join([line  for line in traceback.format_stack()]))
-                        self.cluster.shutdown_nodes([{"machineId": self.cluster.get_node_id(node), "name": hostname}])
-                    except Exception:
-                        logger.exception("Could not terminate node with id %s" % self.cluster.get_node_id(node))
-        
-                elif not node.instance_id:
-                    requesting_count = requesting_count + 1
-                    request_status = RequestStates.running
-                    machine_result = MachineResults.executing
-                    continue
-                
-                elif node_status in ["Ready", "Started"]:
-                    machine_result = MachineResults.succeed
+                try:
+                    # for new nodes, completion is Ready. For "released" nodes, as long as
+                    # the node has begun terminated etc, we can just say success.
+                    node_status = node.state
+                    node_target_state = node.target_state
+                    node_id = self.cluster.get_node_id(node)
+                    all_nodes.append(node_id)
+                    valid_nodes.append(node_id)
                     machine_status = MachineStates.active
-                    private_ip_address = node.private_ip
-                    if not private_ip_address:
-                        logger.warning("No ip address found for ready node %s", node.get("Name"))
+                    
+                    hostname = None
+                    private_ip_address = None
+
+                    
+                    if not node_target_state:
+                        unknown_state_count = unknown_state_count + 1
+                        continue
+                    
+                    if node_target_state and node_target_state != "Started":
+                        valid_nodes.remove(node_id)
+                        logger.debug("Node %s target state is not started it is %s", node.name, node_target_state) 
+                        continue
+                    
+                    if node_status in report_failure_states:
+                        valid_nodes.remove(node_id)
+                        machine_result = MachineResults.failed
+                        machine_status = MachineStates.error
+                        if request_status != RequestStates.running:
+                            message = "Node entered failure state."   
+                            request_status = RequestStates.complete_with_error
+                            
+                    elif node_status in terminate_states:
+                        # just terminate the node and next iteration the node will be gone. This allows retries of the shutdown to happen, as 
+                        # we will report that the node is still booting.
+                        unknown_state_count = unknown_state_count + 1
                         machine_result = MachineResults.executing
                         machine_status = MachineStates.building
                         request_status = RequestStates.running
-                    else:
+
                         hostname = node.hostname
                         if not hostname:
                             try:
                                 hostname = self.hostnamer.hostname(node.private_ip)
-                                logger.warning("_create_status: Node does not have hostname using %s ", hostname)
-                            except Exception:                                
-                                # We report status as running even though the node is ready, as we don't have a hostname.
-                                logger.warning("_create_status: No hostname set and could not convert ip %s to hostname for \"%s\" VM.", node.private_ip, node)
-                                machine_result = MachineResults.executing
-                                machine_status = MachineStates.building
-                                request_status = RequestStates.running
-                                hostname = ""
-                        if hostname:
-                           completed_nodes.append({"hostname": hostname, "nodeid": node_id})
-                else:
+                            except Exception:                            
+                                logger.warning("_create_status: No hostname set and could not convert ip %s to hostname for \"%s\" VM.", node.private_ip, node_status)
+
+                        try:
+                            logger.warning("Warning: Cluster status check terminating failed node %s", node)
+                            # import traceback
+                            #logger.warning("Traceback:\n%s", '\n'.join([line  for line in traceback.format_stack()]))
+                            self.cluster.shutdown_nodes([{"machineId": self.cluster.get_node_id(node), "name": hostname}])
+                        except Exception:
+                            logger.exception("Could not terminate node with id %s" % self.cluster.get_node_id(node))
+            
+                    elif not node.instance_id:
+                        requesting_count = requesting_count + 1
+                        request_status = RequestStates.running
+                        machine_result = MachineResults.executing
+                        continue
+                    
+                    elif node_status in ["Ready", "Started"]:
+                        machine_result = MachineResults.succeed
+                        machine_status = MachineStates.active
+                        private_ip_address = node.private_ip
+                        if not private_ip_address:
+                            logger.warning("No ip address found for ready node %s", node.name)
+                            machine_result = MachineResults.executing
+                            machine_status = MachineStates.building
+                            request_status = RequestStates.running
+                        else:
+                            hostname = node.hostname
+                            if not hostname:
+                                try:
+                                    hostname = self.hostnamer.hostname(node.private_ip)
+                                    logger.warning("_create_status: Node does not have hostname using %s ", hostname)
+                                except Exception:                                
+                                    # We report status as running even though the node is ready, as we don't have a hostname.
+                                    logger.warning("_create_status: No hostname set and could not convert ip %s to hostname for \"%s\" VM.", node.private_ip, node)
+                                    machine_result = MachineResults.executing
+                                    machine_status = MachineStates.building
+                                    request_status = RequestStates.running
+                                    hostname = ""
+                            if hostname:
+                                completed_nodes.append({"hostname": hostname, "nodeid": node_id})
+                    else:
+                        machine_result = MachineResults.executing
+                        machine_status = MachineStates.building
+                        request_status = RequestStates.running
+                
+                except Exception as e:
+                    logger.exception("Error processing node %s with exception %s but reporting machine status as building", node, e)
                     machine_result = MachineResults.executing
                     machine_status = MachineStates.building
-                    request_status = RequestStates.running
-
-                
+                    request_status = RequestStates.running 
                 machine = {
-                    "name": hostname or "",
-                    "status": machine_status,
-                    "result": machine_result,
-                    "machineId": self.cluster.get_node_id(node) or "",
-                    # launchTime is manditory in Symphony
-                    # maybe we can add something so we don"t have to expose this
-                    # node["PhaseMap"]["Cloud.AwaitBootup"]["StartTime"]["$date"]
-                    "launchtime": int(time.time()),
-                   # "launchtime": node.get("LaunchTime") or int(time.time()),
-                    "privateIpAddress": private_ip_address or "",
-                    "message": ""
-                    #"message": node.get("StatusMessage") or ""
-                }
-                
+                        "name": hostname or "",
+                        "status": machine_status,
+                        "result": machine_result,
+                        "machineId": self.cluster.get_node_id(node) or "",
+                        "launchtime": int(time.time()),
+                        "privateIpAddress": private_ip_address or "",
+                        "message": ""
+                    }
+                    
                 machines.append(machine)
             
             with self.creation_json as requests_store:
