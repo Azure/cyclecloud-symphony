@@ -478,11 +478,7 @@ class CycleCloudProvider:
                         "status": machine_status,
                         "result": machine_result,
                         "machineId": self.cluster.get_node_id(node) or "",
-                        # launchTime is manditory in Symphony
-                        # maybe we can add something so we don"t have to expose this
-                        # node["PhaseMap"]["Cloud.AwaitBootup"]["StartTime"]["$date"]
                         "launchtime": int(time.time()),
-                       # "launchtime": node.get("LaunchTime") or int(time.time()),
                         "privateIpAddress": private_ip_address or "",
                         "message": ""
                     }
