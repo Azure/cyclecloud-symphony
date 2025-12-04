@@ -142,8 +142,12 @@ echo "$hostRequestorsJson" > "$requestorConfPath/hostRequestors.json"
 function UpdateSymAReturnPolicy
 {
     jq '.host_return_policy = "immediate"' "$requestorConfPath/symAinst/symAinstreq_config.json" > temp.json && mv temp.json "$requestorConfPath/symAinst/symAinstreq_config.json"
-
 }
+
+function UpdateHostfactoryConf {
+    jq '.HF_REST_LISTEN_PORT = 8001' "$HF_TOP/conf/hostfactoryconf.json" > temp.json && mv temp.json "$HF_TOP/conf/hostfactoryconf.json"
+}
+
 function Install-Python-Packages
 {
     echo "Installing python packages..."
@@ -214,6 +218,7 @@ if [ $# -gt 1 ]; then
         Generate-Provider-Plugins-Config
         Update-Requestors-Config
         UpdateSymAReturnPolicy
+        UpdateHostfactoryConf
         Install-Python-Packages
         Generate-Template
     else
