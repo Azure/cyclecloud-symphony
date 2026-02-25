@@ -29,6 +29,14 @@ HF_VERSION=$( jetpack config symphony.hostfactory.version )
 set -e
 set -x
 
+# Set python2 as the default python for symphony requestor plugin
+if [ -x /usr/bin/python2 ]; then
+    echo "Setting python2 as default python using update-alternatives..."
+    update-alternatives --install /usr/bin/python python /usr/bin/python2 2
+    update-alternatives --set python /usr/bin/python2
+    echo "python -> $(python --version 2>&1)"
+fi
+
 
 # For now...
 # Just link the files directory from the Symphony install to make it easy to update the factory

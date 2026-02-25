@@ -11,7 +11,7 @@ from argparse import Namespace
 from subprocess import check_call
 from typing import Dict, List, Optional
 
-SCALELIB_VERSION = "1.0.3"
+SCALELIB_VERSION = "1.0.9"
 CYCLECLOUD_API_VERSION = "8.6.0"
 CONCURRENT_HANDLER_VERSION = "0.9.21"
 
@@ -21,9 +21,7 @@ def get_cycle_libs(args: Namespace) -> List[str]:
     scalelib_file = f"cyclecloud-scalelib-{SCALELIB_VERSION}.tar.gz"
     cyclecloud_api_file = f"cyclecloud_api-{CYCLECLOUD_API_VERSION}-py2.py3-none-any.whl"
     concurrent_handler_file =f"concurrent-log-handler-{CONCURRENT_HANDLER_VERSION}.tar.gz"
-    # scalelib_url = f"https://github.com/Azure/cyclecloud-scalelib/archive/{SCALELIB_VERSION}.tar.gz"
-    # TODO: Switch back to pulling it from scalelib release when 1.0.3 is released
-    scalelib_url ="https://github.com/Azure/cyclecloud-symphony/releases/download/2024-03-01-bins/cyclecloud-scalelib-1.0.3.tar.gz"
+    scalelib_url = f"https://github.com/Azure/cyclecloud-scalelib/archive/{SCALELIB_VERSION}.tar.gz"
     # TODO RDH!!!
     cyclecloud_api_url = f"https://github.com/Azure/cyclecloud-symphony/releases/download/2024-03-01-bins/cyclecloud_api-{CYCLECLOUD_API_VERSION}-py2.py3-none-any.whl"
     concurrent_handler_url = f"https://github.com/Preston-Landers/concurrent-log-handler/archive/refs/tags/{CONCURRENT_HANDLER_VERSION}.tar.gz"

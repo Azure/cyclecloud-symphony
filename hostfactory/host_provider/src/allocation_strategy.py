@@ -1,6 +1,7 @@
 from math import ceil, floor
 from enum import Enum
 import logging
+from venv import logger
 
 
 class AllocationStrategies(Enum):
@@ -136,20 +137,77 @@ class AllocationStrategy:
     def filter_available_vmTypes(self, vm_types):
         '''Filter out vmTypes that have no available capacity'''
 
-        buckets_with_capacity = [b for b in self.node_mgr.get_buckets()
-                                 if (not b.last_capacity_failure or int(b.last_capacity_failure) > self.capacity_limit_timeout) and b.resources.get("weight") and b.available_count]
+        use_spot_placement_score = self.provider_config.get("symphony.autoscaling.use_spot_placement_score", True)
+        buckets = self.node_mgr.get_buckets()
+        
+        def _categorize_buckets(candidate_buckets):
+            high, medium, low = [], [], []
+            for b in candidate_buckets:
+                # Temporary NM
+                self.logger.debug(f"NM: Evaluating bucket {b.id} with spot score {getattr(b, 'spot_placement_score', None)}, last capacity failure {b.last_capacity_failure}, available count {b.available_count}, and weight {b.resources.get('weight')}")
+                if not (b.resources.get("weight") and b.available_count):
+                    continue
+                score = getattr(b, 'spot_placement_score', None)
+                if score is None or score == "High":
+                    high.append(b)
+                elif score == "Medium":
+                    medium.append(b)
+                else:
+                    low.append(b)
+            return high, medium, low
+
+        high_score_buckets = []
+        medium_score_buckets = []
+        low_score_buckets = []
+
+        has_spot_scores = buckets and any(getattr(b, 'spot_placement_score', None) is not None for b in buckets)
+        # NM
+        for b in buckets:
+            self.logger.debug(f"NM: Bucket {b.spot_placement_score} for bucket {b.id}")
+        self.logger.debug(f"Buckets retrieved: {len(buckets)}, Has spot placement scores: {has_spot_scores}, Use spot placement score flag: {use_spot_placement_score}")
+        if has_spot_scores and use_spot_placement_score:
+            # First pass: filter by capacity failure backoff
+            no_capacity_failure = [
+                b for b in buckets
+                if not b.last_capacity_failure or int(b.last_capacity_failure) > self.capacity_limit_timeout
+            ]
+
+            if no_capacity_failure:
+                high_score_buckets, medium_score_buckets, low_score_buckets = _categorize_buckets(no_capacity_failure)
+            else:
+                # All buckets are in capacity failure, fallback to spot score only
+                self.logger.debug("All buckets in capacity failure backoff; falling back to spot placement score prioritization")
+                high_score_buckets, medium_score_buckets, low_score_buckets = _categorize_buckets(buckets)
+        else:
+            if not use_spot_placement_score:
+                self.logger.debug("Spot placement score flag is disabled, checking all buckets by capacity")
+            else:
+                self.logger.debug("No buckets with spot placement scores found, checking all buckets by capacity")
+            # If no spot placement scores, just check capacity
+            buckets_with_capacity = [b for b in buckets
+                                     if (not b.last_capacity_failure or int(b.last_capacity_failure) > self.capacity_limit_timeout) 
+                                     and b.resources.get("weight") and b.available_count]
+            high_score_buckets = buckets_with_capacity
+        
+        # Prioritize: high score and medium score together, exclude low score unless both are empty
+        if high_score_buckets or medium_score_buckets:
+            buckets_with_capacity = high_score_buckets + medium_score_buckets
+        else:
+            buckets_with_capacity = low_score_buckets
+
         vm_sizes = [b.vm_size for b in buckets_with_capacity]
         filtered_vmTypes = {}
-        for vm_size in vm_types:
-            if vm_size in vm_sizes:
+        # Iterate through vm_sizes (ordered by buckets) instead of vm_types to preserve bucket-based ordering
+        for vm_size in vm_sizes:
+            if vm_size in vm_types:
                 filtered_vmTypes[vm_size] = vm_types[vm_size]
         return filtered_vmTypes
 
     def allocate_slots(self, requested_slot_count, template_id, vm_types):
         # capacity_limit_timeout: Time in seconds to check waiting period after last capacity failure
 
-        logging.info("Allocating %s slots for template_id %s using strategy %s", requested_slot_count, 
-                     template_id, self.auto_scaling_strategy)
+        self.logger.info("Allocating %s slots for template_id %s using strategy %s", requested_slot_count, 
+                         template_id, self.auto_scaling_strategy)
         # Filter out vmTypes that have no available capacity
         filtered_vm_types = self.filter_available_vmTypes(vm_types)
         if len(filtered_vm_types) == 0:
