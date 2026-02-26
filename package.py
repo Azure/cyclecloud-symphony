@@ -12,7 +12,7 @@ from subprocess import check_call
 from typing import Dict, List, Optional
 
 SCALELIB_VERSION = "1.0.9"
-CYCLECLOUD_API_VERSION = "8.6.0"
+CYCLECLOUD_API_VERSION = "8.9.0"
 CONCURRENT_HANDLER_VERSION = "0.9.21"
 
 def get_cycle_libs(args: Namespace) -> List[str]:
@@ -23,7 +23,7 @@ def get_cycle_libs(args: Namespace) -> List[str]:
     concurrent_handler_file =f"concurrent-log-handler-{CONCURRENT_HANDLER_VERSION}.tar.gz"
     scalelib_url = f"https://github.com/Azure/cyclecloud-scalelib/archive/{SCALELIB_VERSION}.tar.gz"
     # TODO RDH!!!
-    cyclecloud_api_url = f"https://github.com/Azure/cyclecloud-symphony/releases/download/2024-03-01-bins/cyclecloud_api-{CYCLECLOUD_API_VERSION}-py2.py3-none-any.whl"
+    cyclecloud_api_url = f"https://github.com/Azure/cyclecloud-scalelib/releases/download/1.0.9/cyclecloud_api-{CYCLECLOUD_API_VERSION}-py2.py3-none-any.whl"
     concurrent_handler_url = f"https://github.com/Preston-Landers/concurrent-log-handler/archive/refs/tags/{CONCURRENT_HANDLER_VERSION}.tar.gz"
     to_download = {
         scalelib_file: (args.scalelib, scalelib_url),

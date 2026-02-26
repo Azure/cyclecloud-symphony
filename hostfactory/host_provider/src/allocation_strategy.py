@@ -143,8 +143,7 @@ class AllocationStrategy:
         def _categorize_buckets(candidate_buckets):
             high, medium, low = [], [], []
             for b in candidate_buckets:
-                # Temporary NM
-                self.logger.debug(f"NM: Evaluating bucket {b.id} with spot score {getattr(b, 'spot_placement_score', None)}, last capacity failure {b.last_capacity_failure}, available count {b.available_count}, and weight {b.resources.get('weight')}")
+                self.logger.debug(f"Evaluating vm size {b.vm_size} with spot score {getattr(b, 'spot_placement_score', None)}, last capacity failure {b.last_capacity_failure}, available count {b.available_count}, and weight {b.resources.get('weight')}")
                 if not (b.resources.get("weight") and b.available_count):
                     continue
                 score = getattr(b, 'spot_placement_score', None)
@@ -161,9 +160,6 @@ class AllocationStrategy:
         low_score_buckets = []
 
         has_spot_scores = buckets and any(getattr(b, 'spot_placement_score', None) is not None for b in buckets)
-        # NM
-        for b in buckets:
-            self.logger.debug(f"NM: Bucket {b.spot_placement_score} for bucket {b.id}")
         self.logger.debug(f"Buckets retrieved: {len(buckets)}, Has spot placement scores: {has_spot_scores}, Use spot placement score flag: {use_spot_placement_score}")
         if has_spot_scores and use_spot_placement_score:
             # First pass: filter by capacity failure backoff
