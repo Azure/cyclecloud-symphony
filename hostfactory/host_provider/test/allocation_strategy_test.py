@@ -405,11 +405,11 @@ class TestAllocationStrategy(unittest.TestCase):
         self.assertNotIn("SKU_LOW", filtered_keys)
         
         # Check exact order: High SKUs first, then Medium SKUs
-        expected_order = ["SKU_HIGH_1", "SKU_HIGH_2", "SKU_MED_1", "SKU_MED_2"]
+        expected_order = ["SKU_HIGH_2", "SKU_HIGH_1", "SKU_MED_2", "SKU_MED_1"]
         self.assertEqual(filtered_keys, expected_order, 
                         "SKUs should be ordered with High scores first, then Medium scores")
 
-        # Test 6: All buckets have recent capacity failure, still prioritize by spot placement score
+        # Test 6: All buckets have recent capacity failure, fallback to original order and include all SKUs
         bucket_fail_high = MockBucket("FAIL_HIGH", weight=1, available_count=1, last_capacity_failure=120, spot_placement_score="High")
         bucket_fail_medium = MockBucket("FAIL_MED", weight=1, available_count=1, last_capacity_failure=130, spot_placement_score="Medium")
         bucket_fail_low = MockBucket("FAIL_LOW", weight=1, available_count=1, last_capacity_failure=140, spot_placement_score="Low")
@@ -420,8 +420,8 @@ class TestAllocationStrategy(unittest.TestCase):
         filtered = strategy.filter_available_vmTypes(vm_types)
         filtered_keys = list(filtered.keys())
 
-        self.assertEqual(filtered_keys, ["FAIL_HIGH", "FAIL_MED"],
-                        "When all buckets are in capacity-failure backoff, fallback should still prioritize High/Medium over Low")
+        self.assertEqual(filtered_keys, ["FAIL_LOW", "FAIL_MED", "FAIL_HIGH"],
+                        "When all buckets are in capacity-failure backoff, fallback to original order and include all SKUs")
         
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)

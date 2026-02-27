@@ -144,6 +144,8 @@ function UpdateSymAReturnPolicy
     jq '.host_return_policy = "immediate"' "$requestorConfPath/symAinst/symAinstreq_config.json" > temp.json && mv temp.json "$requestorConfPath/symAinst/symAinstreq_config.json"
 }
 
+# Update HF REST listen port to 8001 to avoid conflict with jetpack on 9080 which is the default port
+# To be fixed in CC https://msazure.visualstudio.com/CycleCloud/_workitems/edit/36923523 
 function UpdateHostfactoryConf {
     jq '.HF_REST_LISTEN_PORT = 8001' "$HF_TOP/conf/hostfactoryconf.json" > temp.json && mv temp.json "$HF_TOP/conf/hostfactoryconf.json"
 }

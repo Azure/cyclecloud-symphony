@@ -139,7 +139,7 @@ class AllocationStrategy:
 
         use_spot_placement_score = self.provider_config.get("symphony.autoscaling.use_spot_placement_score", True)
         buckets = self.node_mgr.get_buckets()
-        
+        filtered_vmTypes = {}
         def _categorize_buckets(candidate_buckets):
             high, medium, low = [], [], []
             for b in candidate_buckets:
@@ -154,49 +154,35 @@ class AllocationStrategy:
                 else:
                     low.append(b)
             return high, medium, low
-
-        high_score_buckets = []
-        medium_score_buckets = []
-        low_score_buckets = []
-
-        has_spot_scores = buckets and any(getattr(b, 'spot_placement_score', None) is not None for b in buckets)
-        self.logger.debug(f"Buckets retrieved: {len(buckets)}, Has spot placement scores: {has_spot_scores}, Use spot placement score flag: {use_spot_placement_score}")
-        if has_spot_scores and use_spot_placement_score:
-            # First pass: filter by capacity failure backoff
-            no_capacity_failure = [
-                b for b in buckets
-                if not b.last_capacity_failure or int(b.last_capacity_failure) > self.capacity_limit_timeout
-            ]
-
-            if no_capacity_failure:
-                high_score_buckets, medium_score_buckets, low_score_buckets = _categorize_buckets(no_capacity_failure)
-            else:
-                # All buckets are in capacity failure, fallback to spot score only
-                self.logger.debug("All buckets in capacity failure backoff; falling back to spot placement score prioritization")
-                high_score_buckets, medium_score_buckets, low_score_buckets = _categorize_buckets(buckets)
-        else:
-            if not use_spot_placement_score:
-                self.logger.debug("Spot placement score flag is disabled, checking all buckets by capacity")
-            else:
-                self.logger.debug("No buckets with spot placement scores found, checking all buckets by capacity")
-            # If no spot placement scores, just check capacity
-            buckets_with_capacity = [b for b in buckets
-                                     if (not b.last_capacity_failure or int(b.last_capacity_failure) > self.capacity_limit_timeout) 
-                                     and b.resources.get("weight") and b.available_count]
-            high_score_buckets = buckets_with_capacity
         
-        # Prioritize: high score and medium score together, exclude low score unless both are empty
-        if high_score_buckets or medium_score_buckets:
-            buckets_with_capacity = high_score_buckets + medium_score_buckets
-        else:
-            buckets_with_capacity = low_score_buckets
+        # Checking this in case scalelib/cyclecloud is version 8.8.x or earlier that does not support spot placement scores - 
+        # in that case we should just filter by capacity and not attempt to use spot placement score at all
+        has_spot_scores = buckets and any(getattr(b, 'spot_placement_score', None) is not None for b in buckets)
+        # Filter buckets by capacity failure backoff, weight, and availability
+        buckets_with_capacity = [b for b in buckets
+                                 if (not b.last_capacity_failure or int(b.last_capacity_failure) > self.capacity_limit_timeout) 
+                                 and b.resources.get("weight") and b.available_count]
 
-        vm_sizes = [b.vm_size for b in buckets_with_capacity]
-        filtered_vmTypes = {}
-        # Iterate through vm_sizes (ordered by buckets) instead of vm_types to preserve bucket-based ordering
-        for vm_size in vm_sizes:
-            if vm_size in vm_types:
-                filtered_vmTypes[vm_size] = vm_types[vm_size]
+        def _collect_vm_types(*bucket_groups):
+            '''Append vm_types that appear in any of the given bucket groups, preserving vm_types input order per group.'''
+            for group in bucket_groups:
+                vm_sizes = {b.vm_size for b in group}
+                for vm_size in vm_types:
+                    if vm_size in vm_sizes:
+                        filtered_vmTypes[vm_size] = vm_types[vm_size]
+
+        if has_spot_scores and use_spot_placement_score:
+            if not buckets_with_capacity:
+                self.logger.debug("All buckets have capacity failures, fallback to original order and include all SKUs")
+                _collect_vm_types(buckets)
+            else:
+                high, medium, low = _categorize_buckets(buckets_with_capacity)
+                # Prioritize high+medium score buckets; fall back to low if both are empty
+                _collect_vm_types(*((high, medium) if (high or medium) else (low,)))
+        else:
+            self.logger.debug("Spot placement scores not available or disabled - skipping spot score prioritization")
+            _collect_vm_types(buckets_with_capacity)
+
         return filtered_vmTypes
 
     def allocate_slots(self, requested_slot_count, template_id, vm_types):
