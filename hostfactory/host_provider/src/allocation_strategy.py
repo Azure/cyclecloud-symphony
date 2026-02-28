@@ -163,26 +163,24 @@ class AllocationStrategy:
                                  if (not b.last_capacity_failure or int(b.last_capacity_failure) > self.capacity_limit_timeout) 
                                  and b.resources.get("weight") and b.available_count]
 
-        def _collect_vm_types(*bucket_groups):
-            '''Append vm_types that appear in any of the given bucket groups, preserving vm_types input order per group.'''
-            for group in bucket_groups:
-                vm_sizes = {b.vm_size for b in group}
-                for vm_size in vm_types:
-                    if vm_size in vm_sizes:
-                        filtered_vmTypes[vm_size] = vm_types[vm_size]
-
         if has_spot_scores and use_spot_placement_score:
             if not buckets_with_capacity:
-                self.logger.debug("All buckets have capacity failures, fallback to original order and include all SKUs")
-                _collect_vm_types(buckets)
+                self.logger.debug("All buckets have capacity failures")
+                priority_groups = [buckets_with_capacity]
             else:
                 high, medium, low = _categorize_buckets(buckets_with_capacity)
                 # Prioritize high+medium score buckets; fall back to low if both are empty
-                _collect_vm_types(*((high, medium) if (high or medium) else (low,)))
+                priority_groups = [high, medium] if (high or medium) else [low]
         else:
             self.logger.debug("Spot placement scores not available or disabled - skipping spot score prioritization")
-            _collect_vm_types(buckets_with_capacity)
+            priority_groups = [buckets_with_capacity]
 
+        filtered_vmTypes = {}
+        for group in priority_groups:
+            group_vm_sizes = {b.vm_size for b in group}
+            for vm_size in vm_types:
+                if vm_size in group_vm_sizes:
+                    filtered_vmTypes[vm_size] = vm_types[vm_size]
         return filtered_vmTypes
 
     def allocate_slots(self, requested_slot_count, template_id, vm_types):
