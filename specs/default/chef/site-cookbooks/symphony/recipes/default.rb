@@ -6,7 +6,6 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 
-include_recipe "jdk::default"
 
 # This is not really overridable yet
 # https://www.ibm.com/support/knowledgecenter/SSZUMP_7.1.2/shared_files/envars_ego.html
@@ -103,6 +102,19 @@ if node['platform_family'] == "debian"
   %w{ rpm }.each do |pkg|
     package pkg
   end
+  package 'openjdk-8-jre-headless'
+  bash 'Set env for java' do
+    code <<-EOH
+    update-alternatives --set java /usr/lib/jvm/java-8-openjdk-amd64/jre/bin/java
+    EOH
+  end
+else
+  package 'java-1.8.0-openjdk'
+  bash 'Set env for java' do
+    code <<-EOH
+    alternatives --install /usr/bin/java java /usr/lib/jvm/java-1.8.0-openjdk/bin/java 1    
+    EOH
+  end
 end
 
 # Configure egoadmin
@@ -187,8 +199,6 @@ end
 file "/etc/profile.d/symphony.sh" do
   content <<-EOH
   #!/bin/bash
-
-  . /etc/profile.d/jdk.sh
 
   export MASTER_ADDRESS=#{master_host}
   export CLUSTERADMIN=#{node['symphony']['admin']['user']}

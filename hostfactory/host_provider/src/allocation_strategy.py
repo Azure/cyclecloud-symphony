@@ -1,6 +1,7 @@
 from math import ceil, floor
 from enum import Enum
 import logging
+from venv import logger
 
 
 class AllocationStrategies(Enum):
@@ -136,20 +137,57 @@ class AllocationStrategy:
     def filter_available_vmTypes(self, vm_types):
         '''Filter out vmTypes that have no available capacity'''
 
-        buckets_with_capacity = [b for b in self.node_mgr.get_buckets()
-                                 if (not b.last_capacity_failure or int(b.last_capacity_failure) > self.capacity_limit_timeout) and b.resources.get("weight") and b.available_count]
-        vm_sizes = [b.vm_size for b in buckets_with_capacity]
+        use_spot_placement_score = self.provider_config.get("symphony.autoscaling.use_spot_placement_score", True)
+        buckets = self.node_mgr.get_buckets()
         filtered_vmTypes = {}
-        for vm_size in vm_types:
-            if vm_size in vm_sizes:
-                filtered_vmTypes[vm_size] = vm_types[vm_size]
+        def _categorize_buckets(candidate_buckets):
+            high, medium, low = [], [], []
+            for b in candidate_buckets:
+                self.logger.debug(f"Evaluating vm size {b.vm_size} with spot score {getattr(b, 'spot_placement_score', None)}, last capacity failure {b.last_capacity_failure}, available count {b.available_count}, and weight {b.resources.get('weight')}")
+                if not (b.resources.get("weight") and b.available_count):
+                    continue
+                score = getattr(b, 'spot_placement_score', None)
+                if score is None or score == "High":
+                    high.append(b)
+                elif score == "Medium":
+                    medium.append(b)
+                else:
+                    low.append(b)
+            return high, medium, low
+        
+        # Checking this in case scalelib/cyclecloud is version 8.8.x or earlier that does not support spot placement scores - 
+        # in that case we should just filter by capacity and not attempt to use spot placement score at all
+        has_spot_scores = buckets and any(getattr(b, 'spot_placement_score', None) is not None for b in buckets)
+        # Filter buckets by capacity failure backoff, weight, and availability
+        buckets_with_capacity = [b for b in buckets
+                                 if (not b.last_capacity_failure or int(b.last_capacity_failure) > self.capacity_limit_timeout) 
+                                 and b.resources.get("weight") and b.available_count]
+
+        if has_spot_scores and use_spot_placement_score:
+            if not buckets_with_capacity:
+                self.logger.debug("All buckets have capacity failures")
+                priority_groups = [buckets_with_capacity]
+            else:
+                high, medium, low = _categorize_buckets(buckets_with_capacity)
+                # Prioritize high+medium score buckets; fall back to low if both are empty
+                priority_groups = [high, medium] if (high or medium) else [low]
+        else:
+            self.logger.debug("Spot placement scores not available or disabled - skipping spot score prioritization")
+            priority_groups = [buckets_with_capacity]
+
+        filtered_vmTypes = {}
+        for group in priority_groups:
+            group_vm_sizes = {b.vm_size for b in group}
+            for vm_size in vm_types:
+                if vm_size in group_vm_sizes:
+                    filtered_vmTypes[vm_size] = vm_types[vm_size]
         return filtered_vmTypes
 
     def allocate_slots(self, requested_slot_count, template_id, vm_types):
         # capacity_limit_timeout: Time in seconds to check waiting period after last capacity failure
 
-        logging.info("Allocating %s slots for template_id %s using strategy %s", requested_slot_count, 
-                     template_id, self.auto_scaling_strategy)
+        self.logger.info("Allocating %s slots for template_id %s using strategy %s", requested_slot_count, 
+                         template_id, self.auto_scaling_strategy)
         # Filter out vmTypes that have no available capacity
         filtered_vm_types = self.filter_available_vmTypes(vm_types)
         if len(filtered_vm_types) == 0:

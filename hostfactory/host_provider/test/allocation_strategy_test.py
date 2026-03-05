@@ -60,11 +60,12 @@ class MockNodeMgr:
         return self.expected_allocate_results_list
 
 class MockBucket:
-    def __init__(self, vm_size, weight=1, available_count=1, last_capacity_failure=None):
+    def __init__(self, vm_size, weight=1, available_count=1, last_capacity_failure=None, spot_placement_score=None):
         self.vm_size = vm_size
         self.resources = {"weight": weight}
         self.available_count = available_count
-        self.last_capacity_failure = last_capacity_failure   
+        self.last_capacity_failure = last_capacity_failure
+        self.spot_placement_score = spot_placement_score
 class MockNode:
     
     def __init__(self, node_name, weight):
@@ -334,8 +335,12 @@ class TestAllocationStrategy(unittest.TestCase):
         self.assertEqual(vm_dist, {'A': 576, 'B': 160, 'C': 96, 'D': 64, 'E': 56, 'F': 48})
         
     def test_FilterAvailableVmTypes(self):
+        # Test 1: Capacity failure filtering
+        # Bucket A has no capacity failure - should be included
         bucket_with_lastcap_none = MockBucket("A", weight=1, available_count=1, last_capacity_failure=None)
+        # Bucket B has recent capacity failure (200 < 300 timeout) - should be excluded
         new_failure_bucket = MockBucket("B", weight=1, available_count=1, last_capacity_failure=200)
+        # Bucket C has old capacity failure (305 > 300 timeout) - should be included
         old_failure_bucket = MockBucket("C", weight=1, available_count=1, last_capacity_failure=305)
         node_mgr = MockNodeMgr(buckets=[bucket_with_lastcap_none, new_failure_bucket, old_failure_bucket])
         strategy = allocation_strategy.AllocationStrategy(node_mgr=node_mgr, provider_config={}, strategy="price", capacity_limit_timeout=300)
@@ -344,7 +349,66 @@ class TestAllocationStrategy(unittest.TestCase):
         self.assertIn("A", filtered)
         self.assertNotIn("B", filtered)
         self.assertIn("C", filtered)
-
+        
+        # Test 2: Spot placement score filtering with high and medium scores
+        # When both high and medium score buckets exist, low score buckets should be excluded
+        bucket_with_high_spot_score = MockBucket("D", weight=1, available_count=1, spot_placement_score="High")
+        bucket_with_medium_spot_score = MockBucket("E", weight=1, available_count=1, spot_placement_score="Medium")
+        bucket_with_low_spot_score = MockBucket("F", weight=1, available_count=1, spot_placement_score="Low")
+        node_mgr = MockNodeMgr(buckets=[bucket_with_high_spot_score, bucket_with_medium_spot_score, bucket_with_low_spot_score])
+        strategy = allocation_strategy.AllocationStrategy(node_mgr=node_mgr, provider_config={}, strategy="price", capacity_limit_timeout=300)
+        vm_types = {"D": 2, "E": 4, "F": 8}
+        filtered = strategy.filter_available_vmTypes(vm_types)
+        self.assertIn("D", filtered)  # High score should be included
+        self.assertIn("E", filtered)  # Medium score should be included
+        self.assertNotIn("F", filtered)  # Low score should be excluded when high/medium exist
+        
+        # Test 3: Spot placement score filtering - only low scores available
+        # When only low score buckets exist, they should be included
+        bucket_with_low_spot_score_only = MockBucket("G", weight=1, available_count=1, spot_placement_score="Low")
+        node_mgr = MockNodeMgr(buckets=[bucket_with_low_spot_score_only])
+        strategy = allocation_strategy.AllocationStrategy(node_mgr=node_mgr, provider_config={}, strategy="price", capacity_limit_timeout=300)
+        vm_types = {"G": 8}
+        filtered = strategy.filter_available_vmTypes(vm_types)
+        self.assertIn("G", filtered)  # Low score should be included when no high/medium exist
+        
+        # Test 4: Spot placement score - no score (None) treated as high
+        bucket_with_no_spot_score = MockBucket("H", weight=1, available_count=1, spot_placement_score=None)
+        node_mgr = MockNodeMgr(buckets=[bucket_with_no_spot_score])
+        strategy = allocation_strategy.AllocationStrategy(node_mgr=node_mgr, provider_config={}, strategy="price", capacity_limit_timeout=300)
+        vm_types = {"H": 8}
+        filtered = strategy.filter_available_vmTypes(vm_types)
+        self.assertIn("H", filtered)  # None score should be included (treated as high)
+        
+        # Test 5: SKU ordering based on spot placement score
+        # Test that SKUs are returned in the correct order: High scores first, then Medium scores, Low excluded
+        bucket_high_1 = MockBucket("SKU_HIGH_1", weight=1, available_count=1, spot_placement_score="High")
+        bucket_high_2 = MockBucket("SKU_HIGH_2", weight=1, available_count=1, spot_placement_score="High")
+        bucket_medium_1 = MockBucket("SKU_MED_1", weight=1, available_count=1, spot_placement_score="Medium")
+        bucket_medium_2 = MockBucket("SKU_MED_2", weight=1, available_count=1, spot_placement_score="Medium")
+        bucket_low = MockBucket("SKU_LOW", weight=1, available_count=1, spot_placement_score="Low")
+        
+        # Mix the order in the buckets list to verify filtering maintains proper ordering
+        node_mgr = MockNodeMgr(buckets=[bucket_low, bucket_high_1, bucket_medium_1, bucket_high_2, bucket_medium_2])
+        strategy = allocation_strategy.AllocationStrategy(node_mgr=node_mgr, provider_config={}, strategy="price", capacity_limit_timeout=300)
+        
+        # Input vm_types in SCRAMBLED order to test that algorithm properly reorders them
+        vm_types = {"SKU_MED_2": 16, "SKU_LOW": 32, "SKU_HIGH_2": 4, "SKU_MED_1": 8, "SKU_HIGH_1": 2}
+        filtered = strategy.filter_available_vmTypes(vm_types)
+        
+        # Verify the order: High scores should come first, then Medium scores, Low excluded
+        filtered_keys = list(filtered.keys())
+        self.assertIn("SKU_HIGH_1", filtered_keys)
+        self.assertIn("SKU_HIGH_2", filtered_keys)
+        self.assertIn("SKU_MED_1", filtered_keys)
+        self.assertIn("SKU_MED_2", filtered_keys)
+        self.assertNotIn("SKU_LOW", filtered_keys)
+        
+        # Check exact order: High SKUs first, then Medium SKUs
+        expected_order = ["SKU_HIGH_2", "SKU_HIGH_1", "SKU_MED_2", "SKU_MED_1"]
+        self.assertEqual(filtered_keys, expected_order, 
+                        "SKUs should be ordered with High scores first, then Medium scores")
+        
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
     unittest.main()
