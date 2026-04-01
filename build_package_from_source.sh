@@ -20,9 +20,9 @@ pushd ./build_deps
     if [ -z "${cyclecloud_api_package}" ]; then
         echo "WARNING: cyclecloud-api package not provided. Downloading from GitHub."
         echo "         (This package may be found in the /opt/cycle_server/tools directory.)"
-        CYCLECLOUD_API_VERSION="8.6.0"
+        CYCLECLOUD_API_VERSION="8.9.0"
         cyclecloud_api_package="cyclecloud_api-${CYCLECLOUD_API_VERSION}-py2.py3-none-any.whl"
-        cyclecloud_api_url="https://github.com/Azure/cyclecloud-symphony/releases/download/2024-03-01-bins/${cyclecloud_api_package}"
+        cyclecloud_api_url="https://github.com/Azure/cyclecloud-symphony/releases/download/v3.1.15/${cyclecloud_api_package}"
 
         curl -L -k -s -o "../dist/${cyclecloud_api_package}" "${cyclecloud_api_url}"
     else
