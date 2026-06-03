@@ -60,12 +60,13 @@ class MockNodeMgr:
         return self.expected_allocate_results_list
 
 class MockBucket:
-    def __init__(self, vm_size, weight=1, available_count=1, last_capacity_failure=None, spot_placement_score=None):
+    def __init__(self, vm_size, weight=1, available_count=1, last_capacity_failure=None, spot_placement_score=None, nodearray="execute"):
         self.vm_size = vm_size
         self.resources = {"weight": weight}
         self.available_count = available_count
         self.last_capacity_failure = last_capacity_failure
         self.spot_placement_score = spot_placement_score
+        self.nodearray = nodearray
 class MockNode:
     
     def __init__(self, node_name, weight):
@@ -88,7 +89,7 @@ class TestAllocationStrategy(unittest.TestCase):
 
 
         # Monkey patch the filter_available_vmTypes method to simply return all vmTypes
-        def filter_available_vmTypes(_self, y):
+        def filter_available_vmTypes(_self, y, template_id=None):
             return y
         
         allocation_strategy.AllocationStrategy.filter_available_vmTypes = filter_available_vmTypes
@@ -408,6 +409,30 @@ class TestAllocationStrategy(unittest.TestCase):
         expected_order = ["SKU_HIGH_2", "SKU_HIGH_1", "SKU_MED_2", "SKU_MED_1"]
         self.assertEqual(filtered_keys, expected_order, 
                         "SKUs should be ordered with High scores first, then Medium scores")
+
+        # Test 6: Template/nodearray scoping
+        # Only buckets from the requested template_id nodearray should be considered
+        execute_bucket = MockBucket("SKU_EXEC", weight=1, available_count=1, nodearray="execute")
+        management_bucket = MockBucket("SKU_MGMT", weight=1, available_count=1, nodearray="management")
+        node_mgr = MockNodeMgr(buckets=[execute_bucket, management_bucket])
+        strategy = allocation_strategy.AllocationStrategy(node_mgr=node_mgr, provider_config={}, strategy="price", capacity_limit_timeout=300)
+        vm_types = {"SKU_EXEC": 2, "SKU_MGMT": 4}
+
+        filtered = strategy.filter_available_vmTypes(vm_types, template_id="execute")
+        self.assertIn("SKU_EXEC", filtered)
+        self.assertNotIn("SKU_MGMT", filtered)
+
+        # Test 7: Same SKU across nodearrays must respect template_id scoping
+        # execute has SKU_A with 0 capacity, management has SKU_A with capacity,
+        # and execute should still filter SKU_A out.
+        execute_sku_a = MockBucket("SKU_A", weight=1, available_count=0, nodearray="execute")
+        management_sku_a = MockBucket("SKU_A", weight=1, available_count=1, nodearray="management")
+        node_mgr = MockNodeMgr(buckets=[execute_sku_a, management_sku_a])
+        strategy = allocation_strategy.AllocationStrategy(node_mgr=node_mgr, provider_config={}, strategy="price", capacity_limit_timeout=300)
+        vm_types = {"SKU_A": 2}
+
+        filtered = strategy.filter_available_vmTypes(vm_types, template_id="execute")
+        self.assertNotIn("SKU_A", filtered)
         
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)

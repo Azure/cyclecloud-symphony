@@ -134,11 +134,20 @@ class AllocationStrategy:
         self.capacity_limit_timeout = capacity_limit_timeout
         self.node_mgr = node_mgr
 
-    def filter_available_vmTypes(self, vm_types):
+    def filter_available_vmTypes(self, vm_types, template_id=None):
         '''Filter out vmTypes that have no available capacity'''
 
         use_spot_placement_score = self.provider_config.get("symphony.autoscaling.use_spot_placement_score", True)
         buckets = self.node_mgr.get_buckets()
+        # TEMPORARY
+        for b in buckets:
+            self.logger.debug(
+                "Bucket vm_size=%s available_count=%s weight=%s last_capacity_failure=%s",
+                b.vm_size,
+                getattr(b, "available_count", None),
+                b.resources.get("weight"),
+                getattr(b, "last_capacity_failure", None),
+            )
         filtered_vmTypes = {}
         def _categorize_buckets(candidate_buckets):
             high, medium, low = [], [], []
@@ -159,9 +168,14 @@ class AllocationStrategy:
         # in that case we should just filter by capacity and not attempt to use spot placement score at all
         has_spot_scores = buckets and any(getattr(b, 'spot_placement_score', None) is not None for b in buckets)
         # Filter buckets by capacity failure backoff, weight, and availability
-        buckets_with_capacity = [b for b in buckets
-                                 if (not b.last_capacity_failure or int(b.last_capacity_failure) > self.capacity_limit_timeout) 
-                                 and b.resources.get("weight") and b.available_count]
+        buckets_with_capacity = [
+            b
+            for b in buckets
+            if (template_id is None or b.nodearray == template_id)
+            and (not b.last_capacity_failure or int(b.last_capacity_failure) > self.capacity_limit_timeout)
+            and b.resources.get("weight")
+            and b.available_count
+        ]
 
         if has_spot_scores and use_spot_placement_score:
             if not buckets_with_capacity:
@@ -189,7 +203,7 @@ class AllocationStrategy:
         self.logger.info("Allocating %s slots for template_id %s using strategy %s", requested_slot_count, 
                          template_id, self.auto_scaling_strategy)
         # Filter out vmTypes that have no available capacity
-        filtered_vm_types = self.filter_available_vmTypes(vm_types)
+        filtered_vm_types = self.filter_available_vmTypes(vm_types, template_id=template_id)
         if len(filtered_vm_types) == 0:
             self.logger.warning("No available VM types found - cannot allocate nodes")
             return []
@@ -254,7 +268,7 @@ class AllocationStrategy:
                                                         slot_count=vm_slot_count, allow_existing=False)
                 if not check_allocate.nodes:
                     self.logger.debug("0 new nodes allocated for %s", vmsize)
-                    break
+                    continue
                 else:
                     allocation_results.extend(check_allocate.nodes)
         allocated_count = sum([x.resources["weight"] for x in self.node_mgr.get_new_nodes()])
