@@ -274,12 +274,8 @@ if node['symphony']['shared_fs_install'] == false or node['symphony']['is_master
 
   ruby_block "force EGO binary type for unrecognized linux variants" do
     block do
-      file = Chef::Util::FileEdit.new("#{node['symphony']['ego_confdir']}/profile.ego")
-      file.insert_line_after_match('/.*"Cannot get binary type.*/', '     export EGO_BINARY_TYPE="linux-x86_64"')
-      file.insert_line_after_match('/export EGO_BINARY_TYPE="linux-x86_64"/', '     echo "Forcing EGO binary type: $EGO_BINARY_TYPE"')    
-      file.write_file
+      Symphony::Helpers.force_ego_binary_type("#{node['symphony']['ego_confdir']}/profile.ego")
     end
-    not_if "grep -q 'Forcing EGO binary type' #{node['symphony']['ego_confdir']}/profile.ego"
   end
 
   bash "Ensure EGO MASTER list (#{master_host})..." do
@@ -315,4 +311,19 @@ bash "Link ego.conf to local drive" do
   chown egoadmin:egoadmin #{node['symphony']['ego_confdir']}/ego.conf
   EOH
   not_if "test -h #{node['symphony']['ego_confdir']}/ego.conf"
+end
+
+cookbook_file '/usr/local/bin/validate-symphony-environment' do
+  source 'validate_environment.sh'
+  owner 'root'
+  group 'root'
+  mode '0755'
+end
+
+execute 'validate Symphony EGO and SOAM environment' do
+  command '/usr/local/bin/validate-symphony-environment'
+  user node['symphony']['admin']['user']
+  group node['symphony']['admin']['user']
+  cwd node['symphony']['admin']['home']
+  environment 'HOME' => node['symphony']['admin']['home']
 end

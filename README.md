@@ -51,6 +51,41 @@ This project requires the following:
 
 ## Configuring the Project ##
 
+### Symphony environment compatibility
+
+Select an image and Symphony fix level supported by IBM's Linux support matrix
+for that Symphony version. For example, the
+[7.3.1 matrix](https://www.ibm.com/docs/en/spectrum-symphony/7.3.1?topic=systems-linux-support)
+lists Ubuntu 20.04 with kernel 5.4, but does not list Ubuntu 22.04. The
+[7.3.2 matrix](https://www.ibm.com/docs/en/spectrum-symphony/7.3.2?topic=systems-linux-support)
+adds Ubuntu 22.04 and 24.04 with Fix 602717. Confirm the exact OS/kernel and
+applicable fixes with IBM; successful provisioning does not establish support.
+
+After installation, the default spec validates the EGO and SOAM environment as
+the configured Symphony administrator. Both `egosh` and `symping` must resolve
+to executable files and successfully run `-V`, which also checks that their
+required shared libraries can load. A missing command or failed version check
+fails configuration with a compatibility diagnostic instead of allowing an
+EGO-only setup to appear ready.
+
+This check does not authenticate, submit jobs, or establish that a kernel is
+IBM-supported. The existing EGO binary-type fallback does not repair SOAM
+platform detection, and the project does not add a SOAM kernel override.
+
+Local regression tests require Bash and a Chef Ruby environment containing
+Minitest and `chef/util/file_edit` (for example, Chef Workstation). From the
+repository root, using that Ruby:
+
+```bash
+ruby tests/environment_test.rb
+```
+
+These tests use synthetic profiles and commands; they require no IBM binaries,
+entitlement, Azure credentials, or running cluster. They cover EGO-only and
+unloadable SOAM environments, profile failures, and the EGO fallback's matching
+and idempotence. A separate live workload/scale-out test is still needed to
+validate a deployed Symphony/image combination.
+
 
 The first step is to configure the project for use with your storage locker:
 
