@@ -81,9 +81,12 @@ The first step is to configure the project for use with your storage locker:
 ## Deploying the Project ##
 
 On Debian/Ubuntu nodes, the default Chef recipe installs `jq`, `python3-pip`,
-and `python3-venv` rather than relying on these tools being present in the base
-image. Host Factory setup uses `jq` to update JSON configuration and pip to
-bootstrap `virtualenv` and install the provider's Python dependencies.
+`python3-venv` and `python3-virtualenv` rather than relying on these tools being
+present in the base image. Host Factory setup uses `jq` to update JSON
+configuration and `virtualenv` to create the provider's Python environment.
+Installing `virtualenv` from the OS package avoids the installer's
+`pip install virtualenv` fallback, which needs PyPI access and is blocked on
+Ubuntu 24.04 (PEP 668, `externally-managed-environment`).
 
 To upload the project (including any local changes) to your target locker, run the
 `cyclecloud project upload` command from the project directory.  The expected output looks like
