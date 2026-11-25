@@ -7,8 +7,10 @@ module Symphony
       return if ::File.read(profile_path).include?('Forcing EGO binary type')
 
       file = Chef::Util::FileEdit.new(profile_path)
-      file.insert_line_after_match(/.*"Cannot get binary type.*/, '     export EGO_BINARY_TYPE="linux-x86_64"')
-      file.insert_line_after_match(/export EGO_BINARY_TYPE="linux-x86_64"/, '     echo "Forcing EGO binary type: $EGO_BINARY_TYPE"')
+      file.insert_line_after_match(
+        /.*"Cannot get binary type.*/,
+        "     export EGO_BINARY_TYPE=\"linux-x86_64\"\n     echo \"Forcing EGO binary type: $EGO_BINARY_TYPE\""
+      )
       file.write_file
     end
 

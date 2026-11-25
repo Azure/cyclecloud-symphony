@@ -102,4 +102,22 @@ class SymphonyEnvironmentTest < Minitest::Test
     assert status.success?, "#{stdout}\n#{stderr}"
     assert_includes stdout, 'Forcing EGO binary type: linux-x86_64'
   end
+
+  def test_ego_fallback_does_not_insert_after_existing_export
+    File.write(@profile, <<~PROFILE)
+      export EGO_BINARY_TYPE=fail
+      case unused in
+          existing) EGO_BINARY_TYPE="linux-x86_64"; export EGO_BINARY_TYPE="linux-x86_64" ;;
+      esac
+      if [ "$EGO_BINARY_TYPE" = fail ]; then
+          echo "Cannot get binary type"
+      fi
+    PROFILE
+    Symphony::Helpers.force_ego_binary_type(@profile)
+    stdout, stderr, status = Open3.capture3(
+      '/bin/bash', '-c', 'set -e; . "$1"; test "$EGO_BINARY_TYPE" = linux-x86_64', '--', @profile
+    )
+    assert status.success?, "#{stdout}\n#{stderr}"
+    assert_equal 1, stdout.scan('Forcing EGO binary type: linux-x86_64').length
+  end
 end
