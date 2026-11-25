@@ -51,7 +51,6 @@ This project requires the following:
 
 ## Configuring the Project ##
 
-
 The first step is to configure the project for use with your storage locker:
 
   1. Open a terminal or Azure Cloud Shell session with the CycleCloud CLI enabled.
@@ -96,6 +95,52 @@ this:
 **IMPORTANT**
 
 For the upload to succeed, you must have a valid Pogo configuration for your target Locker.
+
+### Symphony environment compatibility
+
+Select an image and Symphony fix level supported by IBM's Linux support matrix
+for that Symphony version. For example, the
+[7.3.1 matrix](https://www.ibm.com/docs/en/spectrum-symphony/7.3.1?topic=systems-linux-support)
+lists Ubuntu 20.04 with kernel 5.4, but does not list Ubuntu 22.04. The
+[7.3.2 matrix](https://www.ibm.com/docs/en/spectrum-symphony/7.3.2?topic=systems-linux-support)
+adds Ubuntu 22.04 and 24.04 with Fix 602717. Confirm the exact OS/kernel and
+applicable fixes with IBM; successful provisioning does not establish support.
+
+After installation, the default spec validates the EGO and SOAM environment as
+the configured Symphony administrator. Both `egosh` and `symping` must resolve
+to executable files and successfully run `-V`, which also checks that their
+required shared libraries can load.
+
+**Configuration behavior change:** EGO-only installations that previously
+completed configuration now fail if SOAM is missing or unloadable, including
+existing deployments on unsupported Symphony/image combinations. Validation
+runs on every Chef convergence, before cluster-init join and service-start
+scripts. It is not guarded by a first-install marker or previous success;
+a failed version check also fails a later convergence.
+
+These version-only probes do not authenticate, join a cluster, start daemons,
+or submit jobs. Passing does not establish kernel support or scheduler health.
+The corrected EGO binary-type fallback is also a behavior change: its previous
+slash-delimited string patterns did not match the intended warning.
+It does not repair SOAM platform detection, and the project does not add a
+SOAM kernel override.
+
+### Testing
+
+Local regression tests require Bash and a Chef Ruby environment containing
+Minitest and `chef/util/file_edit` (for example, Chef Workstation). From the
+repository root, using that Ruby:
+
+```bash
+ruby tests/environment_test.rb
+```
+
+These tests use synthetic profiles and commands; they require no IBM binaries,
+entitlement, Azure credentials, or running cluster. They cover EGO-only and
+unloadable SOAM environments, profile failures, and the EGO fallback's matching,
+idempotence, and preservation of pre-existing exports in shell case branches.
+A separate live workload/scale-out test is still needed to validate a deployed
+Symphony/image combination.
 
 
 ## Importing the Cluster Template ##
