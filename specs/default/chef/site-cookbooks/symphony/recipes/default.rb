@@ -99,7 +99,7 @@ end
   package pkg
 end
 if node['platform_family'] == "debian"
-  %w{ rpm }.each do |pkg|
+  %w{ rpm jq python3-pip python3-venv }.each do |pkg|
     package pkg
   end
   package 'openjdk-8-jre-headless'

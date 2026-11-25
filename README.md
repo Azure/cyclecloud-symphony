@@ -80,6 +80,10 @@ The first step is to configure the project for use with your storage locker:
 
 ## Deploying the Project ##
 
+On Debian/Ubuntu nodes, the default Chef recipe installs `jq`, `python3-pip`,
+and `python3-venv` rather than relying on these tools being present in the base
+image. Host Factory setup uses `jq` to update JSON configuration and pip to
+bootstrap `virtualenv` and install the provider's Python dependencies.
 
 To upload the project (including any local changes) to your target locker, run the
 `cyclecloud project upload` command from the project directory.  The expected output looks like
