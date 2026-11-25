@@ -155,10 +155,6 @@ function UpdateHostfactoryConf {
 function Install-Python-Packages
 {
     echo "Installing python packages..."
-    if ! PKG_NAME=$( jetpack config symphony.pkg_plugin ); then
-        HostFactory-Error "Cannot read Jetpack configuration. Run the installer with authorized Jetpack access."
-        exit 1
-    fi
     cd /tmp
     mkdir -p $pluginSrcPath/scripts
     cp -r /tmp/hostfactory/host_provider/* $pluginSrcPath/scripts

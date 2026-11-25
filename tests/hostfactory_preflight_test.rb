@@ -14,7 +14,7 @@ class HostFactoryPreflightTest < Minitest::Test
     FileUtils.mkdir_p(@bin)
     @environment = { 'PATH' => @bin, 'EGO_TOP' => @directory }
     write_command('python3')
-    write_command('jetpack')
+    write_command('jetpack', 'echo cyclecloud-symphony-pkg-3.1.5.zip')
     write_command('jq')
     write_command('egosh', '[ "$1" = -V ] || exit 2')
     write_command('symping', '[ "$1" = -V ] || exit 2')
@@ -102,6 +102,20 @@ class HostFactoryPreflightTest < Minitest::Test
 
   def test_generate_config_stops_before_overwriting_configuration
     FileUtils.rm(File.join(@bin, 'symping'))
+    assert_configuration_preserved('symping is not executable')
+  end
+
+  def test_jetpack_access_failure_preserves_configuration
+    write_command('jetpack', 'echo "Jetpack access denied" >&2; exit 1')
+    assert_configuration_preserved('Cannot read Jetpack configuration')
+  end
+
+  def test_empty_jetpack_setting_preserves_configuration
+    write_command('jetpack', 'exit 0')
+    assert_configuration_preserved('symphony.pkg_plugin must not be empty')
+  end
+
+  def assert_configuration_preserved(expected_error)
     hf_top = File.join(@directory, 'hostfactory')
     conf_dir = File.join(hf_top, 'conf', 'providers')
     FileUtils.mkdir_p(conf_dir)
@@ -121,7 +135,7 @@ class HostFactoryPreflightTest < Minitest::Test
       '--web_server', 'https://example.invalid', chdir: @directory
     )
     refute status.success?
-    assert_includes stderr, 'symping is not executable'
+    assert_includes stderr, expected_error
     assert_equal 'existing configuration', File.read(config)
     refute File.exist?(File.join(hf_top, '1.1', 'providerplugins'))
   end

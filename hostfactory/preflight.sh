@@ -31,6 +31,15 @@ function Validate-HostFactory-Prerequisites
             return 1
         fi
     fi
+
+    if ! PKG_NAME=$(jetpack config symphony.pkg_plugin); then
+        HostFactory-Error "Cannot read Jetpack configuration. Run the installer with authorized Jetpack access."
+        return 1
+    fi
+    if [ -z "${PKG_NAME//[[:space:]]/}" ]; then
+        HostFactory-Error "Jetpack setting symphony.pkg_plugin must not be empty. Configure the provider package before rerunning."
+        return 1
+    fi
 }
 
 function Validate-Symphony-Environment

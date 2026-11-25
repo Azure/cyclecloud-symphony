@@ -181,7 +181,11 @@ export PATH="/opt/cycle/jetpack/bin:$PATH"
 
 On other distributions, install equivalent packages using the OS package
 manager. The installer checks prerequisites but does **not** install OS
-packages. Its existing Python package installation still uses pip, including
+packages. It reads and requires a nonempty Jetpack `symphony.pkg_plugin`
+setting during preflight, before any provider configuration writes or Python
+package installation. The validated value is reused during installation;
+denied Jetpack access or an empty setting leaves existing configuration intact.
+Its existing Python package installation still uses pip, including
 bootstrapping virtualenv when needed. The `python3-venv` package alone does
 not provide the `virtualenv` module used by this installer.
 
