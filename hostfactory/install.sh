@@ -1,4 +1,6 @@
 #!/bin/bash
+. "$(dirname "${BASH_SOURCE[0]}")/preflight.sh" || exit 1
+
 if [[ ! -d $EGO_TOP ]] ; then
      export EGO_TOP="/opt/ibm/spectrumcomputing"  
      mkdir -p $EGO_TOP
@@ -153,17 +155,16 @@ function UpdateHostfactoryConf {
 function Install-Python-Packages
 {
     echo "Installing python packages..."
-    PKG_NAME=$( jetpack config symphony.pkg_plugin )
+    if ! PKG_NAME=$( jetpack config symphony.pkg_plugin ); then
+        HostFactory-Error "Cannot read Jetpack configuration. Run the installer with authorized Jetpack access."
+        exit 1
+    fi
     cd /tmp
     mkdir -p $pluginSrcPath/scripts
     cp -r /tmp/hostfactory/host_provider/* $pluginSrcPath/scripts
     chmod a+x $pluginSrcPath/scripts/*.sh # Ensure scripts are executable
     
     VENV=$pluginSrcPath/venv
-    # remove jetpack python from PATH so default python3 is used.
-    export PATH=$(echo $PATH | sed -e 's/\/opt\/cycle\/jetpack\/system\/embedded\/bin://g' | sed -e 's/:\/opt\/cycle\/jetpack\/system\/embedded\/bin//g')
-    export PATH=$PATH:/root/bin:/usr/bin
-
     python3 -m virtualenv --version 2>&1 > /dev/null
     if [ $? != 0 ]; then
         python3 -m pip install virtualenv || exit 1
@@ -192,6 +193,10 @@ function Generate-Template
     # as this will be updated by HF we need to change user to egoadmin
     chown egoadmin:egoadmin $azureccProviderConfPath/azureccprov_templates.json
 }
+# Remove Jetpack's embedded Python before both preflight and installation.
+export PATH=$(echo "$PATH" | sed -e 's/\/opt\/cycle\/jetpack\/system\/embedded\/bin://g' | sed -e 's/:\/opt\/cycle\/jetpack\/system\/embedded\/bin//g')
+export PATH=$PATH:/root/bin:/usr/bin
+
 # check for command line argument for generate_config
 if [ $# -gt 1 ]; then
     if [ $1 == "generate_config" ]; then
@@ -216,6 +221,8 @@ if [ $# -gt 1 ]; then
         else
             echo "Web server is required"
         fi
+        Validate-HostFactory-Prerequisites generate_config || exit 1
+        Validate-Symphony-Environment || exit 1
         Generate-Provider-Config
         Generate-Provider-Plugins-Config
         Update-Requestors-Config
@@ -228,5 +235,6 @@ if [ $# -gt 1 ]; then
     fi
 
 else
+    Validate-HostFactory-Prerequisites install || exit 1
     Install-Python-Packages
 fi
