@@ -162,37 +162,33 @@ Please contact azure support for help with this configuration.
 This workflow adds the Azure CycleCloud provider to an **existing Symphony
 installation**. It does not install IBM Symphony or repair its profiles.
 
-Run the installer with authorized access to the HostFactory directories and
-Jetpack configuration. It does not elevate privileges automatically. The Chef
-recipe invokes it as root; for a non-Chef installation, arrange privileged
-access explicitly. Do not broaden Jetpack permissions or grant the Symphony
-service account deployment-credential access just to run the installer.
+Run the installer with authorized (root) access to the HostFactory
+directories. It does not elevate privileges automatically; the Chef recipe
+invokes it as root.
 
-Install-only mode requires Python 3, Jetpack on PATH, and either the Python
-`virtualenv` module or pip to bootstrap it. Configuration generation also
-requires jq. An administrator can prepare Debian/Ubuntu prerequisites from
-an authorized root shell:
+Before changing anything, the installer checks:
+
+- Python 3.9 or later (the provider's pinned `requests`/`urllib3` need it).
+- The Python `virtualenv` module, or pip to bootstrap it. On an externally
+  managed Python (PEP 668, for example Ubuntu 24.04) pip cannot install it, so
+  the `python3-virtualenv` OS package is required.
+- `jq`, for configuration generation only.
+
+Jetpack is optional. When available, it supplies the provider package name
+(`symphony.pkg_plugin`) used to clean up after installation; if Jetpack is
+missing or its configuration can't be read, the installer warns and continues.
+The installer checks prerequisites but does **not** install OS packages. On
+Debian/Ubuntu, from a root shell:
 
 ```bash
 apt-get update
 apt-get install -y python3 python3-pip python3-virtualenv jq
-export PATH="/opt/cycle/jetpack/bin:$PATH"
 ```
-
-On other distributions, install equivalent packages using the OS package
-manager. The installer checks prerequisites but does **not** install OS
-packages. It reads and requires a nonempty Jetpack `symphony.pkg_plugin`
-setting during preflight, before any provider configuration writes or Python
-package installation. The validated value is reused during installation;
-denied Jetpack access or an empty setting leaves existing configuration intact.
-Its existing Python package installation still uses pip, including
-bootstrapping virtualenv when needed. The `python3-venv` package alone does
-not provide the `virtualenv` module used by this installer.
 
 Use `/tmp/hostfactory/install.sh` after extracting the provider archive under
 `/tmp`. Set the environment variables listed above to match the installation.
-Install-only mode does not require a readable Symphony profile or running
-scheduler and does not require jq.
+Install-only mode does not require a readable Symphony profile, a running
+scheduler, or jq.
 
 **Configuration behavior change:** Before `generate_config` writes provider
 configuration, the installer loads `$EGO_TOP/profile.platform` in a subshell
@@ -215,8 +211,9 @@ ruby tests/hostfactory_preflight_test.rb
 
 These tests use synthetic commands and profiles. They require no Chef, IBM
 binaries, entitlement, Azure credentials, or running cluster. They cover
-install-only prerequisites, configuration-mode checks, loader failures, and
-preservation of existing configuration when preflight fails.
+install-only prerequisites (Python version, virtualenv/pip, PEP 668, optional
+Jetpack), configuration-mode checks, loader failures, and preservation of
+existing configuration when preflight fails.
 
 
 ## Guide to using scripts

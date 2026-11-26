@@ -8,20 +8,35 @@ function HostFactory-Error
     return 1
 }
 
+function HostFactory-Warning
+{
+    printf 'HostFactory setup warning: %s\n' "$1" >&2
+}
+
 function Validate-HostFactory-Prerequisites
 {
-    for command_name in python3 jetpack; do
-        executable=$(command -v "$command_name")
-        if [ -z "$executable" ] || [ ! -x "$executable" ]; then
-            HostFactory-Error "$command_name must be executable on PATH. Install Python 3 and include /opt/cycle/jetpack/bin in the privileged installer shell's PATH."
+    executable=$(command -v python3)
+    if [ -z "$executable" ] || [ ! -x "$executable" ]; then
+        HostFactory-Error "python3 must be executable on PATH. Install Python 3.9 or later."
+        return 1
+    fi
+
+    # The provider's pinned dependencies (requests, urllib3) require Python 3.9+.
+    if ! python3 -c 'import sys; sys.exit(sys.version_info < (3, 9))' >/dev/null 2>&1; then
+        HostFactory-Error "Python 3.9 or later is required; found $(python3 --version 2>&1). Use an image with a newer Python (for example Ubuntu 22.04)."
+        return 1
+    fi
+
+    if ! python3 -m virtualenv --version >/dev/null 2>&1; then
+        if ! python3 -m pip --version >/dev/null 2>&1; then
+            HostFactory-Error "Python 3 needs virtualenv or pip to bootstrap it. On Debian/Ubuntu, install python3-pip and python3-virtualenv before rerunning."
             return 1
         fi
-    done
-
-    if ! python3 -m virtualenv --version >/dev/null 2>&1 &&
-       ! python3 -m pip --version >/dev/null 2>&1; then
-        HostFactory-Error "Python 3 needs virtualenv or pip to bootstrap it. On Debian/Ubuntu, install python3-pip and python3-virtualenv before rerunning."
-        return 1
+        # PEP 668: pip refuses system-wide installs, so the pip fallback cannot install virtualenv.
+        if python3 -c 'import os, sys, sysconfig; sys.exit(not os.path.exists(os.path.join(sysconfig.get_path("stdlib"), "EXTERNALLY-MANAGED")))' >/dev/null 2>&1; then
+            HostFactory-Error "virtualenv is not installed and this Python is externally managed (PEP 668), so pip cannot install it. Install python3-virtualenv with your OS package manager before rerunning."
+            return 1
+        fi
     fi
 
     if [ "$1" = generate_config ]; then
@@ -32,13 +47,15 @@ function Validate-HostFactory-Prerequisites
         fi
     fi
 
-    if ! PKG_NAME=$(jetpack config symphony.pkg_plugin); then
-        HostFactory-Error "Cannot read Jetpack configuration. Run the installer with authorized Jetpack access."
-        return 1
-    fi
-    if [ -z "${PKG_NAME//[[:space:]]/}" ]; then
-        HostFactory-Error "Jetpack setting symphony.pkg_plugin must not be empty. Configure the provider package before rerunning."
-        return 1
+    # Jetpack only supplies the package file name used to clean up after installation.
+    PKG_NAME=""
+    if command -v jetpack >/dev/null 2>&1; then
+        if ! PKG_NAME=$(jetpack config symphony.pkg_plugin 2>/dev/null); then
+            PKG_NAME=""
+            HostFactory-Warning "Cannot read Jetpack setting symphony.pkg_plugin; skipping package-file lookup."
+        fi
+    else
+        HostFactory-Warning "jetpack is not on PATH; skipping package-file lookup."
     fi
 }
 
