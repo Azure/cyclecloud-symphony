@@ -143,8 +143,8 @@ Please contact azure support for help with this configuration.
  Follow below steps if you are not using the chef in project:
    1. Copy cyclecloud-symphony-pkg-{version}.zip to /tmp directory in master node.
    2. Unzip the file in /tmp directory
-   3. Ensure python3 is installed
-   4. You should have following environment variables set as per your environment otherwise install.sh script under hostfactory/host_provider directory take default values:
+   3. Install the tooling listed under [Non-Chef prerequisites and validation](#non-chef-prerequisites-and-validation).
+   4. You should have following environment variables set as per your environment otherwise the `hostfactory/install.sh` script takes default values:
     EGO_TOP
     HF_TOP
     HF_VERSION
@@ -153,9 +153,70 @@ Please contact azure support for help with this configuration.
     HF_LOGDIR
     You can run install.sh within the folder and it will install python virtual environment at
     plugin path like below:
-    $HF_TOP/$HF_VERSION/providerplugins/azurecc/scripts/venv
+    $HF_TOP/$HF_VERSION/providerplugins/azurecc/venv
     If you also need to generate symphony configuration then you can run install.sh with argument generate_config and other required arguments. This will set all the configurations assuming you have only azurecc provider and enable it.Example:
     ./install.sh generate_config --cluster <cluster_name> --username <username> --password <password> --web_server <webserver>
+
+### Non-Chef prerequisites and validation
+
+This workflow adds the Azure CycleCloud provider to an **existing Symphony
+installation**. It does not install IBM Symphony or repair its profiles.
+
+Run the installer with authorized (root) access to the HostFactory
+directories. It does not elevate privileges automatically; the Chef recipe
+invokes it as root.
+
+Before changing anything, the installer checks:
+
+- Python 3.9 or later (the provider's pinned `requests`/`urllib3` need it).
+  Choose an image whose OS is also in IBM's support matrix for your Symphony
+  version; for example, IBM supports Ubuntu 22.04 only with Symphony 7.3.2
+  Fix 602717 or later.
+- The Python `virtualenv` module, or pip to bootstrap it. On an externally
+  managed Python (PEP 668, for example Ubuntu 24.04) pip cannot install it, so
+  the `python3-virtualenv` OS package is required.
+- `jq`, for configuration generation only.
+
+Jetpack is optional. When available, it supplies the provider package name
+(`symphony.pkg_plugin`) used to clean up after installation; if Jetpack is
+missing or its configuration can't be read, the installer warns and continues.
+The installer checks prerequisites but does **not** install OS packages. On
+Debian/Ubuntu, from a root shell:
+
+```bash
+apt-get update
+apt-get install -y python3 python3-pip python3-virtualenv jq
+```
+
+Use `/tmp/hostfactory/install.sh` after extracting the provider archive under
+`/tmp`. Set the environment variables listed above to match the installation.
+Install-only mode does not require a readable Symphony profile, a running
+scheduler, or jq.
+
+**Configuration behavior change:** Before `generate_config` writes provider
+configuration, the installer loads `$EGO_TOP/profile.platform` in a subshell
+and requires executable `egosh` and `symping` commands whose `-V` probes
+succeed. Missing commands, failed profile initialization, or unloadable
+libraries fail setup explicitly rather than leaving newly generated provider
+configuration behind. This check also applies when Chef calls the shared
+installer.
+
+The probes do not authenticate, join a cluster, start services or submit jobs.
+They do not establish scheduler health or IBM support for an OS/kernel.
+Choose an IBM-supported Symphony fix level and OS/kernel combination; no
+EGO/SOAM architecture override is applied by this installer.
+
+Run the focused regression tests with Ruby and Minitest:
+
+```bash
+ruby tests/hostfactory_preflight_test.rb
+```
+
+These tests use synthetic commands and profiles. They require no Chef, IBM
+binaries, entitlement, Azure credentials, or running cluster. They cover
+install-only prerequisites (Python version, virtualenv/pip, PEP 668, optional
+Jetpack), configuration-mode checks, loader failures, and preservation of
+existing configuration when preflight fails.
 
 
 ## Guide to using scripts
