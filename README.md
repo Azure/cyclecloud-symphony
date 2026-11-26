@@ -169,6 +169,9 @@ invokes it as root.
 Before changing anything, the installer checks:
 
 - Python 3.9 or later (the provider's pinned `requests`/`urllib3` need it).
+  Choose an image whose OS is also in IBM's support matrix for your Symphony
+  version; for example, IBM supports Ubuntu 22.04 only with Symphony 7.3.2
+  Fix 602717 or later.
 - The Python `virtualenv` module, or pip to bootstrap it. On an externally
   managed Python (PEP 668, for example Ubuntu 24.04) pip cannot install it, so
   the `python3-virtualenv` OS package is required.

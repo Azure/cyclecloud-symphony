@@ -23,7 +23,7 @@ function Validate-HostFactory-Prerequisites
 
     # The provider's pinned dependencies (requests, urllib3) require Python 3.9+.
     if ! python3 -c 'import sys; sys.exit(sys.version_info < (3, 9))' >/dev/null 2>&1; then
-        HostFactory-Error "Python 3.9 or later is required; found $(python3 --version 2>&1). Use an image with a newer Python (for example Ubuntu 22.04)."
+        HostFactory-Error "Python 3.9 or later is required; found $(python3 --version 2>&1). Use an image with a newer Python that your Symphony version supports (IBM supports Ubuntu 22.04 with Symphony 7.3.2 Fix 602717 or later)."
         return 1
     fi
 
